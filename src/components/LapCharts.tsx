@@ -2,6 +2,7 @@
 
 import { GChart } from "@/components/GChart";
 import { SpeedChart } from "@/components/SpeedChart";
+import { SyncedVideo } from "@/components/SyncedVideo";
 import { MissingGps, TrackMap } from "@/components/TrackMap";
 import { hasGps } from "@/lib/compare";
 import { enrichTelemetry } from "@/lib/gforce";
@@ -11,9 +12,11 @@ import { useMemo, useState } from "react";
 export function LapCharts({
   points,
   label,
+  videoSrc,
 }: {
   points: TelemetryPoint[];
   label: string;
+  videoSrc?: string | null;
 }) {
   const data = useMemo(() => enrichTelemetry(points), [points]);
   const [progress, setProgress] = useState<number | null>(null);
@@ -21,6 +24,8 @@ export function LapCharts({
     progress == null || data.length < 2
       ? null
       : Math.round(progress * (data.length - 1));
+  const durationHint =
+    data.length > 1 ? data[data.length - 1].t - data[0].t : undefined;
 
   function hoverFromChart(next: number | null) {
     if (next == null || data.length < 2) {
@@ -32,6 +37,14 @@ export function LapCharts({
 
   return (
     <>
+      {videoSrc ? (
+        <SyncedVideo
+          src={videoSrc}
+          progress={progress}
+          durationHint={durationHint}
+          onProgress={setProgress}
+        />
+      ) : null}
       {hasGps(data) ? (
         <TrackMap
           traces={[
