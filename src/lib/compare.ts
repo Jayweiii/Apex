@@ -1,3 +1,4 @@
+import { enrichTelemetry } from "./gforce";
 import type { TelemetryPoint } from "./types";
 
 export type DistSample = TelemetryPoint & { dist: number };
@@ -6,6 +7,12 @@ export type ComparedPoint = {
   dist: number;
   refSpeed: number;
   otherSpeed: number;
+  refG: number;
+  otherG: number;
+  refLatG: number;
+  otherLatG: number;
+  refLonG: number;
+  otherLonG: number;
   delta: number;
 };
 
@@ -65,17 +72,28 @@ export function withDistance(points: TelemetryPoint[]): DistSample[] {
   return out;
 }
 
-function valueAt(samples: DistSample[], dist: number, key: "t" | "speed") {
-  if (dist <= samples[0].dist) return samples[0][key];
+function readValue(sample: DistSample | undefined, key: "t" | "speed" | "latG" | "lonG" | "g") {
+  const value = sample?.[key];
+  return typeof value === "number" ? value : 0;
+}
+
+function valueAt(
+  samples: DistSample[],
+  dist: number,
+  key: "t" | "speed" | "latG" | "lonG" | "g",
+) {
+  const first = samples[0];
   const last = samples[samples.length - 1];
-  if (dist >= last.dist) return last[key];
+  if (!first || !last) return 0;
+  if (dist <= first.dist) return readValue(first, key);
+  if (dist >= last.dist) return readValue(last, key);
   let hi = 1;
   while (hi < samples.length && samples[hi].dist < dist) hi += 1;
-  const right = samples[hi];
-  const left = samples[hi - 1];
+  const right = samples[hi] ?? last;
+  const left = samples[hi - 1] ?? first;
   const span = right.dist - left.dist;
   const mix = span === 0 ? 0 : (dist - left.dist) / span;
-  return left[key] + (right[key] - left[key]) * mix;
+  return readValue(left, key) + (readValue(right, key) - readValue(left, key)) * mix;
 }
 
 export function compareLaps(
@@ -83,8 +101,8 @@ export function compareLaps(
   other: TelemetryPoint[],
   steps = 180,
 ): ComparedPoint[] {
-  const ref = withDistance(reference);
-  const alt = withDistance(other);
+  const ref = withDistance(enrichTelemetry(reference));
+  const alt = withDistance(enrichTelemetry(other));
   if (ref.length < 2 || alt.length < 2) return [];
   const refEnd = ref[ref.length - 1].dist;
   const altEnd = alt[alt.length - 1].dist;
@@ -101,6 +119,12 @@ export function compareLaps(
       dist: refDist,
       refSpeed: valueAt(ref, refDist, "speed"),
       otherSpeed: valueAt(alt, altDist, "speed"),
+      refG: valueAt(ref, refDist, "g"),
+      otherG: valueAt(alt, altDist, "g"),
+      refLatG: valueAt(ref, refDist, "latG"),
+      otherLatG: valueAt(alt, altDist, "latG"),
+      refLonG: valueAt(ref, refDist, "lonG"),
+      otherLonG: valueAt(alt, altDist, "lonG"),
       delta: otherTime - refTime,
     });
   }

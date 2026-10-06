@@ -1,8 +1,10 @@
 "use client";
 
+import { hoverIndex } from "@/components/chart-hover";
 import { MissingGps, TrackMap } from "@/components/TrackMap";
 import { compareLaps, defaultLapPair, hasGps } from "@/lib/compare";
-import { formatGap, formatLapTime } from "@/lib/format";
+import { formatG, formatGap, formatLapTime } from "@/lib/format";
+import { enrichTelemetry } from "@/lib/gforce";
 import type { LapRow } from "@/lib/types";
 import { useMemo, useState, type ReactNode } from "react";
 import {
@@ -52,6 +54,27 @@ export function LapCompare({
         : [],
     [reference, other, sameLap],
   );
+  const refPoints = useMemo(
+    () => enrichTelemetry(reference?.telemetry ?? []),
+    [reference],
+  );
+  const otherPoints = useMemo(
+    () => enrichTelemetry(other?.telemetry ?? []),
+    [other],
+  );
+  const [progress, setProgress] = useState<number | null>(null);
+  const hoverAt =
+    progress == null || series.length < 2
+      ? null
+      : Math.round(progress * (series.length - 1));
+
+  function hoverFromChart(next: number | null) {
+    if (next == null || series.length < 2) {
+      setProgress(null);
+      return;
+    }
+    setProgress(next / (series.length - 1));
+  }
   const gapMs =
     reference && other ? other.lap_time_ms - reference.lap_time_ms : 0;
   const showMap =
@@ -122,15 +145,17 @@ export function LapCompare({
                   id: reference.id,
                   label: `Lap ${reference.lap_number}`,
                   color: REF_COLOR,
-                  points: reference.telemetry,
+                  points: refPoints,
                 },
                 {
                   id: other.id,
                   label: `Lap ${other.lap_number}`,
                   color: OTHER_COLOR,
-                  points: other.telemetry,
+                  points: otherPoints,
                 },
               ]}
+              activeProgress={progress}
+              onProgress={setProgress}
             />
           ) : (
             <MissingGps />
@@ -138,7 +163,13 @@ export function LapCompare({
 
           <ChartCard title="Speed" hint="Aligned along each lap">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={series} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
+              <LineChart
+                data={series}
+                syncId="compare"
+                margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
+                onMouseMove={(state) => hoverFromChart(hoverIndex(state))}
+                onMouseLeave={() => hoverFromChart(null)}
+              >
                 <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
                 <XAxis
                   dataKey="dist"
@@ -153,7 +184,10 @@ export function LapCompare({
                   width={42}
                   tickFormatter={(value: number) => `${Math.round(value)}`}
                 />
-                <Tooltip content={<CompareTooltip />} />
+                <Tooltip cursor={false} content={<CompareTooltip />} />
+                {hoverAt != null ? (
+                  <ReferenceLine x={series[hoverAt].dist} stroke="#e4e4e7" strokeDasharray="3 3" />
+                ) : null}
                 <Legend />
                 <Line
                   type="monotone"
@@ -182,7 +216,13 @@ export function LapCompare({
             hint="Above zero means the compared lap is behind the reference"
           >
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={series} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
+              <LineChart
+                data={series}
+                syncId="compare"
+                margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
+                onMouseMove={(state) => hoverFromChart(hoverIndex(state))}
+                onMouseLeave={() => hoverFromChart(null)}
+              >
                 <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
                 <XAxis
                   dataKey="dist"
@@ -198,12 +238,65 @@ export function LapCompare({
                   tickFormatter={(value: number) => `${value.toFixed(1)}s`}
                 />
                 <ReferenceLine y={0} stroke="#52525b" />
-                <Tooltip content={<CompareTooltip mode="delta" />} />
+                {hoverAt != null ? (
+                  <ReferenceLine x={series[hoverAt].dist} stroke="#e4e4e7" strokeDasharray="3 3" />
+                ) : null}
+                <Tooltip cursor={false} content={<CompareTooltip mode="delta" />} />
                 <Line
                   type="monotone"
                   dataKey="delta"
                   name="Gap"
                   stroke="#e4e4e7"
+                  strokeWidth={2}
+                  dot={false}
+                  isAnimationActive={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </ChartCard>
+
+          <ChartCard title="G" hint="Combined acceleration for each lap">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart
+                data={series}
+                syncId="compare"
+                margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
+                onMouseMove={(state) => hoverFromChart(hoverIndex(state))}
+                onMouseLeave={() => hoverFromChart(null)}
+              >
+                <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
+                <XAxis
+                  dataKey="dist"
+                  type="number"
+                  tickFormatter={formatDistance}
+                  stroke="#71717a"
+                  tick={{ fill: "#71717a", fontSize: 12 }}
+                />
+                <YAxis
+                  stroke="#71717a"
+                  tick={{ fill: "#71717a", fontSize: 12 }}
+                  width={42}
+                  tickFormatter={(value: number) => value.toFixed(1)}
+                />
+                {hoverAt != null ? (
+                  <ReferenceLine x={series[hoverAt].dist} stroke="#e4e4e7" strokeDasharray="3 3" />
+                ) : null}
+                <Tooltip cursor={false} content={<CompareTooltip mode="g" />} />
+                <Legend />
+                <Line
+                  type="monotone"
+                  dataKey="refG"
+                  name={`Lap ${reference.lap_number}`}
+                  stroke={REF_COLOR}
+                  strokeWidth={2}
+                  dot={false}
+                  isAnimationActive={false}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="otherG"
+                  name={`Lap ${other.lap_number}`}
+                  stroke={OTHER_COLOR}
                   strokeWidth={2}
                   dot={false}
                   isAnimationActive={false}
@@ -275,7 +368,7 @@ function CompareTooltip({
   active?: boolean;
   payload?: { name?: string; value?: number; color?: string }[];
   label?: number;
-  mode?: "speed" | "delta";
+  mode?: "speed" | "delta" | "g";
 }) {
   if (!active || !payload?.length) return null;
   return (
@@ -286,7 +379,9 @@ function CompareTooltip({
           {item.name}:{" "}
           {mode === "delta"
             ? formatGap(Number(item.value))
-            : `${Number(item.value).toFixed(0)} km/h`}
+            : mode === "g"
+              ? formatG(Number(item.value))
+              : `${Number(item.value).toFixed(0)} km/h`}
         </p>
       ))}
     </div>

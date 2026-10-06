@@ -1,9 +1,9 @@
 "use client";
 
-import { createClient } from "@/lib/supabase/client";
+import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export function SignOutButton() {
   const router = useRouter();
@@ -13,7 +13,7 @@ export function SignOutButton() {
     setBusy(true);
     const supabase = createClient();
     await supabase.auth.signOut();
-    router.replace("/login");
+    router.replace("/");
     router.refresh();
   }
 
@@ -29,13 +29,24 @@ export function SignOutButton() {
   );
 }
 
-export function AppHeader({
-  email,
-  local = false,
-}: {
-  email?: string;
-  local?: boolean;
-}) {
+export function AppHeader({ email }: { email?: string }) {
+  const configured = hasSupabaseConfig();
+  const [sessionEmail, setSessionEmail] = useState(email);
+
+  useEffect(() => {
+    if (!configured || email) return;
+    let cancelled = false;
+    createClient()
+      .auth.getUser()
+      .then(({ data }) => {
+        if (!cancelled) setSessionEmail(data.user?.email ?? undefined);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [configured, email]);
+
   return (
     <header className="flex items-center justify-between border-b border-zinc-900 px-6 py-4">
       <Link href="/" className="flex items-baseline gap-3">
@@ -47,19 +58,26 @@ export function AppHeader({
         </span>
       </Link>
       <div className="flex items-center gap-3">
-        {local ? (
-          <span className="text-xs uppercase tracking-[0.18em] text-zinc-500">
-            This browser
-          </span>
-        ) : (
+        {sessionEmail ? (
           <>
-            {email ? (
-              <span className="hidden max-w-[220px] truncate text-xs text-zinc-500 sm:block">
-                {email}
-              </span>
-            ) : null}
+            <Link
+              href="/account"
+              className="text-xs uppercase tracking-[0.18em] text-zinc-400 hover:text-zinc-200"
+            >
+              Account
+            </Link>
+            <span className="hidden max-w-[220px] truncate text-xs text-zinc-500 sm:block">
+              {sessionEmail}
+            </span>
             <SignOutButton />
           </>
+        ) : (
+          <Link
+            href="/login"
+            className="rounded-full border border-zinc-800 px-3 py-1.5 text-xs font-medium tracking-wide text-zinc-300 transition hover:border-zinc-600 hover:text-zinc-100"
+          >
+            Sign in
+          </Link>
         )}
       </div>
     </header>

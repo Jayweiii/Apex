@@ -1,13 +1,12 @@
 import { AppHeader } from "@/components/AppHeader";
+import { LapCharts } from "@/components/LapCharts";
 import { LocalLap } from "@/components/LocalGarage";
-import { SpeedChart } from "@/components/SpeedChart";
-import { MissingGps, TrackMap } from "@/components/TrackMap";
-import { compareHref, hasGps } from "@/lib/compare";
+import { compareHref } from "@/lib/compare";
 import { formatLapTime } from "@/lib/format";
+import { hasSupabaseConfig } from "@/lib/supabase/env";
 import { createClient } from "@/lib/supabase/server";
 import type { LapRow, SessionRow, TelemetryPoint } from "@/lib/types";
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
 
 export default async function LapPage({
   params,
@@ -15,10 +14,7 @@ export default async function LapPage({
   params: Promise<{ id: string; lapId: string }>;
 }) {
   const { id, lapId } = await params;
-  if (
-    !process.env.NEXT_PUBLIC_SUPABASE_URL ||
-    !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  ) {
+  if (id.startsWith("pub-") || !hasSupabaseConfig()) {
     return <LocalLap sessionId={id} lapId={lapId} />;
   }
 
@@ -26,14 +22,11 @@ export default async function LapPage({
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
 
-  const { data: session } = await supabase
-    .from("sessions")
-    .select("*")
-    .eq("id", id)
-    .maybeSingle();
-  if (!session) notFound();
+  const { data: session } = user
+    ? await supabase.from("sessions").select("*").eq("id", id).maybeSingle()
+    : { data: null };
+  if (!user || !session) return <LocalLap sessionId={id} lapId={lapId} />;
   const sessionRow = session as SessionRow;
 
   const { data: lap } = await supabase
@@ -42,7 +35,7 @@ export default async function LapPage({
     .eq("id", lapId)
     .eq("session_id", id)
     .maybeSingle();
-  if (!lap) notFound();
+  if (!lap) return <LocalLap sessionId={id} lapId={lapId} />;
   const lapRow = lap as LapRow;
   const points = (lapRow.telemetry ?? []) as TelemetryPoint[];
   const peak = points.reduce((max, point) => Math.max(max, point.speed), 0);
@@ -91,24 +84,7 @@ export default async function LapPage({
           </div>
         </div>
         {points.length ? (
-          <>
-            {hasGps(points) ? (
-              <TrackMap
-                traces={[
-                  {
-                    id: lapRow.id,
-                    label: `Lap ${lapRow.lap_number}`,
-                    color: "#f97316",
-                    points,
-                    colorBySpeed: true,
-                  },
-                ]}
-              />
-            ) : (
-              <MissingGps />
-            )}
-            <SpeedChart points={points} />
-          </>
+          <LapCharts points={points} label={`Lap ${lapRow.lap_number}`} />
         ) : (
           <p className="text-sm text-zinc-500">No speed samples on this lap.</p>
         )}

@@ -24,6 +24,8 @@ const SPEED_KEYS = [
 const DISTANCE_KEYS = ["distance", "dist", "odometer", "s"];
 const LAT_KEYS = ["latitude", "gps_latitude", "gps_lat", "lat"];
 const LON_KEYS = ["longitude", "gps_longitude", "gps_lon", "gps_lng", "lon", "lng"];
+const LAT_G_KEYS = ["lat_g", "lateral_g", "g_lat", "lateral_accel", "gps_latacc", "ay"];
+const LON_G_KEYS = ["long_g", "lon_g", "lng_g", "longitudinal_g", "g_long", "long_accel", "gps_lonacc", "ax"];
 
 const MAX_POINTS = 400;
 
@@ -76,6 +78,16 @@ function parseNumber(raw: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function toG(value: number | null, header: string): number | null {
+  if (value == null) return null;
+  const alreadyG =
+    header === "g" ||
+    header.endsWith("_g") ||
+    header.startsWith("g_") ||
+    header.includes("gforce");
+  return alreadyG ? value : value / 9.80665;
+}
+
 function speedToKmh(speed: number, header: string): number {
   if (header.includes("mph")) return speed * 1.60934;
   if (header.includes("m_s") || header.includes("ms") || header.endsWith("_mps")) {
@@ -101,6 +113,8 @@ type Sample = {
   distance: number | null;
   lat: number | null;
   lon: number | null;
+  latG: number | null;
+  lonG: number | null;
 };
 
 type LapSample = {
@@ -108,6 +122,8 @@ type LapSample = {
   speed: number;
   lat: number | null;
   lon: number | null;
+  latG: number | null;
+  lonG: number | null;
 };
 
 export function parseTelemetryCsv(csv: string): ParsedLap[] {
@@ -130,8 +146,13 @@ export function parseTelemetryCsv(csv: string): ParsedLap[] {
   const timeCol = findColumn(headers, TIME_KEYS);
   const speedCol = findColumn(headers, SPEED_KEYS);
   const distanceCol = findColumn(headers, DISTANCE_KEYS);
-  const latCol = findColumn(headers, LAT_KEYS);
-  const lonCol = findColumn(headers, LON_KEYS);
+  const latGCol = findColumn(headers, LAT_G_KEYS);
+  const lonGCol = findColumn(headers, LON_G_KEYS);
+  const positionHeaders = headers.filter(
+    (header) => header !== latGCol && header !== lonGCol,
+  );
+  const latCol = findColumn(positionHeaders, LAT_KEYS);
+  const lonCol = findColumn(positionHeaders, LON_KEYS);
 
   if (!timeCol) {
     throw new Error("CSV needs a time column (time, timestamp, elapsed, …)");
@@ -157,6 +178,8 @@ export function parseTelemetryCsv(csv: string): ParsedLap[] {
       distance: distanceCol ? parseNumber(row[distanceCol]) : null,
       lat: lat != null && lat >= -90 && lat <= 90 ? lat : null,
       lon: lon != null && lon >= -180 && lon <= 180 ? lon : null,
+      latG: latGCol ? toG(parseNumber(row[latGCol]), latGCol) : null,
+      lonG: lonGCol ? toG(parseNumber(row[lonGCol]), lonGCol) : null,
     });
   }
 
@@ -190,6 +213,8 @@ export function parseTelemetryCsv(csv: string): ParsedLap[] {
           point.lat = Number(p.lat.toFixed(6));
           point.lon = Number(p.lon.toFixed(6));
         }
+        if (p.latG != null) point.latG = Number(p.latG.toFixed(3));
+        if (p.lonG != null) point.lonG = Number(p.lonG.toFixed(3));
         return point;
       }),
     );
@@ -247,6 +272,8 @@ function push(groups: Map<number, LapSample[]>, lapNumber: number, sample: Sampl
     speed: sample.speed,
     lat: sample.lat,
     lon: sample.lon,
+    latG: sample.latG,
+    lonG: sample.lonG,
   });
   groups.set(lapNumber, list);
 }
