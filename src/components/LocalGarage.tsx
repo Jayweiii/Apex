@@ -12,11 +12,12 @@ import { LapCharts } from "@/components/LapCharts";
 import { ShareLinkButton } from "@/components/ShareLinkButton";
 import { cornerBreakdown, theoreticalBestLap } from "@/lib/analysis";
 import { getLocalBlob } from "@/lib/blob-store";
-import { loadCatalogSession } from "@/lib/catalog";
+import { catalogSessionsForTrack, loadCatalogSession } from "@/lib/catalog";
 import { compareHref } from "@/lib/compare";
 import { formatLapTime } from "@/lib/format";
 import {
   getLocalSession,
+  listSessionsForCompare,
   replaceLocalSessionLaps,
   type StoredSession,
 } from "@/lib/local-store";
@@ -29,10 +30,12 @@ function CompareLink({
   sessionId,
   laps,
   focusId,
+  label = "Compare laps",
 }: {
   sessionId: string;
   laps: { id: string; lap_time_ms: number }[];
   focusId?: string;
+  label?: string;
 }) {
   const href = compareHref(sessionId, laps, focusId);
   if (!href) return null;
@@ -41,7 +44,7 @@ function CompareLink({
       href={href}
       className="inline-flex min-h-10 items-center text-xs uppercase tracking-[0.18em] text-orange-400 hover:text-orange-300"
     >
-      Compare laps
+      {label}
     </Link>
   );
 }
@@ -90,32 +93,113 @@ export function LocalCompare({
   id,
   initialRef,
   initialOther,
+  initialOtherSession,
 }: {
   id: string;
   initialRef?: string;
   initialOther?: string;
+  initialOtherSession?: string;
 }) {
   const session = useLocalSession(id);
+  const [peerSessions, setPeerSessions] = useState<StoredSession[]>([]);
+  const [catalogPeers, setCatalogPeers] = useState<StoredSession[]>([]);
+
+  useEffect(() => {
+    if (!session) return;
+    const locals = listSessionsForCompare({
+      trackId: session.trackId,
+    });
+    // Prefer uploads first, keep current session included.
+    const ordered = [
+      ...locals.filter((item) => item.id === session.id),
+      ...locals.filter((item) => item.kind === "upload" && item.id !== session.id),
+      ...locals.filter(
+        (item) => item.kind !== "upload" && item.id !== session.id,
+      ),
+    ];
+    // Always include current even if filters excluded it somehow.
+    if (!ordered.some((item) => item.id === session.id)) {
+      ordered.unshift(session);
+    }
+    setPeerSessions(ordered);
+
+    let cancelled = false;
+    const catalogIds = catalogSessionsForTrack(session.trackId ?? "")
+      .map((entry) => entry.id)
+      .filter((catalogId) => catalogId !== session.id)
+      .slice(0, 6);
+    Promise.all(catalogIds.map((catalogId) => loadCatalogSession(catalogId)))
+      .then((loaded) => {
+        if (!cancelled) {
+          setCatalogPeers(
+            loaded.filter((item): item is StoredSession => item != null),
+          );
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setCatalogPeers([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [session]);
 
   if (session === undefined) return <LoadingShell label="Loading comparison…" />;
   if (!session) {
     return <MissingShell message="Session not found in this browser." />;
   }
 
-  const laps = session.laps.map((lap) => ({
-    id: lap.id,
-    session_id: session.id,
-    user_id: "local",
-    lap_number: lap.lap_number,
-    lap_time_ms: lap.lap_time_ms,
-    telemetry: lap.telemetry,
-  }));
+  const toRows = (item: StoredSession) =>
+    item.laps.map((lap) => ({
+      id: lap.id,
+      session_id: item.id,
+      user_id: "local",
+      lap_number: lap.lap_number,
+      lap_time_ms: lap.lap_time_ms,
+      telemetry: lap.telemetry,
+    }));
 
-  const href = compareHref(session.id, laps, initialOther);
+  const compareSessions = [
+    ...peerSessions.map((item) => ({
+      id: item.id,
+      name: item.name,
+      car: item.car,
+      kind: item.kind,
+      laps: toRows(item),
+    })),
+    ...catalogPeers
+      .filter((item) => !peerSessions.some((peer) => peer.id === item.id))
+      .map((item) => ({
+        id: item.id,
+        name: item.name,
+        car: item.car,
+        kind: item.kind,
+        laps: toRows(item),
+      })),
+  ];
+
+  const laps = toRows(session);
+  const shareParams = new URLSearchParams();
+  if (initialRef) shareParams.set("ref", initialRef);
+  if (initialOther) shareParams.set("other", initialOther);
+  if (initialOtherSession) shareParams.set("otherSession", initialOtherSession);
+  const href = shareParams.size
+    ? `/sessions/${session.id}/compare?${shareParams.toString()}`
+    : compareHref(session.id, laps);
   const refId = initialRef || laps[0]?.id;
-  const otherId = initialOther || laps[1]?.id;
+  const otherSession =
+    compareSessions.find((item) => item.id === initialOtherSession) ??
+    compareSessions.find((item) => item.laps.some((lap) => lap.id === initialOther)) ??
+    compareSessions.find((item) => item.id !== session.id) ??
+    compareSessions[0];
+  const otherId =
+    initialOther ||
+    otherSession?.laps.find((lap) => lap.id !== refId)?.id ||
+    otherSession?.laps[0]?.id;
   const refLap = session.laps.find((lap) => lap.id === refId);
-  const otherLap = session.laps.find((lap) => lap.id === otherId);
+  const otherLap =
+    otherSession?.laps.find((lap) => lap.id === otherId) ??
+    session.laps.find((lap) => lap.id === otherId);
   const corners =
     refLap && otherLap && refLap.id !== otherLap.id
       ? cornerBreakdown(
@@ -144,9 +228,15 @@ export function LocalCompare({
             {session.name}
           </Link>
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <h1 className="text-2xl font-semibold tracking-tight text-zinc-50 sm:text-3xl">
-              Compare laps
-            </h1>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-zinc-50 sm:text-3xl">
+                Compare laps
+              </h1>
+              <p className="mt-1 text-sm text-zinc-500">
+                Compare within this session or against your other uploads
+                {session.trackId ? " on the same track" : ""}.
+              </p>
+            </div>
             {href ? <ShareLinkButton path={href} label="Copy compare link" /> : null}
           </div>
           <AttributionCard
@@ -156,7 +246,13 @@ export function LocalCompare({
           />
           <SessionNotes session={session} />
         </div>
-        <LapCompare laps={laps} initialRef={initialRef} initialOther={initialOther} />
+        <LapCompare
+          laps={laps}
+          sessions={compareSessions}
+          initialRef={initialRef}
+          initialOther={initialOther}
+          initialOtherSession={initialOtherSession}
+        />
         {corners.length ? (
           <CornerBreakdownTable
             corners={corners}
@@ -301,7 +397,15 @@ export function LocalSession({ id }: { id: string }) {
               {comparePath ? (
                 <ShareLinkButton path={comparePath} label="Copy compare link" />
               ) : null}
-              <CompareLink sessionId={session.id} laps={laps} />
+              <CompareLink
+                sessionId={session.id}
+                laps={laps}
+                label={
+                  laps.length < 2
+                    ? "Compare with other sessions"
+                    : "Compare laps"
+                }
+              />
             </div>
           </div>
           <SessionNotes session={session} />

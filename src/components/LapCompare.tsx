@@ -6,7 +6,7 @@ import { compareLaps, defaultLapPair, hasGps } from "@/lib/compare";
 import { formatG, formatGap, formatLapTime } from "@/lib/format";
 import { enrichTelemetry } from "@/lib/gforce";
 import type { LapRow } from "@/lib/types";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   CartesianGrid,
   Legend,
@@ -22,30 +22,114 @@ import {
 const REF_COLOR = "#f97316";
 const OTHER_COLOR = "#38bdf8";
 
+export type CompareSessionOption = {
+  id: string;
+  name: string;
+  car?: string;
+  kind?: string;
+  laps: LapRow[];
+};
+
 function formatDistance(meters: number) {
   if (meters >= 1000) return `${(meters / 1000).toFixed(1)} km`;
   return `${Math.round(meters)} m`;
 }
 
+function findSessionForLap(
+  sessions: CompareSessionOption[],
+  lapId: string | undefined,
+) {
+  if (!lapId) return sessions[0] ?? null;
+  return sessions.find((session) => session.laps.some((lap) => lap.id === lapId)) ?? null;
+}
+
 export function LapCompare({
   laps,
+  sessions,
   initialRef,
   initialOther,
+  initialOtherSession,
 }: {
   laps: LapRow[];
+  /** Extra sessions (usually your uploads) available for cross-session compare. */
+  sessions?: CompareSessionOption[];
   initialRef?: string;
   initialOther?: string;
+  initialOtherSession?: string;
 }) {
-  const defaults = defaultLapPair(laps);
-  const [refId, setRefId] = useState(
-    laps.some((lap) => lap.id === initialRef) ? initialRef! : defaults.ref,
-  );
-  const [otherId, setOtherId] = useState(
-    laps.some((lap) => lap.id === initialOther) ? initialOther! : defaults.other,
-  );
+  const allSessions = useMemo<CompareSessionOption[]>(() => {
+    if (sessions?.length) return sessions;
+    return [
+      {
+        id: laps[0]?.session_id ?? "current",
+        name: "This session",
+        laps,
+      },
+    ];
+  }, [sessions, laps]);
 
-  const reference = laps.find((lap) => lap.id === refId) ?? laps[0];
-  const other = laps.find((lap) => lap.id === otherId) ?? laps[1] ?? laps[0];
+  const defaults = defaultLapPair(laps);
+  const [refSessionId, setRefSessionId] = useState(
+    () => findSessionForLap(allSessions, initialRef)?.id ?? allSessions[0]?.id ?? "",
+  );
+  const [otherSessionId, setOtherSessionId] = useState(() => {
+    if (initialOtherSession && allSessions.some((s) => s.id === initialOtherSession)) {
+      return initialOtherSession;
+    }
+    const fromOther = findSessionForLap(allSessions, initialOther);
+    if (fromOther) return fromOther.id;
+    // Prefer another upload session when available.
+    const upload = allSessions.find(
+      (session) =>
+        session.id !== allSessions[0]?.id &&
+        (session.kind === "upload" || session.name.toLowerCase().includes("upload")),
+    );
+    return upload?.id ?? allSessions[1]?.id ?? allSessions[0]?.id ?? "";
+  });
+
+  const refSession =
+    allSessions.find((session) => session.id === refSessionId) ?? allSessions[0];
+  const otherSession =
+    allSessions.find((session) => session.id === otherSessionId) ??
+    allSessions[1] ??
+    allSessions[0];
+
+  const [refId, setRefId] = useState(() => {
+    if (initialRef && refSession?.laps.some((lap) => lap.id === initialRef)) {
+      return initialRef;
+    }
+    return defaultLapPair(refSession?.laps ?? []).ref;
+  });
+  const [otherId, setOtherId] = useState(() => {
+    if (initialOther && otherSession?.laps.some((lap) => lap.id === initialOther)) {
+      return initialOther;
+    }
+    const pair = defaultLapPair(otherSession?.laps ?? []);
+    if (otherSession?.id === refSession?.id) return pair.other || pair.ref;
+    return pair.ref;
+  });
+
+  useEffect(() => {
+    if (!refSession?.laps.some((lap) => lap.id === refId)) {
+      setRefId(defaultLapPair(refSession?.laps ?? []).ref);
+    }
+  }, [refSession, refId]);
+
+  useEffect(() => {
+    if (!otherSession?.laps.some((lap) => lap.id === otherId)) {
+      const pair = defaultLapPair(otherSession?.laps ?? []);
+      setOtherId(
+        otherSession?.id === refSession?.id ? pair.other || pair.ref : pair.ref,
+      );
+    }
+  }, [otherSession, otherId, refSession?.id]);
+
+  const reference =
+    refSession?.laps.find((lap) => lap.id === refId) ?? refSession?.laps[0];
+  const other =
+    otherSession?.laps.find((lap) => lap.id === otherId) ??
+    otherSession?.laps[0] ??
+    reference;
   const sameLap = reference?.id === other?.id;
   const series = useMemo(
     () =>
@@ -81,11 +165,14 @@ export function LapCompare({
     reference &&
     other &&
     (hasGps(reference.telemetry) || hasGps(other.telemetry));
+  const multiSession = allSessions.length > 1;
+  const totalLaps = allSessions.reduce((sum, session) => sum + session.laps.length, 0);
 
-  if (laps.length < 2) {
+  if (totalLaps < 2) {
     return (
       <p className="text-sm text-zinc-500">
-        This session needs at least two laps to compare.
+        Need at least two laps to compare. Upload another session or pick a demo
+        lap from the same track.
       </p>
     );
   }
@@ -93,18 +180,47 @@ export function LapCompare({
   return (
     <div className="flex flex-col gap-6">
       <div className="grid gap-3 sm:grid-cols-2">
-        <LapSelect
-          label="Reference"
-          value={reference?.id ?? ""}
-          laps={laps}
-          onChange={setRefId}
-        />
-        <LapSelect
-          label="Compared lap"
-          value={other?.id ?? ""}
-          laps={laps}
-          onChange={setOtherId}
-        />
+        <div className="grid gap-3">
+          {multiSession ? (
+            <SessionSelect
+              label="Reference session"
+              value={refSession?.id ?? ""}
+              sessions={allSessions}
+              onChange={(id) => {
+                setRefSessionId(id);
+                const next = allSessions.find((session) => session.id === id);
+                setRefId(defaultLapPair(next?.laps ?? []).ref);
+              }}
+            />
+          ) : null}
+          <LapSelect
+            label="Reference lap"
+            value={reference?.id ?? ""}
+            laps={refSession?.laps ?? []}
+            onChange={setRefId}
+          />
+        </div>
+        <div className="grid gap-3">
+          {multiSession ? (
+            <SessionSelect
+              label="Compared session"
+              value={otherSession?.id ?? ""}
+              sessions={allSessions}
+              onChange={(id) => {
+                setOtherSessionId(id);
+                const next = allSessions.find((session) => session.id === id);
+                const pair = defaultLapPair(next?.laps ?? []);
+                setOtherId(id === refSessionId ? pair.other || pair.ref : pair.ref);
+              }}
+            />
+          ) : null}
+          <LapSelect
+            label="Compared lap"
+            value={other?.id ?? ""}
+            laps={otherSession?.laps ?? []}
+            onChange={setOtherId}
+          />
+        </div>
       </div>
 
       {sameLap ? (
@@ -123,22 +239,28 @@ export function LapCompare({
             <div className="text-sm text-zinc-400">
               <p>
                 <span className="mr-2 inline-block h-2 w-2 rounded-full bg-orange-500" />
-                Lap {reference.lap_number}{" "}
+                {refSession && refSession.name !== "This session"
+                  ? `${refSession.name} · `
+                  : ""}
+                Lap {reference?.lap_number}{" "}
                 <span className="font-mono text-zinc-200">
-                  {formatLapTime(reference.lap_time_ms)}
+                  {formatLapTime(reference?.lap_time_ms ?? 0)}
                 </span>
               </p>
               <p className="mt-1">
                 <span className="mr-2 inline-block h-2 w-2 rounded-full bg-sky-400" />
-                Lap {other.lap_number}{" "}
+                {otherSession && otherSession.name !== "This session"
+                  ? `${otherSession.name} · `
+                  : ""}
+                Lap {other?.lap_number}{" "}
                 <span className="font-mono text-zinc-200">
-                  {formatLapTime(other.lap_time_ms)}
+                  {formatLapTime(other?.lap_time_ms ?? 0)}
                 </span>
               </p>
             </div>
           </div>
 
-          {showMap ? (
+          {showMap && reference && other ? (
             <TrackMap
               traces={[
                 {
@@ -168,31 +290,30 @@ export function LapCompare({
                 syncId="compare"
                 margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
                 onMouseMove={(state) => hoverFromChart(hoverIndex(state))}
-                onMouseLeave={() => hoverFromChart(null)}
+                onMouseLeave={() => setProgress(null)}
               >
                 <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
                 <XAxis
                   dataKey="dist"
                   type="number"
-                  tickFormatter={formatDistance}
+                  tickFormatter={(value) => formatDistance(Number(value))}
                   stroke="#71717a"
-                  tick={{ fill: "#71717a", fontSize: 12 }}
+                  fontSize={11}
                 />
-                <YAxis
-                  stroke="#71717a"
-                  tick={{ fill: "#71717a", fontSize: 12 }}
-                  width={42}
-                  tickFormatter={(value: number) => `${Math.round(value)}`}
-                />
-                <Tooltip cursor={false} content={<CompareTooltip />} />
-                {hoverAt != null ? (
-                  <ReferenceLine x={series[hoverAt].dist} stroke="#e4e4e7" strokeDasharray="3 3" />
-                ) : null}
+                <YAxis stroke="#71717a" fontSize={11} unit=" km/h" width={48} />
+                <Tooltip content={<CompareTooltip />} />
                 <Legend />
+                {hoverAt != null ? (
+                  <ReferenceLine
+                    x={series[hoverAt]?.dist}
+                    stroke="#a1a1aa"
+                    strokeDasharray="4 4"
+                  />
+                ) : null}
                 <Line
                   type="monotone"
                   dataKey="refSpeed"
-                  name={`Lap ${reference.lap_number}`}
+                  name={`Lap ${reference?.lap_number}`}
                   stroke={REF_COLOR}
                   strokeWidth={2}
                   dot={false}
@@ -201,7 +322,7 @@ export function LapCompare({
                 <Line
                   type="monotone"
                   dataKey="otherSpeed"
-                  name={`Lap ${other.lap_number}`}
+                  name={`Lap ${other?.lap_number}`}
                   stroke={OTHER_COLOR}
                   strokeWidth={2}
                   dot={false}
@@ -211,42 +332,38 @@ export function LapCompare({
             </ResponsiveContainer>
           </ChartCard>
 
-          <ChartCard
-            title="Time gap"
-            hint="Above zero means the compared lap is behind the reference"
-          >
+          <ChartCard title="Delta" hint="Positive means the compared lap is behind">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart
                 data={series}
                 syncId="compare"
                 margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
                 onMouseMove={(state) => hoverFromChart(hoverIndex(state))}
-                onMouseLeave={() => hoverFromChart(null)}
+                onMouseLeave={() => setProgress(null)}
               >
                 <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
                 <XAxis
                   dataKey="dist"
                   type="number"
-                  tickFormatter={formatDistance}
+                  tickFormatter={(value) => formatDistance(Number(value))}
                   stroke="#71717a"
-                  tick={{ fill: "#71717a", fontSize: 12 }}
+                  fontSize={11}
                 />
-                <YAxis
-                  stroke="#71717a"
-                  tick={{ fill: "#71717a", fontSize: 12 }}
-                  width={48}
-                  tickFormatter={(value: number) => `${value.toFixed(1)}s`}
-                />
-                <ReferenceLine y={0} stroke="#52525b" />
+                <YAxis stroke="#71717a" fontSize={11} unit=" s" width={48} />
+                <Tooltip content={<CompareTooltip mode="delta" />} />
                 {hoverAt != null ? (
-                  <ReferenceLine x={series[hoverAt].dist} stroke="#e4e4e7" strokeDasharray="3 3" />
+                  <ReferenceLine
+                    x={series[hoverAt]?.dist}
+                    stroke="#a1a1aa"
+                    strokeDasharray="4 4"
+                  />
                 ) : null}
-                <Tooltip cursor={false} content={<CompareTooltip mode="delta" />} />
+                <ReferenceLine y={0} stroke="#52525b" />
                 <Line
                   type="monotone"
                   dataKey="delta"
                   name="Gap"
-                  stroke="#e4e4e7"
+                  stroke="#fbbf24"
                   strokeWidth={2}
                   dot={false}
                   isAnimationActive={false}
@@ -255,38 +372,37 @@ export function LapCompare({
             </ResponsiveContainer>
           </ChartCard>
 
-          <ChartCard title="G" hint="Combined acceleration for each lap">
+          <ChartCard title="G" hint="Combined acceleration">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart
                 data={series}
                 syncId="compare"
                 margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
                 onMouseMove={(state) => hoverFromChart(hoverIndex(state))}
-                onMouseLeave={() => hoverFromChart(null)}
+                onMouseLeave={() => setProgress(null)}
               >
                 <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
                 <XAxis
                   dataKey="dist"
                   type="number"
-                  tickFormatter={formatDistance}
+                  tickFormatter={(value) => formatDistance(Number(value))}
                   stroke="#71717a"
-                  tick={{ fill: "#71717a", fontSize: 12 }}
+                  fontSize={11}
                 />
-                <YAxis
-                  stroke="#71717a"
-                  tick={{ fill: "#71717a", fontSize: 12 }}
-                  width={42}
-                  tickFormatter={(value: number) => value.toFixed(1)}
-                />
-                {hoverAt != null ? (
-                  <ReferenceLine x={series[hoverAt].dist} stroke="#e4e4e7" strokeDasharray="3 3" />
-                ) : null}
-                <Tooltip cursor={false} content={<CompareTooltip mode="g" />} />
+                <YAxis stroke="#71717a" fontSize={11} width={40} />
+                <Tooltip content={<CompareTooltip mode="g" />} />
                 <Legend />
+                {hoverAt != null ? (
+                  <ReferenceLine
+                    x={series[hoverAt]?.dist}
+                    stroke="#a1a1aa"
+                    strokeDasharray="4 4"
+                  />
+                ) : null}
                 <Line
                   type="monotone"
                   dataKey="refG"
-                  name={`Lap ${reference.lap_number}`}
+                  name={`Lap ${reference?.lap_number}`}
                   stroke={REF_COLOR}
                   strokeWidth={2}
                   dot={false}
@@ -295,7 +411,7 @@ export function LapCompare({
                 <Line
                   type="monotone"
                   dataKey="otherG"
-                  name={`Lap ${other.lap_number}`}
+                  name={`Lap ${other?.lap_number}`}
                   stroke={OTHER_COLOR}
                   strokeWidth={2}
                   dot={false}
@@ -307,6 +423,39 @@ export function LapCompare({
         </>
       )}
     </div>
+  );
+}
+
+function SessionSelect({
+  label,
+  value,
+  sessions,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  sessions: CompareSessionOption[];
+  onChange: (id: string) => void;
+}) {
+  return (
+    <label className="flex flex-col gap-1.5 text-sm">
+      <span className="text-zinc-400">{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="min-h-12 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
+      >
+        {sessions.map((session) => (
+          <option key={session.id} value={session.id}>
+            {session.name}
+            {session.car ? ` · ${session.car}` : ""}
+            {session.kind === "upload" ? " · your upload" : ""}
+            {session.kind === "demo" ? " · demo" : ""}
+            {session.kind === "public" ? " · public" : ""}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 

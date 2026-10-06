@@ -12,7 +12,7 @@ import {
 } from "@/lib/catalog";
 import { formatLapTime } from "@/lib/format";
 import { listLocalSessions, type StoredSession } from "@/lib/local-store";
-import { getTrack, popularTracks } from "@/lib/tracks";
+import { getTrack, listCustomTracks, popularTracks, type Track } from "@/lib/tracks";
 import type { DataKind } from "@/lib/attribution";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -78,9 +78,24 @@ function useLocalSessions() {
   return local;
 }
 
+function useCustomTracks() {
+  const [custom, setCustom] = useState<Track[]>([]);
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      setCustom(listCustomTracks());
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+  return custom;
+}
+
 export function TrackHome() {
   const [query, setQuery] = useState("");
-  const tracks = useMemo(() => popularTracks(query), [query]);
+  const customTracks = useCustomTracks();
+  const tracks = useMemo(
+    () => popularTracks(query, customTracks),
+    [query, customTracks],
+  );
   const publicSessions = CATALOG_SESSIONS.filter((s) => s.kind === "public");
   const demoCount = CATALOG_SESSIONS.filter((s) => s.kind === "demo").length;
 
@@ -202,7 +217,14 @@ export function TrackHome() {
                       className="flex min-h-16 items-center justify-between gap-4 rounded-2xl border border-zinc-800/80 bg-zinc-950/50 px-4 py-4 transition hover:border-zinc-700 hover:bg-zinc-900/60 sm:px-5"
                     >
                       <div className="min-w-0">
-                        <p className="font-medium text-zinc-100">{track.name}</p>
+                        <p className="font-medium text-zinc-100">
+                          {track.name}
+                          {track.id.startsWith("custom-") ? (
+                            <span className="ml-2 text-xs font-normal text-zinc-500">
+                              yours
+                            </span>
+                          ) : null}
+                        </p>
                         <p className="mt-1 text-xs text-zinc-500">
                           {track.location}
                           {publicCount ? ` · ${publicCount} public` : ""}
@@ -228,15 +250,24 @@ export function TrackHome() {
 }
 
 export function TrackDetail({ id }: { id: string }) {
-  const track = getTrack(id);
+  const [track, setTrack] = useState<Track | null>(() => getTrack(id));
   const local = useLocalSessions();
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      setTrack(getTrack(id));
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [id]);
 
   if (!track) {
     return (
       <>
         <AppHeader />
         <main className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6">
-          <p className="text-sm text-zinc-400">Track not found.</p>
+          <p className="text-sm text-zinc-400">
+            {local === null ? "Loading track…" : "Track not found."}
+          </p>
           <Link href="/" className="mt-4 inline-block text-sm text-orange-400">
             Back to tracks
           </Link>

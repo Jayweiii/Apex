@@ -2,16 +2,27 @@
 
 import { DataKindBadge } from "@/components/Attribution";
 import { putLocalBlob } from "@/lib/blob-store";
-import { listDrivers, saveLocalSession } from "@/lib/local-store";
+import {
+  listDrivers,
+  listKnownCars,
+  saveLocalSession,
+} from "@/lib/local-store";
 import { parseGoProChapters } from "@/lib/parse-gopro";
 import { parseTelemetryCsv } from "@/lib/parse-telemetry";
 import { createClient } from "@/lib/supabase/client";
-import { popularTracks } from "@/lib/tracks";
+import {
+  listCustomTracks,
+  popularTracks,
+  saveCustomTrack,
+  type Track,
+} from "@/lib/tracks";
 import { presignUpload, uploadToTarget } from "@/lib/storage/upload-client";
 import { useRouter } from "next/navigation";
-import { ChangeEvent, FormEvent, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 
 const CAR_CLASSES = ["Open", "Spec Miata", "GR Cup", "GT4", "GT3", "Prototype"];
+const NEW_TRACK = "__new_track__";
+const NEW_CAR = "__new_car__";
 
 export function SessionUpload({
   storage = "supabase",
@@ -22,9 +33,13 @@ export function SessionUpload({
 }) {
   const router = useRouter();
   const local = storage === "local";
+  const [customTracks, setCustomTracks] = useState<Track[]>([]);
   const [pickedTrack, setPickedTrack] = useState(trackId ?? "");
+  const [newTrackName, setNewTrackName] = useState("");
   const [name, setName] = useState("");
   const [car, setCar] = useState("");
+  const [carChoice, setCarChoice] = useState("");
+  const [knownCars, setKnownCars] = useState<string[]>([]);
   const [carClass, setCarClass] = useState("Open");
   const [carTags, setCarTags] = useState("");
   const [driver, setDriver] = useState("");
@@ -36,7 +51,25 @@ export function SessionUpload({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
-  const chosenTrack = trackId ?? pickedTrack;
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      setCustomTracks(listCustomTracks());
+      const cars = listKnownCars();
+      setKnownCars(cars);
+      setCarChoice((current) => {
+        if (current) return current;
+        return cars.length ? "" : NEW_CAR;
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [busy]);
+
+  const tracks = useMemo(
+    () => popularTracks("", customTracks),
+    [customTracks],
+  );
+  const chosenTrack = trackId ?? (pickedTrack === NEW_TRACK ? "" : pickedTrack);
   const drivers = useMemo(
     () => (typeof window === "undefined" ? [] : listDrivers()),
     [busy],
@@ -44,6 +77,8 @@ export function SessionUpload({
 
   const primary = files[0] ?? null;
   const isGoPro = Boolean(primary && /\.mp4$/i.test(primary.name));
+  const creatingTrack = !trackId && pickedTrack === NEW_TRACK;
+  const creatingCar = carChoice === NEW_CAR;
 
   function onFile(event: ChangeEvent<HTMLInputElement>) {
     const next = Array.from(event.target.files ?? []);
@@ -52,6 +87,15 @@ export function SessionUpload({
     if (next[0] && !name) {
       setName(next[0].name.replace(/\.(csv|mp4)$/i, "").replace(/[_-]+/g, " "));
     }
+  }
+
+  function onCarChoice(value: string) {
+    setCarChoice(value);
+    if (value === NEW_CAR) {
+      setCar("");
+      return;
+    }
+    setCar(value);
   }
 
   async function storeRawAndMaybeVideo(sessionId: string, fileList: File[]) {
@@ -102,11 +146,27 @@ export function SessionUpload({
     return { rawObjectKey, videoObjectKey, videoLocalKey, storageBackend };
   }
 
+  async function resolveTrackId(): Promise<string> {
+    if (trackId) return trackId;
+    if (pickedTrack === NEW_TRACK) {
+      const created = saveCustomTrack(newTrackName);
+      setCustomTracks(listCustomTracks());
+      setPickedTrack(created.id);
+      return created.id;
+    }
+    if (!pickedTrack) throw new Error("Choose a track");
+    return pickedTrack;
+  }
+
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
     setError(null);
     if (!files.length) {
       setError("Choose a CSV or GoPro MP4 file");
+      return;
+    }
+    if (creatingTrack && !newTrackName.trim()) {
+      setError("Enter a name for the new track");
       return;
     }
 
@@ -130,6 +190,7 @@ export function SessionUpload({
       const sessionId = crypto.randomUUID();
       setProgress("Storing original…");
       const stored = await storeRawAndMaybeVideo(sessionId, files);
+      const resolvedTrack = local ? await resolveTrackId() : chosenTrack;
       await saveSession(
         name.trim() || files[0].name,
         files.map((file) => file.name).join(", "),
@@ -138,6 +199,7 @@ export function SessionUpload({
           ...stored,
           sourceKind,
           forcedId: sessionId,
+          trackIdOverride: resolvedTrack,
         },
       );
     } catch (err) {
@@ -159,20 +221,22 @@ export function SessionUpload({
       videoLocalKey: string | null;
       storageBackend: "r2" | "local" | "idb";
       forcedId?: string;
+      trackIdOverride?: string;
     },
   ) {
     const tags = carTags
       .split(",")
       .map((tag) => tag.trim())
       .filter(Boolean);
+    const carName = car.trim();
 
     if (storage === "local") {
-      if (!chosenTrack) throw new Error("Choose a track");
-      const carName = car.trim();
+      const track = extra.trackIdOverride || chosenTrack;
+      if (!track) throw new Error("Choose a track");
       if (!carName) throw new Error("Enter the car");
       const session = saveLocalSession(sessionName, filename, laps, {
         id: extra.forcedId,
-        trackId: chosenTrack,
+        trackId: track,
         car: carName,
         carClass,
         carTags: tags,
@@ -204,8 +268,8 @@ export function SessionUpload({
         user_id: user.id,
         name: sessionName,
         filename,
-        track_id: chosenTrack || null,
-        car: car.trim() || null,
+        track_id: extra.trackIdOverride || chosenTrack || null,
+        car: carName || null,
         car_class: carClass,
         car_tags: tags,
         driver_name: driver.trim() || null,
@@ -247,44 +311,82 @@ export function SessionUpload({
         <div>
           <h2 className="text-sm font-medium text-zinc-200">Upload telemetry</h2>
           <p className="mt-1 max-w-xl text-sm text-zinc-500">
-            CSV (TrackAddict / RaceRender) or GoPro MP4 with GPMF GPS. Telemetry
-            is extracted in your browser for video; originals can be stored for
-            re-processing.
+            CSV (TrackAddict / RaceRender) or GoPro MP4 with GPMF GPS. Pick an
+            existing track/car or create a new one.
           </p>
         </div>
         <DataKindBadge kind="upload" />
       </div>
       <div className="grid gap-3">
         {local && !trackId ? (
-          <label className="flex flex-col gap-1.5 text-sm">
-            <span className="text-zinc-400">Track</span>
-            <select
-              required
-              value={pickedTrack}
-              onChange={(event) => setPickedTrack(event.target.value)}
-              className="min-h-12 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
-            >
-              <option value="">Choose a track</option>
-              {popularTracks().map((track) => (
-                <option key={track.id} value={track.id}>
-                  {track.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="grid gap-3">
+            <label className="flex flex-col gap-1.5 text-sm">
+              <span className="text-zinc-400">Track</span>
+              <select
+                required
+                value={pickedTrack}
+                onChange={(event) => setPickedTrack(event.target.value)}
+                className="min-h-12 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
+              >
+                <option value="">Choose a track</option>
+                {tracks.map((track) => (
+                  <option key={track.id} value={track.id}>
+                    {track.name}
+                    {track.id.startsWith("custom-") ? " (yours)" : ""}
+                  </option>
+                ))}
+                <option value={NEW_TRACK}>+ Create new track…</option>
+              </select>
+            </label>
+            {creatingTrack ? (
+              <label className="flex flex-col gap-1.5 text-sm">
+                <span className="text-zinc-400">New track name</span>
+                <input
+                  required
+                  value={newTrackName}
+                  onChange={(event) => setNewTrackName(event.target.value)}
+                  placeholder="Thunderhill West"
+                  className="min-h-12 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
+                />
+              </label>
+            ) : null}
+          </div>
         ) : null}
         <div className="grid gap-3 sm:grid-cols-2">
           {local ? (
-            <label className="flex flex-col gap-1.5 text-sm">
-              <span className="text-zinc-400">Car</span>
-              <input
-                required
-                value={car}
-                onChange={(e) => setCar(e.target.value)}
-                placeholder="NA Miata"
-                className="min-h-12 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
-              />
-            </label>
+            <div className="grid gap-3">
+              <label className="flex flex-col gap-1.5 text-sm">
+                <span className="text-zinc-400">Car</span>
+                <select
+                  required
+                  value={carChoice}
+                  onChange={(event) => onCarChoice(event.target.value)}
+                  className="min-h-12 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
+                >
+                  <option value="" disabled={knownCars.length === 0}>
+                    Choose a car
+                  </option>
+                  {knownCars.map((value) => (
+                    <option key={value} value={value}>
+                      {value}
+                    </option>
+                  ))}
+                  <option value={NEW_CAR}>+ Create new car…</option>
+                </select>
+              </label>
+              {creatingCar ? (
+                <label className="flex flex-col gap-1.5 text-sm">
+                  <span className="text-zinc-400">New car name</span>
+                  <input
+                    required
+                    value={car}
+                    onChange={(event) => setCar(event.target.value)}
+                    placeholder="NA Miata"
+                    className="min-h-12 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
+                  />
+                </label>
+              ) : null}
+            </div>
           ) : null}
           <label className="flex flex-col gap-1.5 text-sm">
             <span className="text-zinc-400">Class</span>

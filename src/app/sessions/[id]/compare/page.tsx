@@ -11,14 +11,19 @@ export default async function ComparePage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ ref?: string; other?: string }>;
+  searchParams: Promise<{ ref?: string; other?: string; otherSession?: string }>;
 }) {
   const { id } = await params;
   const query = await searchParams;
 
   if (shouldUseLocalSession(id)) {
     return (
-      <LocalCompare id={id} initialRef={query.ref} initialOther={query.other} />
+      <LocalCompare
+        id={id}
+        initialRef={query.ref}
+        initialOther={query.other}
+        initialOtherSession={query.otherSession}
+      />
     );
   }
 
@@ -32,7 +37,12 @@ export default async function ComparePage({
     : { data: null };
   if (!user || !session) {
     return (
-      <LocalCompare id={id} initialRef={query.ref} initialOther={query.other} />
+      <LocalCompare
+        id={id}
+        initialRef={query.ref}
+        initialOther={query.other}
+        initialOtherSession={query.otherSession}
+      />
     );
   }
   const sessionRow = session as SessionRow;

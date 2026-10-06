@@ -164,6 +164,30 @@ export function saveLocalSession(
   return session;
 }
 
+export function listKnownCars(): string[] {
+  const names = new Set<string>();
+  for (const session of listLocalSessions()) {
+    const car = session.car?.trim();
+    if (car) names.add(car);
+  }
+  return [...names].sort((a, b) => a.localeCompare(b));
+}
+
+export function listSessionsForCompare(options?: {
+  trackId?: string;
+  excludeSessionId?: string;
+}): StoredSession[] {
+  return listLocalSessions().filter((session) => {
+    if (options?.excludeSessionId && session.id === options.excludeSessionId) {
+      return false;
+    }
+    if (options?.trackId && session.trackId && session.trackId !== options.trackId) {
+      return false;
+    }
+    return session.laps.length > 0;
+  });
+}
+
 export function listDrivers(): DriverProfile[] {
   return readDrivers().sort((a, b) => a.name.localeCompare(b.name));
 }

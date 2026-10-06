@@ -32,13 +32,30 @@ export function compareHref(
   sessionId: string,
   laps: { id: string; lap_time_ms: number }[],
   focusId?: string,
+  otherSessionId?: string,
 ) {
-  if (laps.length < 2) return null;
+  if (!laps.length) return null;
   const pair = defaultLapPair(laps);
-  const ref = pair.ref;
-  const other = focusId && focusId !== ref ? focusId : pair.other;
-  if (!ref || !other || ref === other) return null;
-  return `/sessions/${sessionId}/compare?ref=${ref}&other=${other}`;
+  const ref =
+    focusId && laps.some((lap) => lap.id === focusId) ? focusId : pair.ref;
+  if (!ref) return null;
+
+  const params = new URLSearchParams({ ref });
+  if (otherSessionId) params.set("otherSession", otherSessionId);
+
+  let other: string | undefined;
+  if (otherSessionId) {
+    // Cross-session: focusId is the other lap when provided as 3rd arg historically
+    // only when otherSession is also set via 4th arg.
+    other = focusId && focusId !== ref ? focusId : undefined;
+  } else if (focusId && focusId !== ref) {
+    other = focusId;
+  } else if (pair.other && pair.other !== ref) {
+    other = pair.other;
+  }
+
+  if (other) params.set("other", other);
+  return `/sessions/${sessionId}/compare?${params.toString()}`;
 }
 
 function haversine(lat1: number, lon1: number, lat2: number, lon2: number) {
