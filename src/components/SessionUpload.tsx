@@ -1,28 +1,67 @@
 "use client";
 
-import { saveLocalSession } from "@/lib/local-store";
+import { SearchOrCreate } from "@/components/SearchOrCreate";
+import { catalogCars } from "@/lib/catalog";
+import { listLocalSessions, saveLocalSession } from "@/lib/local-store";
 import { parseTelemetryCsv } from "@/lib/parse-telemetry";
-import { createClient } from "@/lib/supabase/client";
-import { popularTracks } from "@/lib/tracks";
+import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
+import { getTrack, listCustomTracks, popularTracks, saveCustomTrack } from "@/lib/tracks";
 import { useRouter } from "next/navigation";
-import { ChangeEvent, FormEvent, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useState } from "react";
+
+function missingTrackColumns(message: string) {
+  return /track_id|track_name|column|schema cache/i.test(message);
+}
 
 export function SessionUpload({
-  storage = "supabase",
+  storage = "auto",
   trackId,
 }: {
-  storage?: "supabase" | "local";
+  storage?: "auto" | "supabase" | "local";
   trackId?: string;
 }) {
   const router = useRouter();
-  const local = storage === "local";
+  const [signedIn, setSignedIn] = useState(false);
+  const [authReady, setAuthReady] = useState(
+    storage === "local" || !hasSupabaseConfig(),
+  );
   const [pickedTrack, setPickedTrack] = useState(trackId ?? "");
+  const [trackChoices, setTrackChoices] = useState(() => popularTracks());
+  const [cars, setCars] = useState<string[]>(() => catalogCars());
   const [name, setName] = useState("");
   const [car, setCar] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const chosenTrack = trackId ?? pickedTrack;
+  const saveToAccount =
+    storage === "supabase" || (storage === "auto" && signedIn && hasSupabaseConfig());
+
+  useEffect(() => {
+    if (storage === "local" || !hasSupabaseConfig()) return;
+    let cancelled = false;
+    createClient()
+      .auth.getUser()
+      .then(({ data }) => {
+        if (!cancelled) setSignedIn(Boolean(data.user));
+      })
+      .finally(() => {
+        if (!cancelled) setAuthReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [storage]);
+
+  useEffect(() => {
+    const known = new Set(catalogCars());
+    for (const session of listLocalSessions()) {
+      const label = session.car?.trim();
+      if (label) known.add(label);
+    }
+    setCars([...known].sort((a, b) => a.localeCompare(b)));
+    setTrackChoices(popularTracks("", listCustomTracks()));
+  }, []);
 
   function onFile(event: ChangeEvent<HTMLInputElement>) {
     const next = event.target.files?.[0] ?? null;
@@ -57,10 +96,11 @@ export function SessionUpload({
     filename: string,
     laps: ReturnType<typeof parseTelemetryCsv>,
   ) {
-    if (storage === "local") {
-      if (!chosenTrack) throw new Error("Choose a track");
-      const carName = car.trim();
-      if (!carName) throw new Error("Enter the car");
+    if (!chosenTrack) throw new Error("Choose a track, or create it from the list");
+    const carName = car.trim();
+    if (!carName) throw new Error("Choose a car, or create it from the list");
+
+    if (!saveToAccount) {
       const session = saveLocalSession(sessionName, filename, laps, {
         trackId: chosenTrack,
         car: carName,
@@ -77,15 +117,32 @@ export function SessionUpload({
     } = await supabase.auth.getUser();
     if (userError || !user) throw new Error("You need to be signed in");
 
-    const { data: session, error: sessionError } = await supabase
+    const trackName = getTrack(chosenTrack)?.name ?? chosenTrack;
+    const inserted = await supabase
       .from("sessions")
       .insert({
         user_id: user.id,
         name: sessionName,
         filename,
+        track_id: chosenTrack,
+        track_name: trackName,
+        car: carName,
       })
       .select("id")
       .single();
+
+    if (inserted.error && missingTrackColumns(inserted.error.message)) {
+      const session = saveLocalSession(sessionName, filename, laps, {
+        trackId: chosenTrack,
+        car: carName,
+      });
+      router.push(`/sessions/${session.id}`);
+      router.refresh();
+      return;
+    }
+
+    const session = inserted.data;
+    const sessionError = inserted.error;
     if (sessionError || !session) {
       throw new Error(sessionError?.message ?? "Could not create session");
     }
@@ -129,42 +186,48 @@ export function SessionUpload({
       <div className="mb-4">
         <h2 className="text-sm font-medium text-zinc-200">Upload telemetry</h2>
         <p className="mt-1 text-sm text-zinc-500">
-          {local
-            ? "Saved in this browser on the track and car you choose. CSV with time, speed, and optionally lap, lat, and lon."
-            : "CSV with time, speed, and optionally lap, lat, and lon."}
+          {!authReady
+            ? "CSV with time, speed, and optionally lap, lat, and lon."
+            : saveToAccount
+              ? "Saves to your account on the track and car you choose. CSV with time, speed, and optionally lap, lat, and lon."
+              : "Saved in this browser on the track and car you choose. CSV with time, speed, and optionally lap, lat, and lon."}
         </p>
       </div>
       <div className="grid gap-3">
-        {local && !trackId ? (
-          <label className="flex flex-col gap-1.5 text-sm">
-            <span className="text-zinc-400">Track</span>
-            <select
-              required
-              value={pickedTrack}
-              onChange={(event) => setPickedTrack(event.target.value)}
-              className="rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2"
-            >
-              <option value="">Choose a track</option>
-              {popularTracks().map((track) => (
-                <option key={track.id} value={track.id}>
-                  {track.name}
-                </option>
-              ))}
-            </select>
-          </label>
+        {!trackId ? (
+          <SearchOrCreate
+            label="Track"
+            placeholder="Search or create a track"
+            options={trackChoices.map((track) => ({
+              id: track.id,
+              label: track.name,
+              hint: track.location,
+            }))}
+            valueId={pickedTrack}
+            onChange={setPickedTrack}
+            onCreate={(trackName) => {
+              const track = saveCustomTrack(trackName);
+              setTrackChoices(popularTracks("", listCustomTracks()));
+              setPickedTrack(track.id);
+            }}
+          />
         ) : null}
-        {local ? (
-          <label className="flex flex-col gap-1.5 text-sm">
-            <span className="text-zinc-400">Car</span>
-            <input
-              required
-              value={car}
-              onChange={(e) => setCar(e.target.value)}
-              placeholder="Porsche 911 GT3"
-              className="rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2"
-            />
-          </label>
-        ) : null}
+        <SearchOrCreate
+          label="Car"
+          placeholder="Search or create a car"
+          options={cars.map((label) => ({ id: label, label }))}
+          valueId={car}
+          onChange={setCar}
+          onCreate={(carName) => {
+            const trimmed = carName.trim();
+            setCars((current) =>
+              current.some((item) => item.toLowerCase() === trimmed.toLowerCase())
+                ? current
+                : [...current, trimmed].sort((a, b) => a.localeCompare(b)),
+            );
+            setCar(trimmed);
+          }}
+        />
         <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
         <label className="flex flex-col gap-1.5 text-sm">
           <span className="text-zinc-400">Session name</span>
@@ -193,7 +256,7 @@ export function SessionUpload({
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <button
           type="submit"
-          disabled={busy}
+          disabled={busy || !authReady}
           className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-black hover:bg-orange-400 disabled:opacity-50"
         >
           {busy ? "Parsing…" : "Upload session"}
@@ -201,7 +264,7 @@ export function SessionUpload({
         <button
           type="button"
           onClick={loadSample}
-          disabled={busy}
+          disabled={busy || !authReady}
           className="text-sm text-zinc-400 underline-offset-4 hover:text-zinc-200 hover:underline disabled:opacity-50"
         >
           Load sample session

@@ -23,6 +23,9 @@ export type SessionRow = {
   name: string;
   filename: string | null;
   created_at: string;
+  track_id?: string | null;
+  track_name?: string | null;
+  car?: string | null;
 };
 
 export type LapRow = {
