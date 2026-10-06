@@ -103,24 +103,94 @@ export const TRACKS: Track[] = [
   },
 ];
 
-function normalize(value: string) {
+const CUSTOM_TRACKS_KEY = "apex.local-tracks";
+
+export function normalizeTrackQuery(value: string) {
   return value
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
 }
 
-export function getTrack(id: string): Track | null {
+function slugify(name: string) {
+  const slug = normalizeTrackQuery(name)
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+  return slug || "track";
+}
+
+export function listCustomTracks(): Track[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(CUSTOM_TRACKS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as Track[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeCustomTracks(tracks: Track[]) {
+  window.localStorage.setItem(CUSTOM_TRACKS_KEY, JSON.stringify(tracks));
+}
+
+export function builtinTrack(id: string): Track | null {
   return TRACKS.find((track) => track.id === id) ?? null;
 }
 
-export function popularTracks(query = ""): Track[] {
-  const ranked = [...TRACKS].sort(
+export function getTrack(id: string): Track | null {
+  return (
+    builtinTrack(id) ??
+    listCustomTracks().find((track) => track.id === id) ??
+    null
+  );
+}
+
+export function findTrackByName(name: string, extras: Track[] = listCustomTracks()): Track | null {
+  const needle = normalizeTrackQuery(name.trim());
+  if (!needle) return null;
+  return (
+    [...TRACKS, ...extras].find((track) => normalizeTrackQuery(track.name) === needle) ??
+    null
+  );
+}
+
+export function saveCustomTrack(name: string): Track {
+  const trimmed = name.trim();
+  const existing = findTrackByName(trimmed);
+  if (existing) return existing;
+
+  const custom = listCustomTracks();
+  const base = `custom-${slugify(trimmed)}`;
+  const taken = new Set([...TRACKS, ...custom].map((track) => track.id));
+  let id = base;
+  if (taken.has(id)) id = `${base}-${crypto.randomUUID().slice(0, 8)}`;
+
+  const track: Track = {
+    id,
+    name: trimmed,
+    location: "Added in this browser",
+    popularity: 0,
+    lat: 0,
+    lon: 0,
+    search: trimmed,
+  };
+  writeCustomTracks([track, ...custom]);
+  return track;
+}
+
+export function popularTracks(query = "", extras: Track[] = []): Track[] {
+  const merged = [...TRACKS];
+  for (const extra of extras) {
+    if (!merged.some((track) => track.id === extra.id)) merged.push(extra);
+  }
+  const ranked = merged.sort(
     (a, b) => b.popularity - a.popularity || a.name.localeCompare(b.name),
   );
-  const needle = normalize(query.trim());
+  const needle = normalizeTrackQuery(query.trim());
   if (!needle) return ranked;
   return ranked.filter((track) =>
-    normalize(`${track.name} ${track.location} ${track.search}`).includes(needle),
+    normalizeTrackQuery(`${track.name} ${track.location} ${track.search}`).includes(needle),
   );
 }
