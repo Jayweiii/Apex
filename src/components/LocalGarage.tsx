@@ -8,7 +8,7 @@ import { loadCatalogSession } from "@/lib/catalog";
 import { compareHref } from "@/lib/compare";
 import { formatLapTime } from "@/lib/format";
 import { getLocalSession, type StoredSession } from "@/lib/local-store";
-import { getTrack } from "@/lib/tracks";
+import { builtinTrack, getTrack, type Track } from "@/lib/tracks";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
@@ -118,6 +118,17 @@ function useLocalSession(id: string) {
 
 export function LocalSession({ id }: { id: string }) {
   const session = useLocalSession(id);
+  const trackId = session?.trackId;
+  const builtin = trackId ? builtinTrack(trackId) : null;
+  const [customTrack, setCustomTrack] = useState<Track | null>(null);
+  useEffect(() => {
+    if (!trackId || builtin) {
+      setCustomTrack(null);
+      return;
+    }
+    setCustomTrack(getTrack(trackId));
+  }, [trackId, builtin]);
+  const track = builtin ?? customTrack;
 
   if (session === undefined) return null;
   if (!session) {
@@ -146,8 +157,6 @@ export function LocalSession({ id }: { id: string }) {
     lap_time_ms: lap.lap_time_ms,
     telemetry: lap.telemetry,
   }));
-
-  const track = session.trackId ? getTrack(session.trackId) : null;
 
   return (
     <>

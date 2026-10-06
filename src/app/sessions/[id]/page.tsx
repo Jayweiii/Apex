@@ -49,16 +49,17 @@ export default async function SessionPage({
       <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-8 px-6 py-8">
         <div>
           <Link
-            href="/"
+            href={sessionRow.track_id ? `/tracks/${sessionRow.track_id}` : "/"}
             className="text-xs uppercase tracking-[0.2em] text-zinc-500 hover:text-zinc-300"
           >
-            All sessions
+            {sessionRow.track_name || "All tracks"}
           </Link>
           <h1 className="mt-3 text-2xl font-semibold tracking-tight text-zinc-50">
             {sessionRow.name}
           </h1>
           <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-zinc-500">
+              {sessionRow.car ? `${sessionRow.car} · ` : ""}
               {lapRows.length} laps
               {Number.isFinite(best) ? ` · best ${formatLapTime(best)}` : ""}
             </p>

@@ -74,6 +74,8 @@ export default async function AccountPage() {
                     <div>
                       <p className="font-medium text-zinc-100">{session.name}</p>
                       <p className="mt-1 text-xs text-zinc-500">
+                        {[session.track_name, session.car].filter(Boolean).join(" · ")}
+                        {(session.track_name || session.car) ? " · " : ""}
                         {new Date(session.created_at).toLocaleString()}
                         {session.filename ? ` · ${session.filename}` : ""}
                       </p>
