@@ -1,12 +1,17 @@
 "use client";
 
 import { DataKindBadge } from "@/components/Attribution";
-import { saveLocalSession } from "@/lib/local-store";
+import { putLocalBlob } from "@/lib/blob-store";
+import { listDrivers, saveLocalSession } from "@/lib/local-store";
+import { parseGoProChapters } from "@/lib/parse-gopro";
 import { parseTelemetryCsv } from "@/lib/parse-telemetry";
 import { createClient } from "@/lib/supabase/client";
 import { popularTracks } from "@/lib/tracks";
+import { presignUpload, uploadToTarget } from "@/lib/storage/upload-client";
 import { useRouter } from "next/navigation";
-import { ChangeEvent, FormEvent, useState } from "react";
+import { ChangeEvent, FormEvent, useMemo, useState } from "react";
+
+const CAR_CLASSES = ["Open", "Spec Miata", "GR Cup", "GT4", "GT3", "Prototype"];
 
 export function SessionUpload({
   storage = "supabase",
@@ -20,37 +25,126 @@ export function SessionUpload({
   const [pickedTrack, setPickedTrack] = useState(trackId ?? "");
   const [name, setName] = useState("");
   const [car, setCar] = useState("");
-  const [file, setFile] = useState<File | null>(null);
+  const [carClass, setCarClass] = useState("Open");
+  const [carTags, setCarTags] = useState("");
+  const [driver, setDriver] = useState("");
+  const [weather, setWeather] = useState("");
+  const [tires, setTires] = useState("");
+  const [notes, setNotes] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
+  const [keepVideo, setKeepVideo] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<string | null>(null);
   const chosenTrack = trackId ?? pickedTrack;
+  const drivers = useMemo(
+    () => (typeof window === "undefined" ? [] : listDrivers()),
+    [busy],
+  );
+
+  const primary = files[0] ?? null;
+  const isGoPro = Boolean(primary && /\.mp4$/i.test(primary.name));
 
   function onFile(event: ChangeEvent<HTMLInputElement>) {
-    const next = event.target.files?.[0] ?? null;
-    setFile(next);
+    const next = Array.from(event.target.files ?? []);
+    setFiles(next);
     setError(null);
-    if (next && !name) {
-      setName(next.name.replace(/\.csv$/i, "").replace(/[_-]+/g, " "));
+    if (next[0] && !name) {
+      setName(next[0].name.replace(/\.(csv|mp4)$/i, "").replace(/[_-]+/g, " "));
     }
+  }
+
+  async function storeRawAndMaybeVideo(sessionId: string, fileList: File[]) {
+    const mainFile = fileList[0];
+    let rawObjectKey: string | null = null;
+    let videoObjectKey: string | null = null;
+    let videoLocalKey: string | null = null;
+    let storageBackend: "r2" | "local" | "idb" = "local";
+
+    if (/\.csv$/i.test(mainFile.name)) {
+      try {
+        const target = await presignUpload({
+          filename: mainFile.name,
+          contentType: mainFile.type || "text/csv",
+          kind: "raw",
+          sessionId,
+        });
+        await uploadToTarget(target, mainFile);
+        rawObjectKey = target.key;
+        storageBackend = target.backend;
+      } catch {
+        const key = `local/${sessionId}/raw/${mainFile.name}`;
+        await putLocalBlob(key, mainFile);
+        rawObjectKey = key;
+        storageBackend = "idb";
+      }
+    }
+
+    if (keepVideo && isGoPro) {
+      try {
+        const target = await presignUpload({
+          filename: mainFile.name,
+          contentType: mainFile.type || "video/mp4",
+          kind: "video",
+          sessionId,
+        });
+        await uploadToTarget(target, mainFile);
+        videoObjectKey = target.key;
+        storageBackend = target.backend;
+      } catch {
+        const key = `local/${sessionId}/video/${mainFile.name}`;
+        await putLocalBlob(key, mainFile);
+        videoLocalKey = key;
+        storageBackend = "idb";
+      }
+    }
+
+    return { rawObjectKey, videoObjectKey, videoLocalKey, storageBackend };
   }
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
     setError(null);
-    if (!file) {
-      setError("Choose a CSV telemetry file");
+    if (!files.length) {
+      setError("Choose a CSV or GoPro MP4 file");
       return;
     }
 
     setBusy(true);
+    setProgress("Parsing…");
     try {
-      const csv = await file.text();
-      const laps = parseTelemetryCsv(csv);
-      await saveSession(name.trim() || file.name, file.name, laps);
+      let laps;
+      let sourceKind: "csv" | "gopro" = "csv";
+      if (isGoPro) {
+        setProgress("Extracting GoPro GPMF…");
+        const parsed = await parseGoProChapters(files, (percent) => {
+          setProgress(`Extracting GoPro GPMF… ${Math.round(percent)}%`);
+        });
+        laps = parsed.laps;
+        sourceKind = "gopro";
+      } else {
+        const csv = await files[0].text();
+        laps = parseTelemetryCsv(csv);
+      }
+
+      const sessionId = crypto.randomUUID();
+      setProgress("Storing original…");
+      const stored = await storeRawAndMaybeVideo(sessionId, files);
+      await saveSession(
+        name.trim() || files[0].name,
+        files.map((file) => file.name).join(", "),
+        laps,
+        {
+          ...stored,
+          sourceKind,
+          forcedId: sessionId,
+        },
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setBusy(false);
+      setProgress(null);
     }
   }
 
@@ -58,14 +152,39 @@ export function SessionUpload({
     sessionName: string,
     filename: string,
     laps: ReturnType<typeof parseTelemetryCsv>,
+    extra: {
+      sourceKind: "csv" | "gopro";
+      rawObjectKey: string | null;
+      videoObjectKey: string | null;
+      videoLocalKey: string | null;
+      storageBackend: "r2" | "local" | "idb";
+      forcedId?: string;
+    },
   ) {
+    const tags = carTags
+      .split(",")
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+
     if (storage === "local") {
       if (!chosenTrack) throw new Error("Choose a track");
       const carName = car.trim();
       if (!carName) throw new Error("Enter the car");
       const session = saveLocalSession(sessionName, filename, laps, {
+        id: extra.forcedId,
         trackId: chosenTrack,
         car: carName,
+        carClass,
+        carTags: tags,
+        driver: driver.trim() || undefined,
+        weather: weather.trim() || undefined,
+        tires: tires.trim() || undefined,
+        notes: notes.trim() || undefined,
+        sourceKind: extra.sourceKind,
+        rawObjectKey: extra.rawObjectKey,
+        videoObjectKey: extra.videoObjectKey,
+        videoLocalKey: extra.videoLocalKey,
+        storageBackend: extra.storageBackend,
       });
       router.push(`/sessions/${session.id}`);
       router.refresh();
@@ -85,6 +204,18 @@ export function SessionUpload({
         user_id: user.id,
         name: sessionName,
         filename,
+        track_id: chosenTrack || null,
+        car: car.trim() || null,
+        car_class: carClass,
+        car_tags: tags,
+        driver_name: driver.trim() || null,
+        weather: weather.trim() || null,
+        tires: tires.trim() || null,
+        notes: notes.trim() || null,
+        source_kind: extra.sourceKind,
+        raw_object_key: extra.rawObjectKey,
+        video_object_key: extra.videoObjectKey,
+        storage_backend: extra.storageBackend,
       })
       .select("id")
       .single();
@@ -107,18 +238,6 @@ export function SessionUpload({
     router.refresh();
   }
 
-  async function loadSample() {
-    setError(null);
-    setBusy(true);
-    try {
-      router.push("/sessions/demo-laguna-seca-gt3");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not open the demo");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
     <form
       onSubmit={onSubmit}
@@ -128,9 +247,9 @@ export function SessionUpload({
         <div>
           <h2 className="text-sm font-medium text-zinc-200">Upload telemetry</h2>
           <p className="mt-1 max-w-xl text-sm text-zinc-500">
-            {local
-              ? "Imports stay in this browser. TrackAddict / RaceRender CSV works — time, speed, optional lap, lat, lon."
-              : "TrackAddict / RaceRender CSV works — time, speed, optional lap, lat, lon."}
+            CSV (TrackAddict / RaceRender) or GoPro MP4 with GPMF GPS. Telemetry
+            is extracted in your browser for video; originals can be stored for
+            re-processing.
           </p>
         </div>
         <DataKindBadge kind="upload" />
@@ -154,18 +273,90 @@ export function SessionUpload({
             </select>
           </label>
         ) : null}
-        {local ? (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {local ? (
+            <label className="flex flex-col gap-1.5 text-sm">
+              <span className="text-zinc-400">Car</span>
+              <input
+                required
+                value={car}
+                onChange={(e) => setCar(e.target.value)}
+                placeholder="NA Miata"
+                className="min-h-12 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
+              />
+            </label>
+          ) : null}
           <label className="flex flex-col gap-1.5 text-sm">
-            <span className="text-zinc-400">Car</span>
+            <span className="text-zinc-400">Class</span>
+            <select
+              value={carClass}
+              onChange={(event) => setCarClass(event.target.value)}
+              className="min-h-12 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
+            >
+              {CAR_CLASSES.map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="flex flex-col gap-1.5 text-sm">
+            <span className="text-zinc-400">Driver</span>
             <input
-              required
-              value={car}
-              onChange={(e) => setCar(e.target.value)}
-              placeholder="Porsche 911 GT3"
+              list="apex-drivers"
+              value={driver}
+              onChange={(e) => setDriver(e.target.value)}
+              placeholder="Alex"
+              className="min-h-12 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
+            />
+            <datalist id="apex-drivers">
+              {drivers.map((item) => (
+                <option key={item.id} value={item.name} />
+              ))}
+            </datalist>
+          </label>
+          <label className="flex flex-col gap-1.5 text-sm">
+            <span className="text-zinc-400">Car tags</span>
+            <input
+              value={carTags}
+              onChange={(e) => setCarTags(e.target.value)}
+              placeholder="205 tires, stock sway"
               className="min-h-12 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
             />
           </label>
-        ) : null}
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="flex flex-col gap-1.5 text-sm">
+            <span className="text-zinc-400">Weather</span>
+            <input
+              value={weather}
+              onChange={(e) => setWeather(e.target.value)}
+              placeholder="Dry, 18°C, light wind"
+              className="min-h-12 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
+            />
+          </label>
+          <label className="flex flex-col gap-1.5 text-sm">
+            <span className="text-zinc-400">Tires</span>
+            <input
+              value={tires}
+              onChange={(e) => setTires(e.target.value)}
+              placeholder="RE-71RS, heat cycle 2"
+              className="min-h-12 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
+            />
+          </label>
+        </div>
+        <label className="flex flex-col gap-1.5 text-sm">
+          <span className="text-zinc-400">Notes</span>
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            rows={2}
+            placeholder="Cold pressures 28/30, traffic in T5"
+            className="rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:text-sm"
+          />
+        </label>
         <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
           <label className="flex flex-col gap-1.5 text-sm">
             <span className="text-zinc-400">Session name</span>
@@ -177,18 +368,35 @@ export function SessionUpload({
             />
           </label>
           <label className="flex cursor-pointer flex-col gap-1.5 text-sm">
-            <span className="text-zinc-400">CSV file</span>
+            <span className="text-zinc-400">CSV or GoPro MP4</span>
             <span className="flex min-h-12 items-center rounded-lg border border-dashed border-zinc-700 px-3 py-3 text-zinc-300 hover:border-orange-500/60 sm:min-h-10 sm:py-2">
-              {file ? file.name : "Choose file"}
+              {files.length
+                ? files.map((file) => file.name).join(", ")
+                : "Choose file(s)"}
             </span>
             <input
               type="file"
-              accept=".csv,text/csv"
+              accept=".csv,text/csv,video/mp4,.mp4"
+              multiple
               onChange={onFile}
               className="sr-only"
             />
           </label>
         </div>
+        {isGoPro ? (
+          <label className="flex items-start gap-3 rounded-xl border border-zinc-800/80 px-3 py-3 text-sm text-zinc-400">
+            <input
+              type="checkbox"
+              checked={keepVideo}
+              onChange={(event) => setKeepVideo(event.target.checked)}
+              className="mt-1"
+            />
+            <span>
+              Upload video for onboard sync (optional). Telemetry is extracted
+              locally either way. Multi-chapter: select several MP4s together.
+            </span>
+          </label>
+        ) : null}
       </div>
       {error ? (
         <p
@@ -198,17 +406,18 @@ export function SessionUpload({
           {error}
         </p>
       ) : null}
+      {progress ? <p className="mt-3 text-sm text-zinc-400">{progress}</p> : null}
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <button
           type="submit"
           disabled={busy}
           className="min-h-11 rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-black hover:bg-orange-400 disabled:opacity-50"
         >
-          {busy ? "Parsing…" : "Upload session"}
+          {busy ? "Working…" : "Upload session"}
         </button>
         <button
           type="button"
-          onClick={loadSample}
+          onClick={() => router.push("/sessions/demo-laguna-seca-gt3")}
           disabled={busy}
           className="min-h-11 text-sm text-zinc-400 underline-offset-4 hover:text-zinc-200 hover:underline disabled:opacity-50"
         >
