@@ -67,7 +67,7 @@ export function enrichTelemetry(points: TelemetryPoint[]): AcceleratedPoint[] {
       dt > 0.02 ? (next.speed / 3.6 - prev.speed / 3.6) / dt / GRAVITY : 0;
 
     let latG = 0;
-    const hasSegment =
+    if (
       index > 0 &&
       index < points.length - 1 &&
       dt > 0.02 &&
@@ -76,8 +76,8 @@ export function enrichTelemetry(points: TelemetryPoint[]): AcceleratedPoint[] {
       point.lat != null &&
       point.lon != null &&
       next.lat != null &&
-      next.lon != null;
-    if (hasSegment) {
+      next.lon != null
+    ) {
       const headingIn = bearing(prev.lat, prev.lon, point.lat, point.lon);
       const headingOut = bearing(point.lat, point.lon, next.lat, next.lon);
       const yawRate = wrapPi(headingOut - headingIn) / dt;
