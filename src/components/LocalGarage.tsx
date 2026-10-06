@@ -1,17 +1,29 @@
 "use client";
 
+import {
+  CornerBreakdownTable,
+  TheoreticalBestCard,
+} from "@/components/AnalysisPanels";
 import { AttributionCard } from "@/components/Attribution";
 import { AppHeader } from "@/components/AppHeader";
 import { LapCompare } from "@/components/LapCompare";
 import { LapList } from "@/components/LapList";
 import { LapCharts } from "@/components/LapCharts";
+import { ShareLinkButton } from "@/components/ShareLinkButton";
+import { cornerBreakdown, theoreticalBestLap } from "@/lib/analysis";
+import { getLocalBlob } from "@/lib/blob-store";
 import { loadCatalogSession } from "@/lib/catalog";
 import { compareHref } from "@/lib/compare";
 import { formatLapTime } from "@/lib/format";
-import { getLocalSession, type StoredSession } from "@/lib/local-store";
+import {
+  getLocalSession,
+  replaceLocalSessionLaps,
+  type StoredSession,
+} from "@/lib/local-store";
+import { parseTelemetryCsv } from "@/lib/parse-telemetry";
 import { getTrack } from "@/lib/tracks";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 function CompareLink({
   sessionId,
@@ -59,6 +71,21 @@ function MissingShell({ message }: { message: string }) {
   );
 }
 
+function SessionNotes({ session }: { session: StoredSession }) {
+  const bits = [
+    session.driver ? `Driver ${session.driver}` : null,
+    session.carClass ? session.carClass : null,
+    session.carTags?.length ? session.carTags.join(", ") : null,
+    session.weather ? `Weather: ${session.weather}` : null,
+    session.tires ? `Tires: ${session.tires}` : null,
+    session.notes ? session.notes : null,
+  ].filter(Boolean);
+  if (!bits.length) return null;
+  return (
+    <p className="text-sm leading-relaxed text-zinc-500">{bits.join(" · ")}</p>
+  );
+}
+
 export function LocalCompare({
   id,
   initialRef,
@@ -84,6 +111,27 @@ export function LocalCompare({
     telemetry: lap.telemetry,
   }));
 
+  const href = compareHref(session.id, laps, initialOther);
+  const refId = initialRef || laps[0]?.id;
+  const otherId = initialOther || laps[1]?.id;
+  const refLap = session.laps.find((lap) => lap.id === refId);
+  const otherLap = session.laps.find((lap) => lap.id === otherId);
+  const corners =
+    refLap && otherLap && refLap.id !== otherLap.id
+      ? cornerBreakdown(
+          {
+            lapNumber: refLap.lap_number,
+            lapTimeMs: refLap.lap_time_ms,
+            points: refLap.telemetry,
+          },
+          {
+            lapNumber: otherLap.lap_number,
+            lapTimeMs: otherLap.lap_time_ms,
+            points: otherLap.telemetry,
+          },
+        )
+      : [];
+
   return (
     <>
       <AppHeader />
@@ -95,16 +143,27 @@ export function LocalCompare({
           >
             {session.name}
           </Link>
-          <h1 className="text-2xl font-semibold tracking-tight text-zinc-50 sm:text-3xl">
-            Compare laps
-          </h1>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h1 className="text-2xl font-semibold tracking-tight text-zinc-50 sm:text-3xl">
+              Compare laps
+            </h1>
+            {href ? <ShareLinkButton path={href} label="Copy compare link" /> : null}
+          </div>
           <AttributionCard
             kind={session.kind ?? "upload"}
             attribution={session.attribution}
             compact
           />
+          <SessionNotes session={session} />
         </div>
         <LapCompare laps={laps} initialRef={initialRef} initialOther={initialOther} />
+        {corners.length ? (
+          <CornerBreakdownTable
+            corners={corners}
+            referenceLabel={`Lap ${refLap?.lap_number}`}
+            otherLabel={`Lap ${otherLap?.lap_number}`}
+          />
+        ) : null}
       </main>
     </>
   );
@@ -144,6 +203,19 @@ function useLocalSession(id: string) {
 
 export function LocalSession({ id }: { id: string }) {
   const session = useLocalSession(id);
+  const [reprocessMsg, setReprocessMsg] = useState<string | null>(null);
+  const [reprocessBusy, setReprocessBusy] = useState(false);
+
+  const theo = useMemo(() => {
+    if (!session) return null;
+    return theoreticalBestLap(
+      session.laps.map((lap) => ({
+        lapNumber: lap.lap_number,
+        lapTimeMs: lap.lap_time_ms,
+        points: lap.telemetry,
+      })),
+    );
+  }, [session]);
 
   if (session === undefined) return <LoadingShell label="Loading session…" />;
   if (!session) {
@@ -164,6 +236,44 @@ export function LocalSession({ id }: { id: string }) {
   }));
 
   const track = session.trackId ? getTrack(session.trackId) : null;
+  const comparePath = compareHref(session.id, laps);
+  const current = session;
+
+  async function reprocess() {
+    setReprocessBusy(true);
+    setReprocessMsg(null);
+    try {
+      if (current.sourceKind === "gopro") {
+        throw new Error("Re-upload the GoPro MP4 to re-extract GPMF in the browser.");
+      }
+      if (current.rawObjectKey?.startsWith("local/")) {
+        const blob = await getLocalBlob(current.rawObjectKey);
+        if (!blob) throw new Error("Original CSV is missing from this browser.");
+        const lapsParsed = parseTelemetryCsv(await blob.text());
+        const updated = replaceLocalSessionLaps(current.id, lapsParsed);
+        if (!updated) throw new Error("Could not update session");
+        setReprocessMsg(`Re-processed ${lapsParsed.length} laps from the stored CSV.`);
+        window.location.reload();
+        return;
+      }
+      if (current.rawObjectKey) {
+        const response = await fetch(
+          `/api/storage/download?key=${encodeURIComponent(current.rawObjectKey)}`,
+        );
+        if (!response.ok) throw new Error("Could not download stored CSV");
+        const lapsParsed = parseTelemetryCsv(await response.text());
+        replaceLocalSessionLaps(current.id, lapsParsed);
+        setReprocessMsg(`Re-processed ${lapsParsed.length} laps.`);
+        window.location.reload();
+        return;
+      }
+      throw new Error("No stored original for this session.");
+    } catch (error) {
+      setReprocessMsg(error instanceof Error ? error.message : "Re-process failed");
+    } finally {
+      setReprocessBusy(false);
+    }
+  }
 
   return (
     <>
@@ -184,14 +294,38 @@ export function LocalSession({ id }: { id: string }) {
               {session.car ? `${session.car} · ` : ""}
               {session.laps.length} laps
               {Number.isFinite(best) ? ` · best ${formatLapTime(best)}` : ""}
+              {session.sourceKind === "gopro" ? " · GoPro" : ""}
             </p>
-            <CompareLink sessionId={session.id} laps={laps} />
+            <div className="flex flex-wrap items-center gap-2">
+              <ShareLinkButton path={`/sessions/${session.id}`} />
+              {comparePath ? (
+                <ShareLinkButton path={comparePath} label="Copy compare link" />
+              ) : null}
+              <CompareLink sessionId={session.id} laps={laps} />
+            </div>
           </div>
+          <SessionNotes session={session} />
           <AttributionCard
             kind={session.kind ?? "upload"}
             attribution={session.attribution}
           />
+          {session.kind === "upload" ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                disabled={reprocessBusy}
+                onClick={reprocess}
+                className="min-h-10 rounded-lg border border-zinc-800 px-3 text-xs uppercase tracking-[0.16em] text-zinc-300 hover:border-zinc-600 disabled:opacity-50"
+              >
+                {reprocessBusy ? "Re-processing…" : "Re-process from original"}
+              </button>
+              {reprocessMsg ? (
+                <p className="text-sm text-zinc-500">{reprocessMsg}</p>
+              ) : null}
+            </div>
+          ) : null}
         </div>
+        {theo ? <TheoreticalBestCard result={theo} /> : null}
         {laps.length ? (
           <LapList sessionId={session.id} laps={laps} />
         ) : (
@@ -213,6 +347,32 @@ export function LocalLap({
 }) {
   const session = useLocalSession(sessionId);
   const lap = session?.laps.find((item) => item.id === lapId);
+  const [videoSrc, setVideoSrc] = useState<string | null>(null);
+
+  useEffect(() => {
+    let url: string | null = null;
+    let cancelled = false;
+    async function loadVideo() {
+      if (!session) return;
+      if (session.videoObjectKey) {
+        setVideoSrc(
+          `/api/storage/download?key=${encodeURIComponent(session.videoObjectKey)}`,
+        );
+        return;
+      }
+      if (session.videoLocalKey) {
+        const blob = await getLocalBlob(session.videoLocalKey);
+        if (!blob || cancelled) return;
+        url = URL.createObjectURL(blob);
+        setVideoSrc(url);
+      }
+    }
+    loadVideo().catch(() => {});
+    return () => {
+      cancelled = true;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [session]);
 
   if (session === undefined) return <LoadingShell label="Loading lap…" />;
   if (!session || !lap) {
@@ -220,6 +380,11 @@ export function LocalLap({
   }
 
   const peak = lap.telemetry.reduce((max, point) => Math.max(max, point.speed), 0);
+  const corners = cornerBreakdown({
+    lapNumber: lap.lap_number,
+    lapTimeMs: lap.lap_time_ms,
+    points: lap.telemetry,
+  });
 
   return (
     <>
@@ -243,16 +408,23 @@ export function LocalLap({
             </div>
             <div className="flex flex-col items-start gap-2 sm:items-end">
               <p className="text-sm text-zinc-500">Peak {peak.toFixed(0)} km/h</p>
-              <CompareLink
-                sessionId={session.id}
-                laps={session.laps.map((item) => ({
-                  id: item.id,
-                  lap_time_ms: item.lap_time_ms,
-                }))}
-                focusId={lap.id}
-              />
+              <div className="flex flex-wrap gap-2">
+                <ShareLinkButton
+                  path={`/sessions/${session.id}/laps/${lap.id}`}
+                  label="Copy lap link"
+                />
+                <CompareLink
+                  sessionId={session.id}
+                  laps={session.laps.map((item) => ({
+                    id: item.id,
+                    lap_time_ms: item.lap_time_ms,
+                  }))}
+                  focusId={lap.id}
+                />
+              </div>
             </div>
           </div>
+          <SessionNotes session={session} />
           <AttributionCard
             kind={session.kind ?? "upload"}
             attribution={session.attribution}
@@ -260,12 +432,20 @@ export function LocalLap({
           />
         </div>
         {lap.telemetry.length ? (
-          <LapCharts points={lap.telemetry} label={`Lap ${lap.lap_number}`} />
+          <LapCharts
+            points={lap.telemetry}
+            label={`Lap ${lap.lap_number}`}
+            videoSrc={videoSrc}
+          />
         ) : (
           <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-8 text-center text-sm text-zinc-500">
             No speed samples on this lap.
           </p>
         )}
+        <CornerBreakdownTable
+          corners={corners}
+          referenceLabel={`Lap ${lap.lap_number}`}
+        />
       </main>
     </>
   );
