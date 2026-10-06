@@ -24,8 +24,26 @@ const SPEED_KEYS = [
 const DISTANCE_KEYS = ["distance", "dist", "odometer", "s"];
 const LAT_KEYS = ["latitude", "gps_latitude", "gps_lat", "lat"];
 const LON_KEYS = ["longitude", "gps_longitude", "gps_lon", "gps_lng", "lon", "lng"];
-const LAT_G_KEYS = ["lat_g", "lateral_g", "g_lat", "lateral_accel", "gps_latacc", "ay"];
-const LON_G_KEYS = ["long_g", "lon_g", "lng_g", "longitudinal_g", "g_long", "long_accel", "gps_lonacc", "ax"];
+const LAT_G_KEYS = [
+  "lat_g",
+  "lateral_g",
+  "g_lat",
+  "lateral_accel",
+  "gps_latacc",
+  "accel_y",
+  "ay",
+];
+const LON_G_KEYS = [
+  "long_g",
+  "lon_g",
+  "lng_g",
+  "longitudinal_g",
+  "g_long",
+  "long_accel",
+  "gps_lonacc",
+  "accel_x",
+  "ax",
+];
 
 const MAX_POINTS = 400;
 
@@ -33,9 +51,11 @@ function normalizeHeader(header: string): string {
   return header
     .trim()
     .toLowerCase()
-    .replace(/\(.*?\)/g, " ")
+    // Keep units from parentheses so "Speed (MPH)" → "speed_mph".
+    .replace(/\(([^)]*)\)/g, (_, unit: string) => ` ${unit} `)
     .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_|_$/g, "");
+    .replace(/^_|_$/g, "")
+    .replace(/_+/g, "_");
 }
 
 function findColumn(headers: string[], keys: string[]): string | null {
@@ -84,7 +104,9 @@ function toG(value: number | null, header: string): number | null {
     header === "g" ||
     header.endsWith("_g") ||
     header.startsWith("g_") ||
-    header.includes("gforce");
+    header.includes("gforce") ||
+    // TrackAddict Accel X/Y/Z columns are already in g.
+    header.startsWith("accel_");
   return alreadyG ? value : value / 9.80665;
 }
 
@@ -129,6 +151,8 @@ type LapSample = {
 export function parseTelemetryCsv(csv: string): ParsedLap[] {
   const parsed = Papa.parse<Record<string, string>>(csv, {
     header: true,
+    // TrackAddict / RaceRender exports start with "# …" metadata lines.
+    comments: "#",
     skipEmptyLines: "greedy",
     transformHeader: normalizeHeader,
   });

@@ -130,8 +130,8 @@ export function SessionUpload({
         <h2 className="text-sm font-medium text-zinc-200">Upload telemetry</h2>
         <p className="mt-1 text-sm text-zinc-500">
           {local
-            ? "Saved in this browser on the track and car you choose. CSV with time, speed, and optionally lap, lat, and lon."
-            : "CSV with time, speed, and optionally lap, lat, and lon."}
+            ? "Saved in this browser on the track and car you choose. TrackAddict / RaceRender CSV works — needs time, speed, and optionally lap, lat, and lon."
+            : "TrackAddict / RaceRender CSV works — needs time, speed, and optionally lap, lat, and lon."}
         </p>
       </div>
       <div className="grid gap-3">

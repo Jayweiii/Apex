@@ -21,7 +21,7 @@ Until those keys exist, the app runs in this browser only. Sessions stay in loca
 
 ## CSV format
 
-Header row required. Column names are matched case-insensitively.
+Header row required. Column names are matched case-insensitively. Lines starting with `#` (TrackAddict / RaceRender metadata) are skipped.
 
 | Role | Accepted names |
 | --- | --- |
@@ -31,4 +31,4 @@ Header row required. Column names are matched case-insensitively.
 | Latitude (optional) | `lat`, `latitude`, `gps_lat` |
 | Longitude (optional) | `lon`, `lng`, `longitude`, `gps_lon` |
 
-If `lap` is missing, Apex starts a new lap when time or distance resets. Speed is stored as km/h (`mph` columns are converted). Latitude and longitude draw the driven line and let two laps be overlaid. A sample file is at `public/sample-telemetry.csv`.
+If `lap` is missing, Apex starts a new lap when time or distance resets. Speed is stored as km/h (`mph` / `Speed (MPH)` columns are converted). Latitude and longitude draw the driven line and let two laps be overlaid. A sample file is at `public/sample-telemetry.csv`.
