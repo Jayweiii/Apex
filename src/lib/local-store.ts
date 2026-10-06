@@ -15,6 +15,8 @@ export type StoredSession = {
   filename: string | null;
   created_at: string;
   laps: StoredLap[];
+  trackId?: string;
+  car?: string;
 };
 
 function readAll(): StoredSession[] {
@@ -45,12 +47,15 @@ export function saveLocalSession(
   name: string,
   filename: string | null,
   laps: ParsedLap[],
+  meta?: { trackId?: string; car?: string },
 ): StoredSession {
   const session: StoredSession = {
     id: crypto.randomUUID(),
     name,
     filename,
     created_at: new Date().toISOString(),
+    trackId: meta?.trackId,
+    car: meta?.car,
     laps: laps.map((lap) => ({
       id: crypto.randomUUID(),
       lap_number: lap.lapNumber,

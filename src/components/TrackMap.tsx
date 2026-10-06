@@ -1,7 +1,9 @@
 "use client";
 
 import { hasGps } from "@/lib/compare";
+import { formatG } from "@/lib/format";
 import type { TelemetryPoint } from "@/lib/types";
+import { useState } from "react";
 
 export type TrackTrace = {
   id: string;
@@ -11,6 +13,8 @@ export type TrackTrace = {
   colorBySpeed?: boolean;
 };
 
+type GpsPoint = TelemetryPoint & { lat: number; lon: number };
+
 function speedColor(speed: number, min: number, max: number) {
   const t = max <= min ? 1 : Math.min(1, Math.max(0, (speed - min) / (max - min)));
   const r = Math.round(82 + (249 - 82) * t);
@@ -19,13 +23,41 @@ function speedColor(speed: number, min: number, max: number) {
   return `rgb(${r} ${g} ${b})`;
 }
 
-export function TrackMap({ traces }: { traces: TrackTrace[] }) {
+function sampleAt(points: GpsPoint[], progress: number): GpsPoint {
+  if (points.length === 1) return points[0];
+  const position = Math.min(1, Math.max(0, progress)) * (points.length - 1);
+  const index = Math.min(points.length - 2, Math.floor(position));
+  const mix = position - index;
+  const left = points[index];
+  const right = points[index + 1];
+  const mixNumber = (a?: number, b?: number) => (a ?? 0) + ((b ?? 0) - (a ?? 0)) * mix;
+  return {
+    ...right,
+    t: mixNumber(left.t, right.t),
+    speed: mixNumber(left.speed, right.speed),
+    lat: mixNumber(left.lat, right.lat),
+    lon: mixNumber(left.lon, right.lon),
+    latG: mixNumber(left.latG, right.latG),
+    lonG: mixNumber(left.lonG, right.lonG),
+    g: mixNumber(left.g, right.g),
+  };
+}
+
+export function TrackMap({
+  traces,
+  activeProgress = null,
+  onProgress,
+}: {
+  traces: TrackTrace[];
+  activeProgress?: number | null;
+  onProgress?: (progress: number | null) => void;
+}) {
+  const [pointer, setPointer] = useState<{ x: number; y: number } | null>(null);
   const drawable = traces
     .map((trace) => ({
       ...trace,
       points: trace.points.filter(
-        (point): point is TelemetryPoint & { lat: number; lon: number } =>
-          point.lat != null && point.lon != null,
+        (point): point is GpsPoint => point.lat != null && point.lon != null,
       ),
     }))
     .filter((trace) => trace.points.length > 1);
@@ -47,8 +79,8 @@ export function TrackMap({ traces }: { traces: TrackTrace[] }) {
     const x = ((lon - minLon) * cos) / spanX;
     const y = (maxLat - lat) / spanY;
     return {
-      x: pad + x * (1 - pad * 2),
-      y: pad + y * (1 - pad * 2),
+      x: (pad + x * (1 - pad * 2)) * 100,
+      y: (pad + y * (1 - pad * 2)) * 100,
     };
   }
 
@@ -56,9 +88,34 @@ export function TrackMap({ traces }: { traces: TrackTrace[] }) {
   const minSpeed = Math.min(...speeds);
   const maxSpeed = Math.max(...speeds);
   const showLegend = drawable.length > 1 || drawable.some((trace) => trace.colorBySpeed);
+  const progress = activeProgress;
+
+  function nearestProgress(x: number, y: number) {
+    let bestDistance = Number.POSITIVE_INFINITY;
+    let best = 0;
+    for (const trace of drawable) {
+      trace.points.forEach((point, index) => {
+        const projected = xy(point.lat, point.lon);
+        const distance = (projected.x - x) ** 2 + (projected.y - y) ** 2;
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          best = index / (trace.points.length - 1);
+        }
+      });
+    }
+    return best;
+  }
+
+  const markers =
+    progress == null
+      ? []
+      : drawable.map((trace) => {
+          const point = sampleAt(trace.points, progress);
+          return { trace, point, at: xy(point.lat, point.lon) };
+        });
 
   return (
-    <div className="rounded-2xl border border-zinc-800/80 bg-zinc-950/40 p-4">
+    <div className="relative rounded-2xl border border-zinc-800/80 bg-zinc-950/40 p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">GPS</p>
         {showLegend ? (
@@ -83,7 +140,21 @@ export function TrackMap({ traces }: { traces: TrackTrace[] }) {
           </div>
         ) : null}
       </div>
-      <svg viewBox="0 0 100 100" className="h-[380px] w-full">
+      <svg
+        viewBox="0 0 100 100"
+        className="h-[380px] w-full"
+        onMouseMove={(event) => {
+          const rect = event.currentTarget.getBoundingClientRect();
+          const x = ((event.clientX - rect.left) / rect.width) * 100;
+          const y = ((event.clientY - rect.top) / rect.height) * 100;
+          setPointer({ x, y });
+          onProgress?.(nearestProgress(x, y));
+        }}
+        onMouseLeave={() => {
+          setPointer(null);
+          onProgress?.(null);
+        }}
+      >
         {drawable.map((trace) => {
           const start = xy(trace.points[0].lat, trace.points[0].lon);
           return (
@@ -95,10 +166,10 @@ export function TrackMap({ traces }: { traces: TrackTrace[] }) {
                 return (
                   <line
                     key={`${trace.id}-${index}`}
-                    x1={a.x * 100}
-                    y1={a.y * 100}
-                    x2={b.x * 100}
-                    y2={b.y * 100}
+                    x1={a.x}
+                    y1={a.y}
+                    x2={b.x}
+                    y2={b.y}
                     stroke={
                       trace.colorBySpeed
                         ? speedColor(point.speed, minSpeed, maxSpeed)
@@ -109,11 +180,43 @@ export function TrackMap({ traces }: { traces: TrackTrace[] }) {
                   />
                 );
               })}
-              <circle cx={start.x * 100} cy={start.y * 100} r={1.3} fill="#fafafa" />
+              <circle cx={start.x} cy={start.y} r={1.3} fill="#fafafa" />
             </g>
           );
         })}
+        {markers.map((marker) => (
+          <circle
+            key={marker.trace.id}
+            cx={marker.at.x}
+            cy={marker.at.y}
+            r={2.1}
+            fill="#fafafa"
+            stroke={marker.trace.colorBySpeed ? "#f97316" : marker.trace.color}
+            strokeWidth={0.8}
+          />
+        ))}
       </svg>
+      {markers.length ? (
+        <div
+          className="pointer-events-none absolute z-10 min-w-36 rounded-xl border border-zinc-800 bg-zinc-950/95 px-3 py-2 text-xs text-zinc-100 shadow-lg"
+          style={{
+            left: `clamp(12px, ${((pointer?.x ?? markers[0].at.x) / 100) * 70 + 8}%, calc(100% - 160px))`,
+            top: `clamp(48px, ${((pointer?.y ?? markers[0].at.y) / 100) * 70 + 36}%, calc(100% - 120px))`,
+          }}
+        >
+          {markers.map((marker) => (
+            <div key={marker.trace.id} className="mt-1 first:mt-0">
+              {drawable.length > 1 ? (
+                <p className="text-zinc-500">{marker.trace.label}</p>
+              ) : (
+                <p className="text-zinc-500">{marker.point.t.toFixed(1)}s</p>
+              )}
+              <p>{marker.point.speed.toFixed(0)} km/h</p>
+              <p>{formatG(marker.point.g ?? 0)}</p>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

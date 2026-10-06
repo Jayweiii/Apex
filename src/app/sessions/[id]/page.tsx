@@ -3,10 +3,10 @@ import { LocalSession } from "@/components/LocalGarage";
 import { LapList } from "@/components/LapList";
 import { compareHref } from "@/lib/compare";
 import { formatLapTime } from "@/lib/format";
+import { hasSupabaseConfig } from "@/lib/supabase/env";
 import { createClient } from "@/lib/supabase/server";
 import type { LapRow, SessionRow } from "@/lib/types";
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
 
 export default async function SessionPage({
   params,
@@ -14,10 +14,7 @@ export default async function SessionPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  if (
-    !process.env.NEXT_PUBLIC_SUPABASE_URL ||
-    !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  ) {
+  if (id.startsWith("pub-") || !hasSupabaseConfig()) {
     return <LocalSession id={id} />;
   }
 
@@ -25,15 +22,12 @@ export default async function SessionPage({
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
 
-  const { data: session } = await supabase
-    .from("sessions")
-    .select("*")
-    .eq("id", id)
-    .maybeSingle();
+  const { data: session } = user
+    ? await supabase.from("sessions").select("*").eq("id", id).maybeSingle()
+    : { data: null };
 
-  if (!session) notFound();
+  if (!user || !session) return <LocalSession id={id} />;
   const sessionRow = session as SessionRow;
 
   const { data: laps } = await supabase

@@ -3,19 +3,26 @@
 import { saveLocalSession } from "@/lib/local-store";
 import { parseTelemetryCsv } from "@/lib/parse-telemetry";
 import { createClient } from "@/lib/supabase/client";
+import { popularTracks } from "@/lib/tracks";
 import { useRouter } from "next/navigation";
 import { ChangeEvent, FormEvent, useState } from "react";
 
 export function SessionUpload({
   storage = "supabase",
+  trackId,
 }: {
   storage?: "supabase" | "local";
+  trackId?: string;
 }) {
   const router = useRouter();
+  const local = storage === "local";
+  const [pickedTrack, setPickedTrack] = useState(trackId ?? "");
   const [name, setName] = useState("");
+  const [car, setCar] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const chosenTrack = trackId ?? pickedTrack;
 
   function onFile(event: ChangeEvent<HTMLInputElement>) {
     const next = event.target.files?.[0] ?? null;
@@ -51,7 +58,13 @@ export function SessionUpload({
     laps: ReturnType<typeof parseTelemetryCsv>,
   ) {
     if (storage === "local") {
-      const session = saveLocalSession(sessionName, filename, laps);
+      if (!chosenTrack) throw new Error("Choose a track");
+      const carName = car.trim();
+      if (!carName) throw new Error("Enter the car");
+      const session = saveLocalSession(sessionName, filename, laps, {
+        trackId: chosenTrack,
+        car: carName,
+      });
       router.push(`/sessions/${session.id}`);
       router.refresh();
       return;
@@ -116,14 +129,43 @@ export function SessionUpload({
       <div className="mb-4">
         <h2 className="text-sm font-medium text-zinc-200">Upload telemetry</h2>
         <p className="mt-1 text-sm text-zinc-500">
-          CSV with <span className="text-zinc-300">time</span>,{" "}
-          <span className="text-zinc-300">speed</span>, and optionally{" "}
-          <span className="text-zinc-300">lap</span>,{" "}
-          <span className="text-zinc-300">lat</span>, and{" "}
-          <span className="text-zinc-300">lon</span>.
+          {local
+            ? "Saved in this browser on the track and car you choose. CSV with time, speed, and optionally lap, lat, and lon."
+            : "CSV with time, speed, and optionally lap, lat, and lon."}
         </p>
       </div>
-      <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+      <div className="grid gap-3">
+        {local && !trackId ? (
+          <label className="flex flex-col gap-1.5 text-sm">
+            <span className="text-zinc-400">Track</span>
+            <select
+              required
+              value={pickedTrack}
+              onChange={(event) => setPickedTrack(event.target.value)}
+              className="rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2"
+            >
+              <option value="">Choose a track</option>
+              {popularTracks().map((track) => (
+                <option key={track.id} value={track.id}>
+                  {track.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        {local ? (
+          <label className="flex flex-col gap-1.5 text-sm">
+            <span className="text-zinc-400">Car</span>
+            <input
+              required
+              value={car}
+              onChange={(e) => setCar(e.target.value)}
+              placeholder="Porsche 911 GT3"
+              className="rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2"
+            />
+          </label>
+        ) : null}
+        <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
         <label className="flex flex-col gap-1.5 text-sm">
           <span className="text-zinc-400">Session name</span>
           <input
@@ -145,6 +187,7 @@ export function SessionUpload({
             className="sr-only"
           />
         </label>
+        </div>
       </div>
       {error ? <p className="mt-3 text-sm text-red-400">{error}</p> : null}
       <div className="mt-4 flex flex-wrap items-center gap-3">

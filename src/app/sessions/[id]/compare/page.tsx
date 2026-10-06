@@ -1,10 +1,10 @@
 import { AppHeader } from "@/components/AppHeader";
 import { LapCompare } from "@/components/LapCompare";
 import { LocalCompare } from "@/components/LocalGarage";
+import { hasSupabaseConfig } from "@/lib/supabase/env";
 import { createClient } from "@/lib/supabase/server";
 import type { LapRow, SessionRow } from "@/lib/types";
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
 
 export default async function ComparePage({
   params,
@@ -16,10 +16,7 @@ export default async function ComparePage({
   const { id } = await params;
   const query = await searchParams;
 
-  if (
-    !process.env.NEXT_PUBLIC_SUPABASE_URL ||
-    !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  ) {
+  if (id.startsWith("pub-") || !hasSupabaseConfig()) {
     return (
       <LocalCompare id={id} initialRef={query.ref} initialOther={query.other} />
     );
@@ -29,14 +26,15 @@ export default async function ComparePage({
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
 
-  const { data: session } = await supabase
-    .from("sessions")
-    .select("*")
-    .eq("id", id)
-    .maybeSingle();
-  if (!session) notFound();
+  const { data: session } = user
+    ? await supabase.from("sessions").select("*").eq("id", id).maybeSingle()
+    : { data: null };
+  if (!user || !session) {
+    return (
+      <LocalCompare id={id} initialRef={query.ref} initialOther={query.other} />
+    );
+  }
   const sessionRow = session as SessionRow;
 
   const { data: laps } = await supabase

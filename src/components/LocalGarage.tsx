@@ -3,16 +3,12 @@
 import { AppHeader } from "@/components/AppHeader";
 import { LapCompare } from "@/components/LapCompare";
 import { LapList } from "@/components/LapList";
-import { SessionUpload } from "@/components/SessionUpload";
-import { SpeedChart } from "@/components/SpeedChart";
-import { MissingGps, TrackMap } from "@/components/TrackMap";
-import { compareHref, hasGps } from "@/lib/compare";
+import { LapCharts } from "@/components/LapCharts";
+import { loadCatalogSession } from "@/lib/catalog";
+import { compareHref } from "@/lib/compare";
 import { formatLapTime } from "@/lib/format";
-import {
-  getLocalSession,
-  listLocalSessions,
-  type StoredSession,
-} from "@/lib/local-store";
+import { getLocalSession, type StoredSession } from "@/lib/local-store";
+import { getTrack } from "@/lib/tracks";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
@@ -52,11 +48,11 @@ export function LocalCompare({
   if (!session) {
     return (
       <>
-        <AppHeader local />
+        <AppHeader />
         <main className="mx-auto w-full max-w-4xl px-6 py-8">
           <p className="text-sm text-zinc-400">Session not found in this browser.</p>
           <Link href="/" className="mt-4 inline-block text-sm text-orange-400">
-            Back to sessions
+            Back to tracks
           </Link>
         </main>
       </>
@@ -74,7 +70,7 @@ export function LocalCompare({
 
   return (
     <>
-      <AppHeader local />
+      <AppHeader />
       <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-6 py-8">
         <div>
           <Link
@@ -99,64 +95,25 @@ function useLocalSession(id: string) {
   );
 
   useEffect(() => {
-    setSession(getLocalSession(id));
+    let cancelled = false;
+    const local = getLocalSession(id);
+    if (local) {
+      setSession(local);
+      return;
+    }
+    loadCatalogSession(id)
+      .then((loaded) => {
+        if (!cancelled) setSession(loaded);
+      })
+      .catch(() => {
+        if (!cancelled) setSession(null);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
 
   return session;
-}
-
-export function LocalHome() {
-  const [sessions, setSessions] = useState<StoredSession[] | null>(null);
-
-  useEffect(() => {
-    setSessions(listLocalSessions());
-  }, []);
-
-  return (
-    <>
-      <AppHeader local />
-      <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-8 px-6 py-8">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-zinc-50">
-            Sessions
-          </h1>
-          <p className="mt-1 text-sm text-zinc-500">
-            Saved in this browser until Supabase is connected. Load the sample
-            to see laps, a GPS trace, and a lap comparison.
-          </p>
-        </div>
-        <SessionUpload storage="local" />
-        {sessions == null ? null : sessions.length === 0 ? (
-          <p className="text-sm text-zinc-500">No sessions yet.</p>
-        ) : (
-          <ul className="grid gap-3">
-            {sessions.map((session) => {
-              const best = Math.min(...session.laps.map((lap) => lap.lap_time_ms));
-              return (
-                <li key={session.id}>
-                  <Link
-                    href={`/sessions/${session.id}`}
-                    className="flex items-center justify-between rounded-2xl border border-zinc-800/80 bg-zinc-950/50 px-5 py-4 transition hover:border-zinc-700 hover:bg-zinc-900/60"
-                  >
-                    <div>
-                      <p className="font-medium text-zinc-100">{session.name}</p>
-                      <p className="mt-1 text-xs text-zinc-500">
-                        {new Date(session.created_at).toLocaleString()}
-                        {session.filename ? ` · ${session.filename}` : ""}
-                      </p>
-                    </div>
-                    <p className="font-mono text-lg text-orange-400">
-                      {Number.isFinite(best) ? formatLapTime(best) : "—"}
-                    </p>
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </main>
-    </>
-  );
 }
 
 export function LocalSession({ id }: { id: string }) {
@@ -166,11 +123,11 @@ export function LocalSession({ id }: { id: string }) {
   if (!session) {
     return (
       <>
-        <AppHeader local />
+        <AppHeader />
         <main className="mx-auto w-full max-w-4xl px-6 py-8">
           <p className="text-sm text-zinc-400">Session not found in this browser.</p>
           <Link href="/" className="mt-4 inline-block text-sm text-orange-400">
-            Back to sessions
+            Back to tracks
           </Link>
         </main>
       </>
@@ -190,22 +147,25 @@ export function LocalSession({ id }: { id: string }) {
     telemetry: lap.telemetry,
   }));
 
+  const track = session.trackId ? getTrack(session.trackId) : null;
+
   return (
     <>
-      <AppHeader local />
+      <AppHeader />
       <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-8 px-6 py-8">
         <div>
           <Link
-            href="/"
+            href={track ? `/tracks/${track.id}` : "/"}
             className="text-xs uppercase tracking-[0.2em] text-zinc-500 hover:text-zinc-300"
           >
-            All sessions
+            {track ? track.name : "All tracks"}
           </Link>
           <h1 className="mt-3 text-2xl font-semibold tracking-tight text-zinc-50">
             {session.name}
           </h1>
           <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-zinc-500">
+              {session.car ? `${session.car} · ` : ""}
               {session.laps.length} laps
               {Number.isFinite(best) ? ` · best ${formatLapTime(best)}` : ""}
             </p>
@@ -236,11 +196,11 @@ export function LocalLap({
   if (!session || !lap) {
     return (
       <>
-        <AppHeader local />
+        <AppHeader />
         <main className="mx-auto w-full max-w-4xl px-6 py-8">
           <p className="text-sm text-zinc-400">Lap not found in this browser.</p>
           <Link href="/" className="mt-4 inline-block text-sm text-orange-400">
-            Back to sessions
+            Back to tracks
           </Link>
         </main>
       </>
@@ -251,7 +211,7 @@ export function LocalLap({
 
   return (
     <>
-      <AppHeader local />
+      <AppHeader />
       <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-6 py-8">
         <div>
           <Link
@@ -283,24 +243,7 @@ export function LocalLap({
           </div>
         </div>
         {lap.telemetry.length ? (
-          <>
-            {hasGps(lap.telemetry) ? (
-              <TrackMap
-                traces={[
-                  {
-                    id: lap.id,
-                    label: `Lap ${lap.lap_number}`,
-                    color: "#f97316",
-                    points: lap.telemetry,
-                    colorBySpeed: true,
-                  },
-                ]}
-              />
-            ) : (
-              <MissingGps />
-            )}
-            <SpeedChart points={lap.telemetry} />
-          </>
+          <LapCharts points={lap.telemetry} label={`Lap ${lap.lap_number}`} />
         ) : (
           <p className="text-sm text-zinc-500">No speed samples on this lap.</p>
         )}

@@ -3,6 +3,12 @@ export type TelemetryPoint = {
   speed: number;
   lat?: number;
   lon?: number;
+  /** Lateral acceleration in g. Positive is left. */
+  latG?: number;
+  /** Longitudinal acceleration in g. Positive is acceleration, negative is braking. */
+  lonG?: number;
+  /** Combined acceleration in g. */
+  g?: number;
 };
 
 export type ParsedLap = {
