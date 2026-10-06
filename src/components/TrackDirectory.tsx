@@ -1,6 +1,6 @@
 "use client";
 
-import { AttributionInline, DataKindBadge } from "@/components/Attribution";
+import { DataKindBadge } from "@/components/Attribution";
 import { AppHeader } from "@/components/AppHeader";
 import { SessionUpload } from "@/components/SessionUpload";
 import {
@@ -141,10 +141,15 @@ export function TrackHome() {
                             {" · "}
                             {session.car}
                           </p>
-                          <AttributionInline
-                            kind="public"
-                            attribution={session.attribution}
-                          />
+                          <span className="inline-flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+                            <DataKindBadge kind="public" />
+                            <span>
+                              {session.attribution.source}
+                              {session.attribution.license
+                                ? ` · ${session.attribution.license}`
+                                : ""}
+                            </span>
+                          </span>
                         </div>
                         <p className="shrink-0 font-mono text-lg text-orange-400">
                           {formatLapTime(catalogBestMs(session))}

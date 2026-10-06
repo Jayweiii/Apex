@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:parse": "tsx scripts/verify-parse.ts"
+    "test:parse": "tsx scripts/verify-parse.ts",
+    "build:datasets": "tsx scripts/build-public-dataset.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
