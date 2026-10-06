@@ -3,13 +3,23 @@
 import { AppHeader } from "@/components/AppHeader";
 import { SessionUpload } from "@/components/SessionUpload";
 import {
+  listAccountSessions,
+  type AccountSessionSummary,
+} from "@/lib/account-sessions";
+import {
   catalogBestMs,
   catalogSessionsForTrack,
   type CatalogSession,
 } from "@/lib/catalog";
 import { formatLapTime } from "@/lib/format";
 import { listLocalSessions, type StoredSession } from "@/lib/local-store";
-import { getTrack, popularTracks } from "@/lib/tracks";
+import {
+  builtinTrack,
+  getTrack,
+  listCustomTracks,
+  popularTracks,
+  type Track,
+} from "@/lib/tracks";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -19,10 +29,14 @@ type TrackRow = {
   car: string;
   best: number;
   laps: number;
-  source: "catalog" | "browser";
+  source: "catalog" | "browser" | "account";
 };
 
-function rowsForTrack(trackId: string, local: StoredSession[]): TrackRow[] {
+function rowsForTrack(
+  trackId: string,
+  local: StoredSession[],
+  account: AccountSessionSummary[],
+): TrackRow[] {
   const catalog: TrackRow[] = catalogSessionsForTrack(trackId).map(
     (session: CatalogSession) => ({
       id: session.id,
@@ -43,7 +57,17 @@ function rowsForTrack(trackId: string, local: StoredSession[]): TrackRow[] {
       laps: session.laps.length,
       source: "browser",
     }));
-  return [...catalog, ...browser];
+  const saved: TrackRow[] = account
+    .filter((session) => session.trackId === trackId)
+    .map((session) => ({
+      id: session.id,
+      name: session.name,
+      car: session.car,
+      best: session.best,
+      laps: session.laps,
+      source: "account",
+    }));
+  return [...catalog, ...browser, ...saved];
 }
 
 function groupByCar(rows: TrackRow[]) {
@@ -63,7 +87,42 @@ function groupByCar(rows: TrackRow[]) {
 
 export function TrackHome() {
   const [query, setQuery] = useState("");
-  const tracks = useMemo(() => popularTracks(query), [query]);
+  const [customTracks, setCustomTracks] = useState<Track[]>([]);
+  const [localSessions, setLocalSessions] = useState<StoredSession[]>([]);
+  const [accountSessions, setAccountSessions] = useState<AccountSessionSummary[]>([]);
+  const tracks = useMemo(
+    () => popularTracks(query, customTracks),
+    [query, customTracks],
+  );
+
+  useEffect(() => {
+    const local = listLocalSessions();
+    setLocalSessions(local);
+    let cancelled = false;
+    listAccountSessions().then((account) => {
+      if (cancelled) return;
+      setAccountSessions(account);
+      const extras = listCustomTracks();
+      for (const session of account) {
+        if (!session.trackId || builtinTrack(session.trackId)) continue;
+        if (extras.some((track) => track.id === session.trackId)) continue;
+        extras.push({
+          id: session.trackId,
+          name: session.trackName,
+          location: "Your account",
+          popularity: 0,
+          lat: 0,
+          lon: 0,
+          search: session.trackName,
+        });
+      }
+      setCustomTracks(extras);
+    });
+    setCustomTracks(listCustomTracks());
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <>
@@ -77,7 +136,7 @@ export function TrackHome() {
             Open a circuit to compare laps by car. No account needed.
           </p>
         </div>
-        <SessionUpload storage="local" />
+        <SessionUpload />
         <label className="flex flex-col gap-2">
           <span className="text-xs uppercase tracking-[0.18em] text-zinc-500">
             Search tracks
@@ -98,11 +157,25 @@ export function TrackHome() {
           ) : (
             <ul className="grid gap-3">
               {tracks.map((track) => {
-                const best = Math.min(
+                const mine = localSessions.filter(
+                  (session) => session.trackId === track.id,
+                );
+                const saved = accountSessions.filter(
+                  (session) => session.trackId === track.id,
+                );
+                const times = [
                   ...catalogSessionsForTrack(track.id).map((session) =>
                     catalogBestMs(session),
                   ),
-                );
+                  ...mine.flatMap((session) =>
+                    session.laps.map((lap) => lap.lap_time_ms),
+                  ),
+                  ...saved.map((session) => session.best),
+                ];
+                const best = times.length ? Math.min(...times) : Number.POSITIVE_INFINITY;
+                const sessions = track.id.startsWith("custom-")
+                  ? mine.length + saved.length
+                  : track.popularity;
                 return (
                   <li key={track.id}>
                     <Link
@@ -114,7 +187,9 @@ export function TrackHome() {
                         <p className="mt-1 text-xs text-zinc-500">
                           {track.location}
                           {" · "}
-                          {track.popularity.toLocaleString()} sessions
+                          {sessions === 1
+                            ? "1 session"
+                            : `${sessions.toLocaleString()} sessions`}
                         </p>
                       </div>
                       <p className="font-mono text-lg text-orange-400">
@@ -133,12 +208,43 @@ export function TrackHome() {
 }
 
 export function TrackDetail({ id }: { id: string }) {
-  const track = getTrack(id);
+  const known = builtinTrack(id);
+  const [track, setTrack] = useState<Track | null>(known);
+  const [checked, setChecked] = useState(Boolean(known));
   const [local, setLocal] = useState<StoredSession[] | null>(null);
+  const [account, setAccount] = useState<AccountSessionSummary[]>([]);
 
   useEffect(() => {
+    let cancelled = false;
     setLocal(listLocalSessions());
-  }, []);
+    listAccountSessions().then((sessions) => {
+      if (cancelled) return;
+      const here = sessions.filter((session) => session.trackId === id);
+      setAccount(here);
+      const knownTrack = getTrack(id);
+      if (knownTrack) {
+        setTrack(knownTrack);
+      } else if (here[0]) {
+        setTrack({
+          id,
+          name: here[0].trackName,
+          location: "Your account",
+          popularity: 0,
+          lat: 0,
+          lon: 0,
+          search: here[0].trackName,
+        });
+      } else {
+        setTrack(null);
+      }
+      setChecked(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  if (!checked) return null;
 
   if (!track) {
     return (
@@ -154,7 +260,9 @@ export function TrackDetail({ id }: { id: string }) {
     );
   }
 
-  const groups = groupByCar(rowsForTrack(track.id, local ?? []));
+  const rows = rowsForTrack(track.id, local ?? [], account);
+  const groups = groupByCar(rows);
+  const listed = track.id.startsWith("custom-") ? rows.length : track.popularity;
 
   return (
     <>
@@ -173,11 +281,11 @@ export function TrackDetail({ id }: { id: string }) {
           <p className="mt-1 text-sm text-zinc-500">
             {track.location}
             {" · "}
-            {track.popularity.toLocaleString()} sessions
+            {listed === 1 ? "1 session" : `${listed.toLocaleString()} sessions`}
             {" · sorted by car"}
           </p>
         </div>
-        <SessionUpload storage="local" trackId={track.id} />
+        <SessionUpload trackId={track.id} />
         <div className="flex flex-col gap-6">
           {groups.map((group) => (
             <section key={group.car} className="flex flex-col gap-3">
@@ -196,6 +304,7 @@ export function TrackDetail({ id }: { id: string }) {
                         <p className="mt-1 text-xs text-zinc-500">
                           {session.laps} laps
                           {session.source === "browser" ? " · this browser" : ""}
+                          {session.source === "account" ? " · your account" : ""}
                         </p>
                       </div>
                       <p className="font-mono text-lg text-orange-400">
