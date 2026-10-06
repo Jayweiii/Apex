@@ -6,8 +6,17 @@ create table if not exists public.sessions (
   user_id uuid not null references auth.users (id) on delete cascade,
   name text not null,
   filename text,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  track_id text,
+  track_name text,
+  car text
 );
+
+-- Existing projects: run this in the Supabase SQL editor.
+-- create table if not exists does not add columns to a table that is already there.
+alter table public.sessions add column if not exists track_id text;
+alter table public.sessions add column if not exists track_name text;
+alter table public.sessions add column if not exists car text;
 
 create table if not exists public.laps (
   id uuid primary key default gen_random_uuid(),
@@ -19,6 +28,7 @@ create table if not exists public.laps (
 );
 
 create index if not exists sessions_user_id_idx on public.sessions (user_id, created_at desc);
+create index if not exists sessions_track_id_idx on public.sessions (track_id);
 create index if not exists laps_session_id_idx on public.laps (session_id, lap_number);
 
 alter table public.sessions enable row level security;

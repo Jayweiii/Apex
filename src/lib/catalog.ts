@@ -52,6 +52,12 @@ export function catalogSessionsForTrack(trackId: string): CatalogSession[] {
   return CATALOG_SESSIONS.filter((session) => session.trackId === trackId);
 }
 
+export function catalogCars(): string[] {
+  return [...new Set(CATALOG_SESSIONS.map((session) => session.car))].sort((a, b) =>
+    a.localeCompare(b),
+  );
+}
+
 export function catalogBestMs(session: CatalogSession): number {
   return Math.round(SAMPLE_BEST_MS * session.timeScale);
 }
