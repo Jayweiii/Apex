@@ -1,5 +1,6 @@
 "use client";
 
+import { LeaderboardPanel } from "@/components/LeaderboardPanel";
 import { DataKindBadge } from "@/components/Attribution";
 import { AppHeader } from "@/components/AppHeader";
 import { SessionUpload } from "@/components/SessionUpload";
@@ -106,6 +107,8 @@ export function TrackHome() {
         </section>
 
         <SessionUpload storage="local" />
+
+        <LeaderboardPanel />
 
         <section className="flex flex-col gap-3">
           <div className="flex flex-wrap items-end justify-between gap-2">
@@ -262,6 +265,7 @@ export function TrackDetail({ id }: { id: string }) {
           <p className="mt-1 text-sm text-zinc-500">{track.location}</p>
         </div>
         <SessionUpload storage="local" trackId={track.id} />
+        <LeaderboardPanel trackId={track.id} />
         <div className="flex flex-col gap-6">
           {loading ? (
             <p className="text-sm text-zinc-500">Loading sessions…</p>
