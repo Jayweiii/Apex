@@ -7,6 +7,7 @@ import { shouldUseLocalSession } from "@/lib/session-route";
 import { createClient } from "@/lib/supabase/server";
 import type { LapRow, SessionRow, TelemetryPoint } from "@/lib/types";
 import Link from "next/link";
+import { Suspense } from "react";
 
 export default async function LapPage({
   params,
@@ -15,7 +16,11 @@ export default async function LapPage({
 }) {
   const { id, lapId } = await params;
   if (shouldUseLocalSession(id)) {
-    return <LocalLap sessionId={id} lapId={lapId} />;
+    return (
+      <Suspense fallback={<p className="p-8 text-sm text-zinc-500">Loading lap…</p>}>
+        <LocalLap sessionId={id} lapId={lapId} />
+      </Suspense>
+    );
   }
 
   const supabase = await createClient();
@@ -26,7 +31,13 @@ export default async function LapPage({
   const { data: session } = user
     ? await supabase.from("sessions").select("*").eq("id", id).maybeSingle()
     : { data: null };
-  if (!user || !session) return <LocalLap sessionId={id} lapId={lapId} />;
+  if (!user || !session) {
+    return (
+      <Suspense fallback={<p className="p-8 text-sm text-zinc-500">Loading lap…</p>}>
+        <LocalLap sessionId={id} lapId={lapId} />
+      </Suspense>
+    );
+  }
   const sessionRow = session as SessionRow;
 
   const { data: lap } = await supabase
@@ -35,7 +46,13 @@ export default async function LapPage({
     .eq("id", lapId)
     .eq("session_id", id)
     .maybeSingle();
-  if (!lap) return <LocalLap sessionId={id} lapId={lapId} />;
+  if (!lap) {
+    return (
+      <Suspense fallback={<p className="p-8 text-sm text-zinc-500">Loading lap…</p>}>
+        <LocalLap sessionId={id} lapId={lapId} />
+      </Suspense>
+    );
+  }
   const lapRow = lap as LapRow;
   const points = (lapRow.telemetry ?? []) as TelemetryPoint[];
   const peak = points.reduce((max, point) => Math.max(max, point.speed), 0);

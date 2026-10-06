@@ -1,5 +1,5 @@
 import type { DataKind, DatasetAttribution } from "./attribution";
-import type { ParsedLap, TelemetryPoint } from "./types";
+import type { ParsedLap, SessionVideo, TelemetryPoint } from "./types";
 
 const STORAGE_KEY = "apex.local-sessions";
 const DRIVERS_KEY = "apex.local-drivers";
@@ -9,6 +9,8 @@ export type StoredLap = {
   lap_number: number;
   lap_time_ms: number;
   telemetry: TelemetryPoint[];
+  start_offset_sec?: number;
+  started_at_ms?: number;
 };
 
 export type SessionSourceKind = "csv" | "gopro";
@@ -31,9 +33,14 @@ export type StoredSession = {
   attribution?: DatasetAttribution;
   sourceKind?: SessionSourceKind;
   rawObjectKey?: string | null;
+  /** @deprecated Prefer videos[]. Migrated on read. */
   videoObjectKey?: string | null;
+  /** @deprecated Prefer videos[]. Migrated on read. */
   videoLocalKey?: string | null;
   storageBackend?: "r2" | "local" | "idb";
+  startedAtMs?: number;
+  sessionDate?: string;
+  videos?: SessionVideo[];
 };
 
 export type DriverProfile = {
@@ -42,13 +49,34 @@ export type DriverProfile = {
   created_at: string;
 };
 
+function migrateLegacyVideo(session: StoredSession): StoredSession {
+  if (session.videos?.length) return session;
+  if (!session.videoObjectKey && !session.videoLocalKey) return session;
+  const video: SessionVideo = {
+    id: crypto.randomUUID(),
+    provider: "mp4",
+    objectKey: session.videoObjectKey ?? undefined,
+    localKey: session.videoLocalKey ?? undefined,
+    // GoPro-source: GPMF cts is video time → offset 0 once lap start cts is kept.
+    offsetSec: session.sourceKind === "gopro" ? 0 : 0,
+    rate: 1,
+    syncSource: session.sourceKind === "gopro" ? "auto" : "unsynced",
+  };
+  return { ...session, videos: [video] };
+}
+
+function normalizeSession(session: StoredSession): StoredSession {
+  return migrateLegacyVideo(session);
+}
+
 function readAll(): StoredSession[] {
   if (typeof window === "undefined") return [];
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as StoredSession[];
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map(normalizeSession);
   } catch {
     return [];
   }
@@ -74,6 +102,17 @@ function writeDrivers(drivers: DriverProfile[]) {
   window.localStorage.setItem(DRIVERS_KEY, JSON.stringify(drivers));
 }
 
+function lapsFromParsed(laps: ParsedLap[]): StoredLap[] {
+  return laps.map((lap) => ({
+    id: crypto.randomUUID(),
+    lap_number: lap.lapNumber,
+    lap_time_ms: lap.lapTimeMs,
+    telemetry: lap.points,
+    start_offset_sec: lap.startOffsetSec,
+    started_at_ms: lap.startedAtMs,
+  }));
+}
+
 export function listLocalSessions(): StoredSession[] {
   return readAll().sort((a, b) => b.created_at.localeCompare(a.created_at));
 }
@@ -89,7 +128,7 @@ export function updateLocalSession(
   const sessions = readAll();
   const index = sessions.findIndex((session) => session.id === id);
   if (index < 0) return null;
-  sessions[index] = { ...sessions[index], ...patch };
+  sessions[index] = normalizeSession({ ...sessions[index], ...patch });
   writeAll(sessions);
   return sessions[index];
 }
@@ -97,14 +136,12 @@ export function updateLocalSession(
 export function replaceLocalSessionLaps(
   id: string,
   laps: ParsedLap[],
+  meta?: { startedAtMs?: number; sessionDate?: string },
 ): StoredSession | null {
   return updateLocalSession(id, {
-    laps: laps.map((lap) => ({
-      id: crypto.randomUUID(),
-      lap_number: lap.lapNumber,
-      lap_time_ms: lap.lapTimeMs,
-      telemetry: lap.points,
-    })),
+    laps: lapsFromParsed(laps),
+    ...(meta?.startedAtMs != null ? { startedAtMs: meta.startedAtMs } : {}),
+    ...(meta?.sessionDate ? { sessionDate: meta.sessionDate } : {}),
   });
 }
 
@@ -123,6 +160,9 @@ export type SessionMetaInput = {
   videoObjectKey?: string | null;
   videoLocalKey?: string | null;
   storageBackend?: "r2" | "local" | "idb";
+  startedAtMs?: number;
+  sessionDate?: string;
+  videos?: SessionVideo[];
 };
 
 export function saveLocalSession(
@@ -134,6 +174,22 @@ export function saveLocalSession(
   if (meta?.driver?.trim()) {
     ensureDriver(meta.driver.trim());
   }
+
+  let videos = meta?.videos ?? [];
+  if (!videos.length && (meta?.videoObjectKey || meta?.videoLocalKey)) {
+    videos = [
+      {
+        id: crypto.randomUUID(),
+        provider: "mp4",
+        objectKey: meta.videoObjectKey ?? undefined,
+        localKey: meta.videoLocalKey ?? undefined,
+        offsetSec: 0,
+        rate: 1,
+        syncSource: meta.sourceKind === "gopro" ? "auto" : "unsynced",
+      },
+    ];
+  }
+
   const session: StoredSession = {
     id: meta?.id ?? crypto.randomUUID(),
     name,
@@ -153,12 +209,10 @@ export function saveLocalSession(
     videoObjectKey: meta?.videoObjectKey ?? null,
     videoLocalKey: meta?.videoLocalKey ?? null,
     storageBackend: meta?.storageBackend,
-    laps: laps.map((lap) => ({
-      id: crypto.randomUUID(),
-      lap_number: lap.lapNumber,
-      lap_time_ms: lap.lapTimeMs,
-      telemetry: lap.points,
-    })),
+    startedAtMs: meta?.startedAtMs,
+    sessionDate: meta?.sessionDate,
+    videos,
+    laps: lapsFromParsed(laps),
   };
   writeAll([session, ...readAll()]);
   return session;

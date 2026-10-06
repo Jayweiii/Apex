@@ -15,6 +15,38 @@ export type ParsedLap = {
   lapNumber: number;
   lapTimeMs: number;
   points: TelemetryPoint[];
+  /** Seconds from session start to this lap's first sample. */
+  startOffsetSec?: number;
+  /** Epoch ms of this lap's first sample, when absolute time is known. */
+  startedAtMs?: number;
+};
+
+export type VideoSyncSource =
+  | "unsynced"
+  | "manual"
+  | "time_of_day"
+  | "lap_match"
+  | "auto";
+
+/**
+ * Attached onboard clip. Session timeline:
+ * videoTime = offsetSec + rate * sessionTime
+ * sessionTime = lap.start_offset_sec + point.t
+ */
+export type SessionVideo = {
+  id: string;
+  provider: "youtube" | "mp4";
+  youtubeId?: string;
+  objectKey?: string;
+  localKey?: string;
+  title?: string;
+  /** Lap this clip covers (single-lap onboards). */
+  lapId?: string | null;
+  offsetSec: number;
+  rate?: number;
+  syncSource: VideoSyncSource;
+  /** Absolute clock at video t=0, when known. */
+  videoStartedAtMs?: number;
 };
 
 export type SessionRow = {
@@ -32,4 +64,6 @@ export type LapRow = {
   lap_number: number;
   lap_time_ms: number;
   telemetry: TelemetryPoint[];
+  start_offset_sec?: number | null;
+  started_at_ms?: number | null;
 };

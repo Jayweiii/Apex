@@ -174,6 +174,8 @@ export function SessionUpload({
     setProgress("Parsing…");
     try {
       let laps;
+      let startedAtMs: number | undefined;
+      let sessionDate: string | undefined;
       let sourceKind: "csv" | "gopro" = "csv";
       if (isGoPro) {
         setProgress("Extracting GoPro GPMF…");
@@ -181,10 +183,15 @@ export function SessionUpload({
           setProgress(`Extracting GoPro GPMF… ${Math.round(percent)}%`);
         });
         laps = parsed.laps;
+        startedAtMs = parsed.startedAtMs;
+        sessionDate = parsed.sessionDate;
         sourceKind = "gopro";
       } else {
         const csv = await files[0].text();
-        laps = parseTelemetryCsv(csv);
+        const parsed = parseTelemetryCsv(csv);
+        laps = parsed.laps;
+        startedAtMs = parsed.startedAtMs;
+        sessionDate = parsed.sessionDate;
       }
 
       const sessionId = crypto.randomUUID();
@@ -200,6 +207,8 @@ export function SessionUpload({
           sourceKind,
           forcedId: sessionId,
           trackIdOverride: resolvedTrack,
+          startedAtMs,
+          sessionDate,
         },
       );
     } catch (err) {
@@ -213,7 +222,7 @@ export function SessionUpload({
   async function saveSession(
     sessionName: string,
     filename: string,
-    laps: ReturnType<typeof parseTelemetryCsv>,
+    laps: import("@/lib/types").ParsedLap[],
     extra: {
       sourceKind: "csv" | "gopro";
       rawObjectKey: string | null;
@@ -222,6 +231,8 @@ export function SessionUpload({
       storageBackend: "r2" | "local" | "idb";
       forcedId?: string;
       trackIdOverride?: string;
+      startedAtMs?: number;
+      sessionDate?: string;
     },
   ) {
     const tags = carTags
@@ -249,6 +260,8 @@ export function SessionUpload({
         videoObjectKey: extra.videoObjectKey,
         videoLocalKey: extra.videoLocalKey,
         storageBackend: extra.storageBackend,
+        startedAtMs: extra.startedAtMs,
+        sessionDate: extra.sessionDate,
       });
       router.push(`/sessions/${session.id}`);
       router.refresh();
@@ -280,6 +293,10 @@ export function SessionUpload({
         raw_object_key: extra.rawObjectKey,
         video_object_key: extra.videoObjectKey,
         storage_backend: extra.storageBackend,
+        started_at: extra.startedAtMs
+          ? new Date(extra.startedAtMs).toISOString()
+          : null,
+        session_date: extra.sessionDate ?? null,
       })
       .select("id")
       .single();
@@ -287,16 +304,34 @@ export function SessionUpload({
       throw new Error(sessionError?.message ?? "Could not create session");
     }
 
-    const { error: lapsError } = await supabase.from("laps").insert(
-      laps.map((lap) => ({
+    const { data: insertedLaps, error: lapsError } = await supabase
+      .from("laps")
+      .insert(
+        laps.map((lap) => ({
+          session_id: session.id,
+          user_id: user.id,
+          lap_number: lap.lapNumber,
+          lap_time_ms: lap.lapTimeMs,
+          telemetry: lap.points,
+          start_offset_sec: lap.startOffsetSec ?? null,
+          started_at_ms: lap.startedAtMs ?? null,
+        })),
+      )
+      .select("id, lap_number");
+    if (lapsError) throw new Error(lapsError.message);
+
+    if (extra.videoObjectKey || extra.videoLocalKey) {
+      await supabase.from("session_videos").insert({
         session_id: session.id,
         user_id: user.id,
-        lap_number: lap.lapNumber,
-        lap_time_ms: lap.lapTimeMs,
-        telemetry: lap.points,
-      })),
-    );
-    if (lapsError) throw new Error(lapsError.message);
+        provider: "mp4",
+        object_key: extra.videoObjectKey,
+        offset_sec: 0,
+        rate: 1,
+        sync_source: extra.sourceKind === "gopro" ? "auto" : "unsynced",
+        lap_id: insertedLaps?.[0]?.id ?? null,
+      });
+    }
 
     router.push(`/sessions/${session.id}`);
     router.refresh();

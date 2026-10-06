@@ -4,7 +4,6 @@ import { splitLapsByStartFinish } from "./split-laps";
 import type { ParsedLap, TelemetryPoint } from "./types";
 
 const GoProTelemetry =
-  // CJS/ESM interop across bundlers
   (goProTelemetryImport as unknown as { default?: typeof goProTelemetryImport })
     .default ?? goProTelemetryImport;
 
@@ -68,11 +67,34 @@ export type GoProParseResult = {
   laps: ParsedLap[];
   pointCount: number;
   gpsStream: "GPS5" | "GPS9" | "GPS" | "unknown";
+  /** Epoch ms at video/GPMF t=0 (from GPS sample date − cts). */
+  startedAtMs?: number;
+  sessionDate?: string;
 };
+
+function sessionDateFromMs(ms: number): string {
+  const d = new Date(ms);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function inferStartedAtMs(samples: GpsSample[]): number | undefined {
+  for (const sample of samples) {
+    if (!sample.date) continue;
+    const parsed = Date.parse(sample.date);
+    if (!Number.isFinite(parsed)) continue;
+    const ctsSec = (sample.cts ?? 0) / 1000;
+    return Math.round(parsed - ctsSec * 1000);
+  }
+  return undefined;
+}
 
 /**
  * Extract GPMF telemetry from a GoPro MP4 in the browser (or Node with a Buffer/File).
  * Uses GPS5/GPS9 for position+speed and ACCL for g when present.
+ * Preserves GPS date → startedAtMs and per-lap startOffsetSec (cts-based).
  */
 export async function parseGoProFile(
   file: File | Blob | Buffer,
@@ -114,13 +136,14 @@ export async function parseGoProFile(
         ? "GPS"
         : "unknown";
 
+  const startedAtMs = inferStartedAtMs(gpsSamples);
+
   const accel = readAccelStream(streams);
   const accelPoints =
     accel?.samples?.flatMap((sample) => {
       const rows = asRows(sample.value);
       const t = (sample.cts ?? 0) / 1000;
       return rows.map((row) => {
-        // ACCL is typically m/s² in camera frame; approximate lon/lat g.
         const x = Number(row[0] ?? 0) / 9.80665;
         const y = Number(row[1] ?? 0) / 9.80665;
         return { t, lonG: Number(x.toFixed(3)), latG: Number(y.toFixed(3)) };
@@ -132,8 +155,6 @@ export async function parseGoProFile(
     const rows = asRows(sample.value);
     const t = (sample.cts ?? 0) / 1000;
     for (const row of rows) {
-      // GPS5: lat, lon, alt, 2D speed (m/s), 3D speed, ...
-      // GPS9: similar first fields for lat/lon/speed.
       const lat = Number(row[0]);
       const lon = Number(row[1]);
       const speedMs = Number(row[3] ?? row[4] ?? 0);
@@ -160,12 +181,19 @@ export async function parseGoProFile(
     );
   }
 
-  const laps = splitLapsByStartFinish(points);
-  return { laps, pointCount: points.length, gpsStream };
+  const laps = splitLapsByStartFinish(points, { sessionStartedAtMs: startedAtMs });
+  return {
+    laps,
+    pointCount: points.length,
+    gpsStream,
+    startedAtMs,
+    sessionDate: startedAtMs != null ? sessionDateFromMs(startedAtMs) : undefined,
+  };
 }
 
 /**
- * Merge multi-chapter GoPro files (separate MP4s) by concatenating time offsets.
+ * Merge multi-chapter GoPro files by concatenating on each chapter's last cts
+ * (not summed lap times).
  */
 export async function parseGoProChapters(
   files: Array<File | Blob | Buffer>,
@@ -177,6 +205,7 @@ export async function parseGoProChapters(
   const allPoints: TelemetryPoint[] = [];
   let timeOffset = 0;
   let gpsStream: GoProParseResult["gpsStream"] = "unknown";
+  let startedAtMs: number | undefined;
 
   for (let i = 0; i < files.length; i += 1) {
     const chapter = await parseGoProFile(files[i], (percent) => {
@@ -184,15 +213,29 @@ export async function parseGoProChapters(
       onProgress?.(overall);
     });
     gpsStream = chapter.gpsStream;
-    // Re-extract raw continuous points via lap merge is lossy; parse chapter points from laps.
+    if (i === 0) startedAtMs = chapter.startedAtMs;
+
+    let chapterEnd = 0;
     for (const lap of chapter.laps) {
+      const lapStart = lap.startOffsetSec ?? 0;
       for (const point of lap.points) {
-        allPoints.push({ ...point, t: point.t + timeOffset });
+        const t = point.t + lapStart + timeOffset;
+        allPoints.push({ ...point, t });
+        chapterEnd = Math.max(chapterEnd, t);
       }
-      timeOffset += lap.lapTimeMs / 1000 + 0.5;
     }
+    // Advance by last sample time in this chapter (relative to chapter 0).
+    timeOffset = chapterEnd;
   }
 
-  const laps = splitLapsByStartFinish(allPoints);
-  return { laps, pointCount: allPoints.length, gpsStream };
+  const laps = splitLapsByStartFinish(allPoints, {
+    sessionStartedAtMs: startedAtMs,
+  });
+  return {
+    laps,
+    pointCount: allPoints.length,
+    gpsStream,
+    startedAtMs,
+    sessionDate: startedAtMs != null ? sessionDateFromMs(startedAtMs) : undefined,
+  };
 }

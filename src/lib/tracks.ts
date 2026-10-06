@@ -30,6 +30,26 @@ export const TRACKS: Track[] = [
     search: "thunderhill east willows california",
   },
   {
+    id: "buttonwillow-13cw",
+    name: "Buttonwillow Raceway — 13CW",
+    location: "Buttonwillow, California",
+    popularity: 13200,
+    // Wikipedia / park coords (~Race #13 CW). "Buttonwillow Circuit" titles map here.
+    lat: 35.4913,
+    lon: -119.5449,
+    search: "buttonwillow 13cw cw13 circuit california",
+  },
+  {
+    id: "streets-of-willow-cw",
+    name: "Streets of Willow — CW",
+    location: "Rosamond, California",
+    popularity: 11800,
+    // Willow Springs / Streets of Willow complex
+    lat: 34.874,
+    lon: -118.263,
+    search: "streets of willow willow springs cw california",
+  },
+  {
     id: "spa",
     name: "Circuit de Spa-Francorchamps",
     location: "Spa-Francorchamps, Belgium",
