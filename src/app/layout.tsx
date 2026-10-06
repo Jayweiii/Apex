@@ -14,7 +14,8 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Apex — lap times",
-  description: "Upload track telemetry and review lap times and speed traces.",
+  description:
+    "Upload TrackAddict telemetry, explore attributed public datasets, and compare laps.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

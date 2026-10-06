@@ -1,5 +1,6 @@
 "use client";
 
+import { DataKindBadge } from "@/components/Attribution";
 import { saveLocalSession } from "@/lib/local-store";
 import { parseTelemetryCsv } from "@/lib/parse-telemetry";
 import { createClient } from "@/lib/supabase/client";
@@ -27,6 +28,7 @@ export function SessionUpload({
   function onFile(event: ChangeEvent<HTMLInputElement>) {
     const next = event.target.files?.[0] ?? null;
     setFile(next);
+    setError(null);
     if (next && !name) {
       setName(next.name.replace(/\.csv$/i, "").replace(/[_-]+/g, " "));
     }
@@ -109,13 +111,9 @@ export function SessionUpload({
     setError(null);
     setBusy(true);
     try {
-      const response = await fetch("/sample-telemetry.csv");
-      if (!response.ok) throw new Error("Could not load the sample file");
-      const csv = await response.text();
-      const laps = parseTelemetryCsv(csv);
-      await saveSession("Sample session", "sample-telemetry.csv", laps);
+      router.push("/sessions/demo-laguna-seca-gt3");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load the sample");
+      setError(err instanceof Error ? err.message : "Could not open the demo");
     } finally {
       setBusy(false);
     }
@@ -124,15 +122,18 @@ export function SessionUpload({
   return (
     <form
       onSubmit={onSubmit}
-      className="rounded-2xl border border-zinc-800/80 bg-zinc-950/60 p-5"
+      className="rounded-2xl border border-zinc-800/80 bg-zinc-950/60 p-4 sm:p-5"
     >
-      <div className="mb-4">
-        <h2 className="text-sm font-medium text-zinc-200">Upload telemetry</h2>
-        <p className="mt-1 text-sm text-zinc-500">
-          {local
-            ? "Saved in this browser on the track and car you choose. TrackAddict / RaceRender CSV works — needs time, speed, and optionally lap, lat, and lon."
-            : "TrackAddict / RaceRender CSV works — needs time, speed, and optionally lap, lat, and lon."}
-        </p>
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-medium text-zinc-200">Upload telemetry</h2>
+          <p className="mt-1 max-w-xl text-sm text-zinc-500">
+            {local
+              ? "Imports stay in this browser. TrackAddict / RaceRender CSV works — time, speed, optional lap, lat, lon."
+              : "TrackAddict / RaceRender CSV works — time, speed, optional lap, lat, lon."}
+          </p>
+        </div>
+        <DataKindBadge kind="upload" />
       </div>
       <div className="grid gap-3">
         {local && !trackId ? (
@@ -142,7 +143,7 @@ export function SessionUpload({
               required
               value={pickedTrack}
               onChange={(event) => setPickedTrack(event.target.value)}
-              className="rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2"
+              className="min-h-12 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
             >
               <option value="">Choose a track</option>
               {popularTracks().map((track) => (
@@ -161,40 +162,47 @@ export function SessionUpload({
               value={car}
               onChange={(e) => setCar(e.target.value)}
               placeholder="Porsche 911 GT3"
-              className="rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2"
+              className="min-h-12 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
             />
           </label>
         ) : null}
         <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
-        <label className="flex flex-col gap-1.5 text-sm">
-          <span className="text-zinc-400">Session name</span>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Laguna Seca — morning"
-            className="rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2"
-          />
-        </label>
-        <label className="flex cursor-pointer flex-col gap-1.5 text-sm">
-          <span className="text-zinc-400">CSV file</span>
-          <span className="rounded-lg border border-dashed border-zinc-700 px-3 py-2 text-zinc-300 hover:border-orange-500/60">
-            {file ? file.name : "Choose file"}
-          </span>
-          <input
-            type="file"
-            accept=".csv,text/csv"
-            onChange={onFile}
-            className="sr-only"
-          />
-        </label>
+          <label className="flex flex-col gap-1.5 text-sm">
+            <span className="text-zinc-400">Session name</span>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Thunderhill East — morning"
+              className="min-h-12 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
+            />
+          </label>
+          <label className="flex cursor-pointer flex-col gap-1.5 text-sm">
+            <span className="text-zinc-400">CSV file</span>
+            <span className="flex min-h-12 items-center rounded-lg border border-dashed border-zinc-700 px-3 py-3 text-zinc-300 hover:border-orange-500/60 sm:min-h-10 sm:py-2">
+              {file ? file.name : "Choose file"}
+            </span>
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              onChange={onFile}
+              className="sr-only"
+            />
+          </label>
         </div>
       </div>
-      {error ? <p className="mt-3 text-sm text-red-400">{error}</p> : null}
+      {error ? (
+        <p
+          role="alert"
+          className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300"
+        >
+          {error}
+        </p>
+      ) : null}
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <button
           type="submit"
           disabled={busy}
-          className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-black hover:bg-orange-400 disabled:opacity-50"
+          className="min-h-11 rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-black hover:bg-orange-400 disabled:opacity-50"
         >
           {busy ? "Parsing…" : "Upload session"}
         </button>
@@ -202,9 +210,9 @@ export function SessionUpload({
           type="button"
           onClick={loadSample}
           disabled={busy}
-          className="text-sm text-zinc-400 underline-offset-4 hover:text-zinc-200 hover:underline disabled:opacity-50"
+          className="min-h-11 text-sm text-zinc-400 underline-offset-4 hover:text-zinc-200 hover:underline disabled:opacity-50"
         >
-          Load sample session
+          Open synthetic demo
         </button>
       </div>
     </form>

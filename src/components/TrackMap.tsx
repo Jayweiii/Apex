@@ -142,7 +142,7 @@ export function TrackMap({
       </div>
       <svg
         viewBox="0 0 100 100"
-        className="h-[380px] w-full"
+        className="h-[260px] w-full touch-none sm:h-[380px]"
         onMouseMove={(event) => {
           const rect = event.currentTarget.getBoundingClientRect();
           const x = ((event.clientX - rect.left) / rect.width) * 100;
@@ -151,6 +151,28 @@ export function TrackMap({
           onProgress?.(nearestProgress(x, y));
         }}
         onMouseLeave={() => {
+          setPointer(null);
+          onProgress?.(null);
+        }}
+        onTouchStart={(event) => {
+          const touch = event.touches[0];
+          if (!touch) return;
+          const rect = event.currentTarget.getBoundingClientRect();
+          const x = ((touch.clientX - rect.left) / rect.width) * 100;
+          const y = ((touch.clientY - rect.top) / rect.height) * 100;
+          setPointer({ x, y });
+          onProgress?.(nearestProgress(x, y));
+        }}
+        onTouchMove={(event) => {
+          const touch = event.touches[0];
+          if (!touch) return;
+          const rect = event.currentTarget.getBoundingClientRect();
+          const x = ((touch.clientX - rect.left) / rect.width) * 100;
+          const y = ((touch.clientY - rect.top) / rect.height) * 100;
+          setPointer({ x, y });
+          onProgress?.(nearestProgress(x, y));
+        }}
+        onTouchEnd={() => {
           setPointer(null);
           onProgress?.(null);
         }}

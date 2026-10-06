@@ -1,3 +1,4 @@
+import type { DataKind, DatasetAttribution } from "./attribution";
 import type { ParsedLap, TelemetryPoint } from "./types";
 
 const STORAGE_KEY = "apex.local-sessions";
@@ -17,6 +18,8 @@ export type StoredSession = {
   laps: StoredLap[];
   trackId?: string;
   car?: string;
+  kind?: DataKind;
+  attribution?: DatasetAttribution;
 };
 
 function readAll(): StoredSession[] {
@@ -56,6 +59,7 @@ export function saveLocalSession(
     created_at: new Date().toISOString(),
     trackId: meta?.trackId,
     car: meta?.car,
+    kind: "upload",
     laps: laps.map((lap) => ({
       id: crypto.randomUUID(),
       lap_number: lap.lapNumber,

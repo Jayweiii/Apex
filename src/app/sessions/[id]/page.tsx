@@ -3,7 +3,7 @@ import { LocalSession } from "@/components/LocalGarage";
 import { LapList } from "@/components/LapList";
 import { compareHref } from "@/lib/compare";
 import { formatLapTime } from "@/lib/format";
-import { hasSupabaseConfig } from "@/lib/supabase/env";
+import { shouldUseLocalSession } from "@/lib/session-route";
 import { createClient } from "@/lib/supabase/server";
 import type { LapRow, SessionRow } from "@/lib/types";
 import Link from "next/link";
@@ -14,7 +14,7 @@ export default async function SessionPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  if (id.startsWith("pub-") || !hasSupabaseConfig()) {
+  if (shouldUseLocalSession(id)) {
     return <LocalSession id={id} />;
   }
 

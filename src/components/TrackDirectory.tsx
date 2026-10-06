@@ -1,15 +1,18 @@
 "use client";
 
+import { AttributionInline, DataKindBadge } from "@/components/Attribution";
 import { AppHeader } from "@/components/AppHeader";
 import { SessionUpload } from "@/components/SessionUpload";
 import {
   catalogBestMs,
   catalogSessionsForTrack,
+  CATALOG_SESSIONS,
   type CatalogSession,
 } from "@/lib/catalog";
 import { formatLapTime } from "@/lib/format";
 import { listLocalSessions, type StoredSession } from "@/lib/local-store";
 import { getTrack, popularTracks } from "@/lib/tracks";
+import type { DataKind } from "@/lib/attribution";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -19,7 +22,8 @@ type TrackRow = {
   car: string;
   best: number;
   laps: number;
-  source: "catalog" | "browser";
+  kind: DataKind;
+  attribution?: CatalogSession["attribution"];
 };
 
 function rowsForTrack(trackId: string, local: StoredSession[]): TrackRow[] {
@@ -29,8 +33,9 @@ function rowsForTrack(trackId: string, local: StoredSession[]): TrackRow[] {
       name: session.name,
       car: session.car,
       best: catalogBestMs(session),
-      laps: 3,
-      source: "catalog",
+      laps: session.lapCount ?? 3,
+      kind: session.kind,
+      attribution: session.attribution,
     }),
   );
   const browser: TrackRow[] = local
@@ -41,7 +46,7 @@ function rowsForTrack(trackId: string, local: StoredSession[]): TrackRow[] {
       car: session.car?.trim() || "Unknown",
       best: Math.min(...session.laps.map((lap) => lap.lap_time_ms)),
       laps: session.laps.length,
-      source: "browser",
+      kind: "upload" as const,
     }));
   return [...catalog, ...browser];
 }
@@ -61,63 +66,145 @@ function groupByCar(rows: TrackRow[]) {
     }));
 }
 
+function useLocalSessions() {
+  const [local, setLocal] = useState<StoredSession[] | null>(null);
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      setLocal(listLocalSessions());
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+  return local;
+}
+
 export function TrackHome() {
   const [query, setQuery] = useState("");
   const tracks = useMemo(() => popularTracks(query), [query]);
+  const publicSessions = CATALOG_SESSIONS.filter((s) => s.kind === "public");
+  const demoCount = CATALOG_SESSIONS.filter((s) => s.kind === "demo").length;
 
   return (
     <>
       <AppHeader />
-      <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-8 px-6 py-8">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-zinc-50">
-            Tracks
-          </h1>
-          <p className="mt-1 text-sm text-zinc-500">
-            Open a circuit to compare laps by car. No account needed.
+      <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-8 px-4 py-6 sm:gap-10 sm:px-6 sm:py-10">
+        <section className="flex flex-col gap-3">
+          <p className="text-[11px] uppercase tracking-[0.22em] text-orange-400/90">
+            Lap times · GPS · compare
           </p>
-        </div>
+          <h1 className="max-w-xl text-3xl font-semibold tracking-tight text-zinc-50 sm:text-4xl">
+            Review real sessions and your own TrackAddict logs
+          </h1>
+          <p className="max-w-2xl text-sm leading-relaxed text-zinc-400 sm:text-base">
+            Upload a CSV, open a public dataset with attribution, or try a
+            clearly labeled synthetic demo. No account needed for local use.
+          </p>
+          <div className="mt-1 flex flex-wrap gap-2 text-xs text-zinc-500">
+            <DataKindBadge kind="public" />
+            <DataKindBadge kind="demo" />
+            <DataKindBadge kind="upload" />
+          </div>
+        </section>
+
         <SessionUpload storage="local" />
+
+        <section className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <h2 className="text-sm font-medium text-zinc-200">Public datasets</h2>
+              <p className="mt-1 text-sm text-zinc-500">
+                Redistributable telemetry with source, author, and license.
+              </p>
+            </div>
+            <p className="text-xs text-zinc-600">
+              {demoCount} synthetic demos on Laguna Seca
+            </p>
+          </div>
+          {publicSessions.length === 0 ? (
+            <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-6 text-sm text-zinc-500">
+              No public datasets yet.
+            </p>
+          ) : (
+            <ul className="grid gap-3">
+              {publicSessions.map((session) => {
+                const track = getTrack(session.trackId);
+                return (
+                  <li key={session.id}>
+                    <Link
+                      href={`/sessions/${session.id}`}
+                      className="block rounded-2xl border border-zinc-800/80 bg-zinc-950/50 px-4 py-4 transition hover:border-zinc-700 hover:bg-zinc-900/60 sm:px-5"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0 space-y-2">
+                          <p className="font-medium text-zinc-100">{session.name}</p>
+                          <p className="text-sm text-zinc-500">
+                            {track?.name ?? session.trackId}
+                            {" · "}
+                            {session.car}
+                          </p>
+                          <AttributionInline
+                            kind="public"
+                            attribution={session.attribution}
+                          />
+                        </div>
+                        <p className="shrink-0 font-mono text-lg text-orange-400">
+                          {formatLapTime(catalogBestMs(session))}
+                        </p>
+                      </div>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+
         <label className="flex flex-col gap-2">
-          <span className="text-xs uppercase tracking-[0.18em] text-zinc-500">
+          <span className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
             Search tracks
           </span>
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Laguna Seca, Spa, Austin…"
-            className="rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2"
+            placeholder="Thunderhill, Spa, Spreewaldring…"
+            className="min-h-12 rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:text-sm"
           />
         </label>
+
         <section className="flex flex-col gap-3">
           <h2 className="text-sm font-medium text-zinc-300">
-            {query.trim() ? "Matching tracks" : "Popular tracks"}
+            {query.trim() ? "Matching tracks" : "Tracks"}
           </h2>
           {tracks.length === 0 ? (
-            <p className="text-sm text-zinc-500">No tracks match that search.</p>
+            <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-8 text-center text-sm text-zinc-500">
+              No tracks match that search. Try “Thunderhill” or clear the filter.
+            </p>
           ) : (
             <ul className="grid gap-3">
               {tracks.map((track) => {
-                const best = Math.min(
-                  ...catalogSessionsForTrack(track.id).map((session) =>
-                    catalogBestMs(session),
-                  ),
-                );
+                const sessions = catalogSessionsForTrack(track.id);
+                const best = sessions.length
+                  ? Math.min(...sessions.map((session) => catalogBestMs(session)))
+                  : Number.POSITIVE_INFINITY;
+                const publicCount = sessions.filter((s) => s.kind === "public").length;
+                const demoCountForTrack = sessions.filter((s) => s.kind === "demo").length;
                 return (
                   <li key={track.id}>
                     <Link
                       href={`/tracks/${track.id}`}
-                      className="flex items-center justify-between gap-4 rounded-2xl border border-zinc-800/80 bg-zinc-950/50 px-5 py-4 transition hover:border-zinc-700 hover:bg-zinc-900/60"
+                      className="flex min-h-16 items-center justify-between gap-4 rounded-2xl border border-zinc-800/80 bg-zinc-950/50 px-4 py-4 transition hover:border-zinc-700 hover:bg-zinc-900/60 sm:px-5"
                     >
-                      <div>
+                      <div className="min-w-0">
                         <p className="font-medium text-zinc-100">{track.name}</p>
                         <p className="mt-1 text-xs text-zinc-500">
                           {track.location}
-                          {" · "}
-                          {track.popularity.toLocaleString()} sessions
+                          {publicCount ? ` · ${publicCount} public` : ""}
+                          {demoCountForTrack ? ` · ${demoCountForTrack} demo` : ""}
+                          {!publicCount && !demoCountForTrack
+                            ? " · upload your sessions"
+                            : ""}
                         </p>
                       </div>
-                      <p className="font-mono text-lg text-orange-400">
+                      <p className="shrink-0 font-mono text-lg text-orange-400">
                         {Number.isFinite(best) ? formatLapTime(best) : "—"}
                       </p>
                     </Link>
@@ -134,17 +221,13 @@ export function TrackHome() {
 
 export function TrackDetail({ id }: { id: string }) {
   const track = getTrack(id);
-  const [local, setLocal] = useState<StoredSession[] | null>(null);
-
-  useEffect(() => {
-    setLocal(listLocalSessions());
-  }, []);
+  const local = useLocalSessions();
 
   if (!track) {
     return (
       <>
         <AppHeader />
-        <main className="mx-auto w-full max-w-4xl px-6 py-8">
+        <main className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6">
           <p className="text-sm text-zinc-400">Track not found.</p>
           <Link href="/" className="mt-4 inline-block text-sm text-orange-400">
             Back to tracks
@@ -155,58 +238,65 @@ export function TrackDetail({ id }: { id: string }) {
   }
 
   const groups = groupByCar(rowsForTrack(track.id, local ?? []));
+  const loading = local === null;
 
   return (
     <>
       <AppHeader />
-      <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-8 px-6 py-8">
+      <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-10">
         <div>
           <Link
             href="/"
-            className="text-xs uppercase tracking-[0.2em] text-zinc-500 hover:text-zinc-300"
+            className="text-[11px] uppercase tracking-[0.2em] text-zinc-500 hover:text-zinc-300"
           >
             All tracks
           </Link>
-          <h1 className="mt-3 text-2xl font-semibold tracking-tight text-zinc-50">
+          <h1 className="mt-3 text-2xl font-semibold tracking-tight text-zinc-50 sm:text-3xl">
             {track.name}
           </h1>
-          <p className="mt-1 text-sm text-zinc-500">
-            {track.location}
-            {" · "}
-            {track.popularity.toLocaleString()} sessions
-            {" · sorted by car"}
-          </p>
+          <p className="mt-1 text-sm text-zinc-500">{track.location}</p>
         </div>
         <SessionUpload storage="local" trackId={track.id} />
         <div className="flex flex-col gap-6">
-          {groups.map((group) => (
-            <section key={group.car} className="flex flex-col gap-3">
-              <h2 className="text-sm font-medium tracking-wide text-zinc-200">
-                {group.car}
-              </h2>
-              <ul className="grid gap-2">
-                {group.sessions.map((session) => (
-                  <li key={session.id}>
-                    <Link
-                      href={`/sessions/${session.id}`}
-                      className="flex items-center justify-between gap-4 rounded-2xl border border-zinc-800/80 bg-zinc-950/50 px-5 py-4 transition hover:border-zinc-700 hover:bg-zinc-900/60"
-                    >
-                      <div>
-                        <p className="font-medium text-zinc-100">{session.name}</p>
-                        <p className="mt-1 text-xs text-zinc-500">
-                          {session.laps} laps
-                          {session.source === "browser" ? " · this browser" : ""}
+          {loading ? (
+            <p className="text-sm text-zinc-500">Loading sessions…</p>
+          ) : groups.length === 0 ? (
+            <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-8 text-center text-sm text-zinc-500">
+              No sessions here yet. Upload a CSV above, or open Spreewaldring for
+              public data.
+            </p>
+          ) : (
+            groups.map((group) => (
+              <section key={group.car} className="flex flex-col gap-3">
+                <h2 className="text-sm font-medium tracking-wide text-zinc-200">
+                  {group.car}
+                </h2>
+                <ul className="grid gap-2">
+                  {group.sessions.map((session) => (
+                    <li key={session.id}>
+                      <Link
+                        href={`/sessions/${session.id}`}
+                        className="flex min-h-14 items-center justify-between gap-4 rounded-2xl border border-zinc-800/80 bg-zinc-950/50 px-4 py-4 transition hover:border-zinc-700 hover:bg-zinc-900/60 sm:px-5"
+                      >
+                        <div className="min-w-0 space-y-1.5">
+                          <p className="font-medium text-zinc-100">{session.name}</p>
+                          <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+                            <DataKindBadge kind={session.kind} />
+                            <span>{session.laps} laps</span>
+                          </div>
+                        </div>
+                        <p className="shrink-0 font-mono text-lg text-orange-400">
+                          {Number.isFinite(session.best)
+                            ? formatLapTime(session.best)
+                            : "—"}
                         </p>
-                      </div>
-                      <p className="font-mono text-lg text-orange-400">
-                        {Number.isFinite(session.best) ? formatLapTime(session.best) : "—"}
-                      </p>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ))}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ))
+          )}
         </div>
       </main>
     </>

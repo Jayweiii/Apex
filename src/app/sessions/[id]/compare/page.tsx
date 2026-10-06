@@ -1,7 +1,7 @@
 import { AppHeader } from "@/components/AppHeader";
 import { LapCompare } from "@/components/LapCompare";
 import { LocalCompare } from "@/components/LocalGarage";
-import { hasSupabaseConfig } from "@/lib/supabase/env";
+import { shouldUseLocalSession } from "@/lib/session-route";
 import { createClient } from "@/lib/supabase/server";
 import type { LapRow, SessionRow } from "@/lib/types";
 import Link from "next/link";
@@ -16,7 +16,7 @@ export default async function ComparePage({
   const { id } = await params;
   const query = await searchParams;
 
-  if (id.startsWith("pub-") || !hasSupabaseConfig()) {
+  if (shouldUseLocalSession(id)) {
     return (
       <LocalCompare id={id} initialRef={query.ref} initialOther={query.other} />
     );

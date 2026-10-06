@@ -12,6 +12,24 @@ export type Track = {
 
 export const TRACKS: Track[] = [
   {
+    id: "spreewaldring",
+    name: "Spreewaldring Training Center",
+    location: "Waldow/Brand, Germany",
+    popularity: 19200,
+    lat: 51.99907,
+    lon: 13.6883,
+    search: "spreewaldring stc brandenburg germany trackaddict",
+  },
+  {
+    id: "thunderhill-east",
+    name: "Thunderhill Raceway — East",
+    location: "Willows, California",
+    popularity: 14100,
+    lat: 39.5385,
+    lon: -122.3312,
+    search: "thunderhill east willows california",
+  },
+  {
     id: "spa",
     name: "Circuit de Spa-Francorchamps",
     location: "Spa-Francorchamps, Belgium",

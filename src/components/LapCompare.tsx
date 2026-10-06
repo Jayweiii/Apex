@@ -327,7 +327,7 @@ function LapSelect({
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2"
+        className="min-h-12 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
       >
         {laps.map((lap) => (
           <option key={lap.id} value={lap.id}>
@@ -349,12 +349,12 @@ function ChartCard({
   children: ReactNode;
 }) {
   return (
-    <div className="h-[340px] rounded-2xl border border-zinc-800/80 bg-zinc-950/40 p-4">
+    <div className="h-[260px] max-w-full overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950/40 p-3 sm:h-[340px] sm:p-4">
       <div className="mb-2 flex items-baseline justify-between gap-3">
         <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">{title}</p>
-        <p className="text-xs text-zinc-600">{hint}</p>
+        <p className="hidden text-xs text-zinc-600 sm:block">{hint}</p>
       </div>
-      <div className="h-[280px]">{children}</div>
+      <div className="h-[200px] sm:h-[280px]">{children}</div>
     </div>
   );
 }

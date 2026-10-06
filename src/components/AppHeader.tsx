@@ -48,8 +48,8 @@ export function AppHeader({ email }: { email?: string }) {
   }, [configured, email]);
 
   return (
-    <header className="flex items-center justify-between border-b border-zinc-900 px-6 py-4">
-      <Link href="/" className="flex items-baseline gap-3">
+    <header className="sticky top-0 z-20 flex items-center justify-between border-b border-zinc-900/90 bg-zinc-950/85 px-4 py-3 backdrop-blur sm:px-6 sm:py-4">
+      <Link href="/" className="flex min-h-10 items-baseline gap-3">
         <span className="text-lg font-semibold tracking-[0.28em] text-zinc-50">
           APEX
         </span>
@@ -57,12 +57,12 @@ export function AppHeader({ email }: { email?: string }) {
           Lap times
         </span>
       </Link>
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 sm:gap-3">
         {sessionEmail ? (
           <>
             <Link
               href="/account"
-              className="text-xs uppercase tracking-[0.18em] text-zinc-400 hover:text-zinc-200"
+              className="inline-flex min-h-10 items-center text-xs uppercase tracking-[0.18em] text-zinc-400 hover:text-zinc-200"
             >
               Account
             </Link>
@@ -74,7 +74,7 @@ export function AppHeader({ email }: { email?: string }) {
         ) : (
           <Link
             href="/login"
-            className="rounded-full border border-zinc-800 px-3 py-1.5 text-xs font-medium tracking-wide text-zinc-300 transition hover:border-zinc-600 hover:text-zinc-100"
+            className="inline-flex min-h-10 items-center rounded-full border border-zinc-800 px-3 py-1.5 text-xs font-medium tracking-wide text-zinc-300 transition hover:border-zinc-600 hover:text-zinc-100"
           >
             Sign in
           </Link>

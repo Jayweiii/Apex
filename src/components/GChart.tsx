@@ -35,7 +35,7 @@ export function GChart({
   const active = activeIndex != null ? points[activeIndex] : null;
 
   return (
-    <div className="h-[320px] w-full rounded-2xl border border-zinc-800/80 bg-zinc-950/40 p-4">
+    <div className="h-[260px] w-full max-w-full overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950/40 p-3 sm:h-[320px] sm:p-4">
       <div className="mb-2 flex items-baseline justify-between gap-3">
         <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">G</p>
         <p className="font-mono text-xs text-zinc-300">
@@ -44,7 +44,7 @@ export function GChart({
             : "Lateral and longitudinal"}
         </p>
       </div>
-      <div className="h-[260px]">
+      <div className="h-[200px] sm:h-[260px]">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart
             data={points}

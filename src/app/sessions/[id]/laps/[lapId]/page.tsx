@@ -3,7 +3,7 @@ import { LapCharts } from "@/components/LapCharts";
 import { LocalLap } from "@/components/LocalGarage";
 import { compareHref } from "@/lib/compare";
 import { formatLapTime } from "@/lib/format";
-import { hasSupabaseConfig } from "@/lib/supabase/env";
+import { shouldUseLocalSession } from "@/lib/session-route";
 import { createClient } from "@/lib/supabase/server";
 import type { LapRow, SessionRow, TelemetryPoint } from "@/lib/types";
 import Link from "next/link";
@@ -14,7 +14,7 @@ export default async function LapPage({
   params: Promise<{ id: string; lapId: string }>;
 }) {
   const { id, lapId } = await params;
-  if (id.startsWith("pub-") || !hasSupabaseConfig()) {
+  if (shouldUseLocalSession(id)) {
     return <LocalLap sessionId={id} lapId={lapId} />;
   }
 

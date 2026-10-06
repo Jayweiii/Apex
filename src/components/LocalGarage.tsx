@@ -1,5 +1,6 @@
 "use client";
 
+import { AttributionCard } from "@/components/Attribution";
 import { AppHeader } from "@/components/AppHeader";
 import { LapCompare } from "@/components/LapCompare";
 import { LapList } from "@/components/LapList";
@@ -26,10 +27,35 @@ function CompareLink({
   return (
     <Link
       href={href}
-      className="text-xs uppercase tracking-[0.18em] text-orange-400 hover:text-orange-300"
+      className="inline-flex min-h-10 items-center text-xs uppercase tracking-[0.18em] text-orange-400 hover:text-orange-300"
     >
       Compare laps
     </Link>
+  );
+}
+
+function LoadingShell({ label }: { label: string }) {
+  return (
+    <>
+      <AppHeader />
+      <main className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6">
+        <p className="text-sm text-zinc-500">{label}</p>
+      </main>
+    </>
+  );
+}
+
+function MissingShell({ message }: { message: string }) {
+  return (
+    <>
+      <AppHeader />
+      <main className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6">
+        <p className="text-sm text-zinc-400">{message}</p>
+        <Link href="/" className="mt-4 inline-block text-sm text-orange-400">
+          Back to tracks
+        </Link>
+      </main>
+    </>
   );
 }
 
@@ -44,19 +70,9 @@ export function LocalCompare({
 }) {
   const session = useLocalSession(id);
 
-  if (session === undefined) return null;
+  if (session === undefined) return <LoadingShell label="Loading comparison…" />;
   if (!session) {
-    return (
-      <>
-        <AppHeader />
-        <main className="mx-auto w-full max-w-4xl px-6 py-8">
-          <p className="text-sm text-zinc-400">Session not found in this browser.</p>
-          <Link href="/" className="mt-4 inline-block text-sm text-orange-400">
-            Back to tracks
-          </Link>
-        </main>
-      </>
-    );
+    return <MissingShell message="Session not found in this browser." />;
   }
 
   const laps = session.laps.map((lap) => ({
@@ -71,17 +87,22 @@ export function LocalCompare({
   return (
     <>
       <AppHeader />
-      <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-6 py-8">
-        <div>
+      <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8">
+        <div className="space-y-3">
           <Link
             href={`/sessions/${session.id}`}
-            className="text-xs uppercase tracking-[0.2em] text-zinc-500 hover:text-zinc-300"
+            className="text-[11px] uppercase tracking-[0.2em] text-zinc-500 hover:text-zinc-300"
           >
             {session.name}
           </Link>
-          <h1 className="mt-3 text-2xl font-semibold tracking-tight text-zinc-50">
+          <h1 className="text-2xl font-semibold tracking-tight text-zinc-50 sm:text-3xl">
             Compare laps
           </h1>
+          <AttributionCard
+            kind={session.kind ?? "upload"}
+            attribution={session.attribution}
+            compact
+          />
         </div>
         <LapCompare laps={laps} initialRef={initialRef} initialOther={initialOther} />
       </main>
@@ -98,8 +119,13 @@ function useLocalSession(id: string) {
     let cancelled = false;
     const local = getLocalSession(id);
     if (local) {
-      setSession(local);
-      return;
+      const frame = window.requestAnimationFrame(() => {
+        if (!cancelled) setSession(local);
+      });
+      return () => {
+        cancelled = true;
+        window.cancelAnimationFrame(frame);
+      };
     }
     loadCatalogSession(id)
       .then((loaded) => {
@@ -119,19 +145,9 @@ function useLocalSession(id: string) {
 export function LocalSession({ id }: { id: string }) {
   const session = useLocalSession(id);
 
-  if (session === undefined) return null;
+  if (session === undefined) return <LoadingShell label="Loading session…" />;
   if (!session) {
-    return (
-      <>
-        <AppHeader />
-        <main className="mx-auto w-full max-w-4xl px-6 py-8">
-          <p className="text-sm text-zinc-400">Session not found in this browser.</p>
-          <Link href="/" className="mt-4 inline-block text-sm text-orange-400">
-            Back to tracks
-          </Link>
-        </main>
-      </>
-    );
+    return <MissingShell message="Session not found in this browser." />;
   }
 
   const best = session.laps.reduce(
@@ -152,18 +168,18 @@ export function LocalSession({ id }: { id: string }) {
   return (
     <>
       <AppHeader />
-      <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-8 px-6 py-8">
-        <div>
+      <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 px-4 py-6 sm:gap-8 sm:px-6 sm:py-8">
+        <div className="space-y-3">
           <Link
             href={track ? `/tracks/${track.id}` : "/"}
-            className="text-xs uppercase tracking-[0.2em] text-zinc-500 hover:text-zinc-300"
+            className="text-[11px] uppercase tracking-[0.2em] text-zinc-500 hover:text-zinc-300"
           >
             {track ? track.name : "All tracks"}
           </Link>
-          <h1 className="mt-3 text-2xl font-semibold tracking-tight text-zinc-50">
+          <h1 className="text-2xl font-semibold tracking-tight text-zinc-50 sm:text-3xl">
             {session.name}
           </h1>
-          <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-zinc-500">
               {session.car ? `${session.car} · ` : ""}
               {session.laps.length} laps
@@ -171,11 +187,17 @@ export function LocalSession({ id }: { id: string }) {
             </p>
             <CompareLink sessionId={session.id} laps={laps} />
           </div>
+          <AttributionCard
+            kind={session.kind ?? "upload"}
+            attribution={session.attribution}
+          />
         </div>
         {laps.length ? (
           <LapList sessionId={session.id} laps={laps} />
         ) : (
-          <p className="text-sm text-zinc-500">No laps in this session.</p>
+          <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-8 text-center text-sm text-zinc-500">
+            No laps in this session.
+          </p>
         )}
       </main>
     </>
@@ -192,19 +214,9 @@ export function LocalLap({
   const session = useLocalSession(sessionId);
   const lap = session?.laps.find((item) => item.id === lapId);
 
-  if (session === undefined) return null;
+  if (session === undefined) return <LoadingShell label="Loading lap…" />;
   if (!session || !lap) {
-    return (
-      <>
-        <AppHeader />
-        <main className="mx-auto w-full max-w-4xl px-6 py-8">
-          <p className="text-sm text-zinc-400">Lap not found in this browser.</p>
-          <Link href="/" className="mt-4 inline-block text-sm text-orange-400">
-            Back to tracks
-          </Link>
-        </main>
-      </>
-    );
+    return <MissingShell message="Lap not found in this browser." />;
   }
 
   const peak = lap.telemetry.reduce((max, point) => Math.max(max, point.speed), 0);
@@ -212,20 +224,20 @@ export function LocalLap({
   return (
     <>
       <AppHeader />
-      <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-6 py-8">
-        <div>
+      <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8">
+        <div className="space-y-3">
           <Link
             href={`/sessions/${session.id}`}
-            className="text-xs uppercase tracking-[0.2em] text-zinc-500 hover:text-zinc-300"
+            className="text-[11px] uppercase tracking-[0.2em] text-zinc-500 hover:text-zinc-300"
           >
             {session.name}
           </Link>
-          <div className="mt-3 flex flex-wrap items-end justify-between gap-4">
+          <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
               <h1 className="text-2xl font-semibold tracking-tight text-zinc-50">
                 Lap {lap.lap_number}
               </h1>
-              <p className="mt-1 font-mono text-3xl text-orange-400">
+              <p className="mt-1 font-mono text-3xl text-orange-400 sm:text-4xl">
                 {formatLapTime(lap.lap_time_ms)}
               </p>
             </div>
@@ -241,11 +253,18 @@ export function LocalLap({
               />
             </div>
           </div>
+          <AttributionCard
+            kind={session.kind ?? "upload"}
+            attribution={session.attribution}
+            compact
+          />
         </div>
         {lap.telemetry.length ? (
           <LapCharts points={lap.telemetry} label={`Lap ${lap.lap_number}`} />
         ) : (
-          <p className="text-sm text-zinc-500">No speed samples on this lap.</p>
+          <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-8 text-center text-sm text-zinc-500">
+            No speed samples on this lap.
+          </p>
         )}
       </main>
     </>
