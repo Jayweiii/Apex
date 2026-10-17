@@ -10,15 +10,19 @@ import {
 import { parseGoProChapters } from "@/lib/parse-gopro";
 import { parseTelemetryCsv } from "@/lib/parse-telemetry";
 import { SessionVisibilityControl } from "@/components/SessionVisibilityControl";
+import { ensureSharedTrack, fetchSharedTracks } from "@/lib/cloud-tracks";
 import { saveSessionToCloud } from "@/lib/save-session-cloud";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
 import {
   listCustomTracks,
+  listSharedTracksCache,
   popularTracks,
   saveCustomTrack,
+  setSharedTracksCache,
   type Track,
 } from "@/lib/tracks";
 import { presignUpload, uploadToTarget } from "@/lib/storage/upload-client";
+import type { ParsedLap } from "@/lib/types";
 import {
   DEFAULT_VISIBILITY,
   type SessionVisibility,
@@ -44,7 +48,7 @@ export function SessionUpload({
   const router = useRouter();
   const [destination, setDestination] = useState<Destination>("checking");
   const [userEmail, setUserEmail] = useState<string | null>(null);
-  const [customTracks, setCustomTracks] = useState<Track[]>([]);
+  const [extraTracks, setExtraTracks] = useState<Track[]>([]);
   const [pickedTrack, setPickedTrack] = useState(trackId ?? "");
   const [newTrackName, setNewTrackName] = useState("");
   const [name, setName] = useState("");
@@ -106,21 +110,44 @@ export function SessionUpload({
   }, [storage, busy]);
 
   useEffect(() => {
-    const frame = window.requestAnimationFrame(() => {
-      setCustomTracks(listCustomTracks());
+    let cancelled = false;
+    async function loadTracks() {
+      const local = listCustomTracks();
+      let shared: Track[] = listSharedTracksCache();
+      if (hasSupabaseConfig()) {
+        try {
+          const supabase = createClient();
+          shared = await fetchSharedTracks(supabase);
+          if (!cancelled) setSharedTracksCache(shared);
+        } catch {
+          // Keep local + cached shared.
+        }
+      }
+      if (cancelled) return;
+      const merged: Track[] = [];
+      for (const track of [...shared, ...local]) {
+        if (!merged.some((item) => item.id === track.id)) merged.push(track);
+      }
+      setExtraTracks(merged);
       const cars = listKnownCars();
       setKnownCars(cars);
       setCarChoice((current) => {
         if (current) return current;
         return cars.length ? "" : NEW_CAR;
       });
+    }
+    const frame = window.requestAnimationFrame(() => {
+      void loadTracks();
     });
-    return () => window.cancelAnimationFrame(frame);
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(frame);
+    };
   }, [busy]);
 
   const tracks = useMemo(
-    () => popularTracks("", customTracks),
-    [customTracks],
+    () => popularTracks("", extraTracks),
+    [extraTracks],
   );
   const chosenTrack = trackId ?? (pickedTrack === NEW_TRACK ? "" : pickedTrack);
   const drivers = useMemo(
@@ -201,11 +228,43 @@ export function SessionUpload({
     return { rawObjectKey, videoObjectKey, videoLocalKey, storageBackend };
   }
 
-  async function resolveTrackId(): Promise<string> {
+  async function resolveTrackId(laps: ParsedLap[]): Promise<string> {
     if (trackId) return trackId;
     if (pickedTrack === NEW_TRACK) {
+      const firstLapPoints = laps[0]?.points;
+      if (useCloud) {
+        setProgress("Saving shared track…");
+        const supabase = createClient();
+        const created = await ensureSharedTrack(supabase, {
+          name: newTrackName,
+          location: "Community",
+          firstLapPoints,
+        });
+        const shared = await fetchSharedTracks(supabase).catch(() => [
+          created,
+          ...listSharedTracksCache(),
+        ]);
+        setSharedTracksCache(shared);
+        setExtraTracks((current) => {
+          const next = [...shared, ...listCustomTracks(), ...current];
+          const deduped: Track[] = [];
+          for (const item of next) {
+            if (!deduped.some((row) => row.id === item.id)) deduped.push(item);
+          }
+          return deduped;
+        });
+        setPickedTrack(created.id);
+        return created.id;
+      }
       const created = saveCustomTrack(newTrackName);
-      setCustomTracks(listCustomTracks());
+      setExtraTracks((current) => {
+        const next = [created, ...listCustomTracks(), ...current];
+        const deduped: Track[] = [];
+        for (const item of next) {
+          if (!deduped.some((row) => row.id === item.id)) deduped.push(item);
+        }
+        return deduped;
+      });
       setPickedTrack(created.id);
       return created.id;
     }
@@ -259,7 +318,7 @@ export function SessionUpload({
         useCloud ? "Saving to your account…" : "Saving in this browser…",
       );
       const stored = await storeRawAndMaybeVideo(sessionId, files);
-      const resolvedTrack = await resolveTrackId();
+      const resolvedTrack = await resolveTrackId(laps);
       const tags = carTags
         .split(",")
         .map((tag) => tag.trim())
@@ -396,7 +455,11 @@ export function SessionUpload({
                 {tracks.map((track) => (
                   <option key={track.id} value={track.id}>
                     {track.name}
-                    {track.id.startsWith("custom-") ? " (yours)" : ""}
+                    {track.id.startsWith("custom-")
+                      ? track.location === "Added in this browser"
+                        ? " (this browser)"
+                        : " (community)"
+                      : ""}
                   </option>
                 ))}
                 <option value={NEW_TRACK}>+ Create new track…</option>

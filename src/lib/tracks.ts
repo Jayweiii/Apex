@@ -143,6 +143,9 @@ export const TRACKS: Track[] = [
 
 const CUSTOM_TRACKS_KEY = "apex.local-tracks";
 
+/** In-memory shared tracks loaded from Supabase (browser). */
+let sharedTracksCache: Track[] = [];
+
 export function normalizeTrackQuery(value: string) {
   return value
     .toLowerCase()
@@ -173,6 +176,14 @@ function writeCustomTracks(tracks: Track[]) {
   window.localStorage.setItem(CUSTOM_TRACKS_KEY, JSON.stringify(tracks));
 }
 
+export function listSharedTracksCache(): Track[] {
+  return sharedTracksCache;
+}
+
+export function setSharedTracksCache(tracks: Track[]) {
+  sharedTracksCache = tracks;
+}
+
 export function builtinTrack(id: string): Track | null {
   return TRACKS.find((track) => track.id === id) ?? null;
 }
@@ -180,20 +191,26 @@ export function builtinTrack(id: string): Track | null {
 export function getTrack(id: string): Track | null {
   return (
     builtinTrack(id) ??
+    sharedTracksCache.find((track) => track.id === id) ??
     listCustomTracks().find((track) => track.id === id) ??
     null
   );
 }
 
-export function findTrackByName(name: string, extras: Track[] = listCustomTracks()): Track | null {
+export function findTrackByName(
+  name: string,
+  extras: Track[] = [...listSharedTracksCache(), ...listCustomTracks()],
+): Track | null {
   const needle = normalizeTrackQuery(name.trim());
   if (!needle) return null;
   return (
-    [...TRACKS, ...extras].find((track) => normalizeTrackQuery(track.name) === needle) ??
-    null
+    [...TRACKS, ...extras].find(
+      (track) => normalizeTrackQuery(track.name) === needle,
+    ) ?? null
   );
 }
 
+/** Local-only custom track (signed-out uploads). Prefer ensureSharedTrack when cloud. */
 export function saveCustomTrack(name: string): Track {
   const trimmed = name.trim();
   const existing = findTrackByName(trimmed);
@@ -201,7 +218,11 @@ export function saveCustomTrack(name: string): Track {
 
   const custom = listCustomTracks();
   const base = `custom-${slugify(trimmed)}`;
-  const taken = new Set([...TRACKS, ...custom].map((track) => track.id));
+  const taken = new Set([
+    ...TRACKS,
+    ...listSharedTracksCache(),
+    ...custom,
+  ].map((track) => track.id));
   let id = base;
   if (taken.has(id)) id = `${base}-${crypto.randomUUID().slice(0, 8)}`;
 
@@ -220,7 +241,7 @@ export function saveCustomTrack(name: string): Track {
 
 export function popularTracks(query = "", extras: Track[] = []): Track[] {
   const merged = [...TRACKS];
-  for (const extra of extras) {
+  for (const extra of [...listSharedTracksCache(), ...extras]) {
     if (!merged.some((track) => track.id === extra.id)) merged.push(extra);
   }
   const ranked = merged.sort(
