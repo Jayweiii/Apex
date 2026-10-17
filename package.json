@@ -16,7 +16,8 @@
     "test:cloud-tracks": "tsx scripts/verify-cloud-tracks.ts",
     "test:guest-auth": "tsx scripts/verify-guest-auth.ts",
     "test:map-match": "tsx scripts/verify-map-match.ts",
-    "test": "tsx scripts/verify-parse.ts && tsx scripts/verify-storage.ts && tsx scripts/verify-analysis.ts && tsx scripts/verify-sync.ts && tsx scripts/verify-cloud-save.ts && tsx scripts/verify-visibility.ts && tsx scripts/verify-compare-sessions.ts && tsx scripts/verify-cloud-tracks.ts && tsx scripts/verify-guest-auth.ts && tsx scripts/verify-map-match.ts",
+    "test:satellite-map": "tsx scripts/verify-satellite-map.ts",
+    "test": "tsx scripts/verify-parse.ts && tsx scripts/verify-storage.ts && tsx scripts/verify-analysis.ts && tsx scripts/verify-sync.ts && tsx scripts/verify-cloud-save.ts && tsx scripts/verify-visibility.ts && tsx scripts/verify-compare-sessions.ts && tsx scripts/verify-cloud-tracks.ts && tsx scripts/verify-guest-auth.ts && tsx scripts/verify-map-match.ts && tsx scripts/verify-satellite-map.ts",
     "import:youtube": "tsx scripts/import-youtube.ts",
     "build:datasets": "tsx scripts/build-public-dataset.ts"
   },
@@ -27,6 +28,7 @@
     "@supabase/supabase-js": "^2.117.2",
     "gopro-telemetry": "^1.2.11",
     "gpmf-extract": "^0.3.3",
+    "leaflet": "^1.9.4",
     "next": "16.3.8",
     "papaparse": "^5.7.0",
     "react": "19.2.8",
@@ -35,6 +37,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/leaflet": "^1.9.22",
     "@types/node": "^20.19.43",
     "@types/papaparse": "^5.5.2",
     "@types/react": "^19",
