@@ -10,6 +10,7 @@ import {
   useVideoSync,
   type VideoPlayerHandle,
 } from "@/components/video/useVideoSync";
+import { useAnalysisMode } from "@/lib/analysis-mode";
 import { resolveTrackCenterline } from "@/lib/cloud-tracks";
 import { hasGps } from "@/lib/compare";
 import {
@@ -81,9 +82,14 @@ export function SyncedLapView({
     [lap.telemetry, centerline],
   );
   const [gpsMode, setGpsMode] = useState<GpsDisplayMode>("snapped");
+  const {
+    mode: analysisMode,
+    setMode: setAnalysisMode,
+    hasSnap: hasAnalysisSnap,
+  } = useAnalysisMode(Boolean(centerline));
   const chartData = useMemo(
-    () => enrichTelemetry(analysisPoints(matched, lap.telemetry)),
-    [matched, lap.telemetry],
+    () => enrichTelemetry(analysisPoints(matched, lap.telemetry, analysisMode)),
+    [matched, lap.telemetry, analysisMode],
   );
   const data = useMemo(
     () =>
@@ -204,6 +210,9 @@ export function SyncedLapView({
     centerline,
     gpsMode: centerline ? gpsMode : undefined,
     onGpsModeChange: centerline ? setGpsMode : undefined,
+    analysisMode: centerline ? analysisMode : undefined,
+    onAnalysisModeChange: centerline ? setAnalysisMode : undefined,
+    analysisDisabled: !hasAnalysisSnap,
   } as const;
 
   function bindPlayer(handle: VideoPlayerHandle | null) {

@@ -20,6 +20,10 @@ type LeafletProps = {
   onProgress?: (progress: number | null) => void;
   gpsMode?: GpsDisplayMode;
   onGpsModeChange?: (mode: GpsDisplayMode) => void;
+  /** Independent Raw/Snapped mode for delta / corners / charts. */
+  analysisMode?: GpsDisplayMode;
+  onAnalysisModeChange?: (mode: GpsDisplayMode) => void;
+  analysisDisabled?: boolean;
   centerline?: Array<{ lat: number; lon: number }> | null;
 };
 

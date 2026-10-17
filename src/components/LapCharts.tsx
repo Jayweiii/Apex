@@ -4,6 +4,7 @@ import { GChart } from "@/components/GChart";
 import { SpeedChart } from "@/components/SpeedChart";
 import { SyncedVideo } from "@/components/SyncedVideo";
 import { MissingGps, TrackMap } from "@/components/TrackMap";
+import { useAnalysisMode } from "@/lib/analysis-mode";
 import { resolveTrackCenterline } from "@/lib/cloud-tracks";
 import { hasGps } from "@/lib/compare";
 import { enrichTelemetry } from "@/lib/gforce";
@@ -37,9 +38,14 @@ export function LapCharts({
     [points, centerline],
   );
   const [gpsMode, setGpsMode] = useState<GpsDisplayMode>("snapped");
+  const {
+    mode: analysisMode,
+    setMode: setAnalysisMode,
+    hasSnap: hasAnalysisSnap,
+  } = useAnalysisMode(Boolean(centerline));
   const analysis = useMemo(
-    () => enrichTelemetry(analysisPoints(matched, points)),
-    [matched, points],
+    () => enrichTelemetry(analysisPoints(matched, points, analysisMode)),
+    [matched, points, analysisMode],
   );
   const data = useMemo(
     () =>
@@ -92,6 +98,9 @@ export function LapCharts({
           centerline={centerline}
           gpsMode={centerline ? gpsMode : undefined}
           onGpsModeChange={centerline ? setGpsMode : undefined}
+          analysisMode={centerline ? analysisMode : undefined}
+          onAnalysisModeChange={centerline ? setAnalysisMode : undefined}
+          analysisDisabled={!hasAnalysisSnap}
         />
       ) : (
         <MissingGps />
