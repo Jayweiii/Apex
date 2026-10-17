@@ -1,7 +1,9 @@
 "use client";
 
+import { GpsModeToggle } from "@/components/GpsModeToggle";
 import { hasGps } from "@/lib/compare";
 import { formatG } from "@/lib/format";
+import type { GpsDisplayMode } from "@/lib/map-match";
 import type { TelemetryPoint } from "@/lib/types";
 import { useState } from "react";
 
@@ -47,10 +49,18 @@ export function TrackMap({
   traces,
   activeProgress = null,
   onProgress,
+  gpsMode,
+  onGpsModeChange,
+  centerline,
 }: {
   traces: TrackTrace[];
   activeProgress?: number | null;
   onProgress?: (progress: number | null) => void;
+  /** When set with onGpsModeChange, shows Raw vs Snapped toggle. */
+  gpsMode?: GpsDisplayMode;
+  onGpsModeChange?: (mode: GpsDisplayMode) => void;
+  /** Optional reference centerline drawn under traces. */
+  centerline?: Array<{ lat: number; lon: number }> | null;
 }) {
   const [pointer, setPointer] = useState<{ x: number; y: number } | null>(null);
   const drawable = traces
@@ -62,9 +72,17 @@ export function TrackMap({
     }))
     .filter((trace) => trace.points.length > 1);
 
+  const centerlineGps = (centerline ?? []).filter(
+    (point): point is { lat: number; lon: number } =>
+      point.lat != null && point.lon != null,
+  );
+
   if (!drawable.length) return null;
 
-  const all = drawable.flatMap((trace) => trace.points);
+  const all = [
+    ...drawable.flatMap((trace) => trace.points),
+    ...centerlineGps,
+  ];
   const minLat = Math.min(...all.map((point) => point.lat));
   const maxLat = Math.max(...all.map((point) => point.lat));
   const minLon = Math.min(...all.map((point) => point.lon));
@@ -84,7 +102,9 @@ export function TrackMap({
     };
   }
 
-  const speeds = all.map((point) => point.speed);
+  const speeds = drawable.flatMap((trace) =>
+    trace.points.map((point) => point.speed),
+  );
   const minSpeed = Math.min(...speeds);
   const maxSpeed = Math.max(...speeds);
   const showLegend = drawable.length > 1 || drawable.some((trace) => trace.colorBySpeed);
@@ -117,9 +137,22 @@ export function TrackMap({
   return (
     <div className="relative rounded-2xl border border-zinc-800/80 bg-zinc-950/40 p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">GPS</p>
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
+            GPS{gpsMode ? ` · ${gpsMode}` : ""}
+          </p>
+          {gpsMode && onGpsModeChange ? (
+            <GpsModeToggle mode={gpsMode} onChange={onGpsModeChange} />
+          ) : null}
+        </div>
         {showLegend ? (
           <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-400">
+            {centerlineGps.length > 1 ? (
+              <span className="flex items-center gap-2">
+                <span className="h-1.5 w-4 rounded-full bg-zinc-600" />
+                Centerline
+              </span>
+            ) : null}
             {drawable.some((trace) => trace.colorBySpeed) ? (
               <span className="flex items-center gap-2">
                 <span className="h-1.5 w-10 rounded-full bg-gradient-to-r from-zinc-500 to-orange-500" />
@@ -177,6 +210,29 @@ export function TrackMap({
           onProgress?.(null);
         }}
       >
+        {centerlineGps.length > 1 ? (
+          <g>
+            {centerlineGps.slice(1).map((point, index) => {
+              const prev = centerlineGps[index];
+              const a = xy(prev.lat, prev.lon);
+              const b = xy(point.lat, point.lon);
+              return (
+                <line
+                  key={`centerline-${index}`}
+                  x1={a.x}
+                  y1={a.y}
+                  x2={b.x}
+                  y2={b.y}
+                  stroke="#52525b"
+                  strokeWidth={1.1}
+                  strokeLinecap="round"
+                  strokeDasharray="1.5 1.5"
+                  opacity={0.85}
+                />
+              );
+            })}
+          </g>
+        ) : null}
         {drawable.map((trace) => {
           const start = xy(trace.points[0].lat, trace.points[0].lon);
           return (

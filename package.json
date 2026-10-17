@@ -15,7 +15,8 @@
     "test:compare-sessions": "tsx scripts/verify-compare-sessions.ts",
     "test:cloud-tracks": "tsx scripts/verify-cloud-tracks.ts",
     "test:guest-auth": "tsx scripts/verify-guest-auth.ts",
-    "test": "tsx scripts/verify-parse.ts && tsx scripts/verify-storage.ts && tsx scripts/verify-analysis.ts && tsx scripts/verify-sync.ts && tsx scripts/verify-cloud-save.ts && tsx scripts/verify-visibility.ts && tsx scripts/verify-compare-sessions.ts && tsx scripts/verify-cloud-tracks.ts && tsx scripts/verify-guest-auth.ts",
+    "test:map-match": "tsx scripts/verify-map-match.ts",
+    "test": "tsx scripts/verify-parse.ts && tsx scripts/verify-storage.ts && tsx scripts/verify-analysis.ts && tsx scripts/verify-sync.ts && tsx scripts/verify-cloud-save.ts && tsx scripts/verify-visibility.ts && tsx scripts/verify-compare-sessions.ts && tsx scripts/verify-cloud-tracks.ts && tsx scripts/verify-guest-auth.ts && tsx scripts/verify-map-match.ts",
     "import:youtube": "tsx scripts/import-youtube.ts",
     "build:datasets": "tsx scripts/build-public-dataset.ts"
   },

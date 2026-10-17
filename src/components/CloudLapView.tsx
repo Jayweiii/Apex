@@ -12,6 +12,7 @@ import { useEffect, useState } from "react";
 type CloudSession = {
   id: string;
   name: string;
+  track_id?: string | null;
 };
 
 /**
@@ -54,7 +55,7 @@ export function CloudLapView({
 
         const { data: row, error: sessionError } = await supabase
           .from("sessions")
-          .select("id, name")
+          .select("id, name, track_id")
           .eq("id", sessionId)
           .maybeSingle();
         if (cancelled) return;
@@ -190,7 +191,11 @@ export function CloudLapView({
           </div>
         </div>
         {points.length ? (
-          <LapCharts points={points} label={`Lap ${lap.lap_number}`} />
+          <LapCharts
+            points={points}
+            label={`Lap ${lap.lap_number}`}
+            trackId={session.track_id}
+          />
         ) : (
           <p className="text-sm text-zinc-500">No speed samples on this lap.</p>
         )}

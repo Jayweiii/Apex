@@ -1,3 +1,9 @@
+import { builtinCenterline } from "@/lib/centerlines";
+import {
+  buildCenterlineFromLaps,
+  parseCenterline,
+  type LatLon,
+} from "@/lib/map-match";
 import {
   builtinTrack,
   findTrackByName,
@@ -41,7 +47,7 @@ export function cloudRowToTrack(row: CloudTrackRow): Track {
 function centerFromPoints(points: TelemetryPoint[]): {
   lat: number;
   lon: number;
-  centerline: Array<{ lat: number; lon: number }>;
+  centerline: LatLon[];
   startFinish: { lat: number; lon: number } | null;
 } | null {
   const gps = points.filter(
@@ -49,12 +55,15 @@ function centerFromPoints(points: TelemetryPoint[]): {
       point.lat != null && point.lon != null,
   );
   if (gps.length < 3) return null;
-  // Downsample for storage.
-  const step = Math.max(1, Math.floor(gps.length / 200));
-  const centerline = gps
-    .filter((_, index) => index % step === 0)
-    .map((point) => ({ lat: point.lat, lon: point.lon }));
-  const mid = gps[Math.floor(gps.length / 2)];
+  const centerline =
+    buildCenterlineFromLaps([points], { maxPoints: 200 }) ??
+    (() => {
+      const step = Math.max(1, Math.floor(gps.length / 200));
+      return gps
+        .filter((_, index) => index % step === 0)
+        .map((point) => ({ lat: point.lat, lon: point.lon }));
+    })();
+  const mid = centerline[Math.floor(centerline.length / 2)] ?? gps[Math.floor(gps.length / 2)];
   return {
     lat: mid.lat,
     lon: mid.lon,
@@ -66,6 +75,71 @@ function centerFromPoints(points: TelemetryPoint[]): {
 /** Minimal shape; accepts the real Supabase browser client. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SupabaseLike = any;
+
+/** Resolve stored / built-in / lap-derived centerline for a track id. */
+export function resolveTrackCenterline(
+  trackId: string | null | undefined,
+  stored?: unknown,
+  sampleLaps?: TelemetryPoint[][],
+): LatLon[] | null {
+  const fromDb = parseCenterline(stored);
+  if (fromDb) return fromDb;
+  const builtin = builtinCenterline(trackId);
+  if (builtin) return builtin;
+  if (sampleLaps?.length) return buildCenterlineFromLaps(sampleLaps);
+  return null;
+}
+
+export async function fetchTrackCenterline(
+  client: SupabaseLike,
+  trackId: string | null | undefined,
+): Promise<LatLon[] | null> {
+  if (!trackId) return builtinCenterline(trackId);
+  const builtin = builtinCenterline(trackId);
+  try {
+    const { data, error } = await client
+      .from("tracks")
+      .select("centerline")
+      .eq("id", trackId)
+      .maybeSingle();
+    if (error) return builtin;
+    return parseCenterline(data?.centerline) ?? builtin;
+  } catch {
+    return builtin;
+  }
+}
+
+/**
+ * Refresh tracks.centerline from the cleanest laps when missing or short.
+ * Safe no-op if the row is missing or RLS blocks updates.
+ */
+export async function maybeRefreshTrackCenterline(
+  client: SupabaseLike,
+  trackId: string,
+  laps: TelemetryPoint[][],
+): Promise<LatLon[] | null> {
+  const built = buildCenterlineFromLaps(laps);
+  if (!built) return builtinCenterline(trackId);
+
+  try {
+    const { data } = await client
+      .from("tracks")
+      .select("centerline")
+      .eq("id", trackId)
+      .maybeSingle();
+    const existing = parseCenterline(data?.centerline);
+    if (existing && existing.length >= built.length * 0.8) {
+      return existing;
+    }
+    await client
+      .from("tracks")
+      .update({ centerline: built })
+      .eq("id", trackId);
+  } catch {
+    // Best-effort; callers still get the in-memory centerline.
+  }
+  return built;
+}
 
 export async function fetchSharedTracks(
   client: SupabaseLike,
@@ -126,6 +200,8 @@ export async function ensureSharedTrack(
   const derived = input.firstLapPoints
     ? centerFromPoints(input.firstLapPoints)
     : null;
+  const namedBuiltin = findTrackByName(trimmed);
+  const preferredLine = builtinCenterline(namedBuiltin?.id);
 
   const base = `custom-${slugify(trimmed)}`;
   const taken = new Set([
@@ -143,10 +219,10 @@ export async function ensureSharedTrack(
     name: trimmed,
     location,
     layout: input.layout?.trim() || null,
-    lat: derived?.lat ?? 0,
-    lon: derived?.lon ?? 0,
+    lat: derived?.lat ?? namedBuiltin?.lat ?? 0,
+    lon: derived?.lon ?? namedBuiltin?.lon ?? 0,
     start_finish: derived?.startFinish ?? null,
-    centerline: derived?.centerline ?? null,
+    centerline: preferredLine ?? derived?.centerline ?? null,
     created_by: user.id,
   };
 

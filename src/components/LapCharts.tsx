@@ -4,8 +4,15 @@ import { GChart } from "@/components/GChart";
 import { SpeedChart } from "@/components/SpeedChart";
 import { SyncedVideo } from "@/components/SyncedVideo";
 import { MissingGps, TrackMap } from "@/components/TrackMap";
+import { resolveTrackCenterline } from "@/lib/cloud-tracks";
 import { hasGps } from "@/lib/compare";
 import { enrichTelemetry } from "@/lib/gforce";
+import {
+  analysisPoints,
+  displayPoints,
+  mapMatchLap,
+  type GpsDisplayMode,
+} from "@/lib/map-match";
 import type { TelemetryPoint } from "@/lib/types";
 import { useMemo, useState } from "react";
 
@@ -13,26 +20,50 @@ export function LapCharts({
   points,
   label,
   videoSrc,
+  trackId,
 }: {
   points: TelemetryPoint[];
   label: string;
   videoSrc?: string | null;
+  trackId?: string | null;
 }) {
-  const data = useMemo(() => enrichTelemetry(points), [points]);
+  const centerline = useMemo(
+    () => resolveTrackCenterline(trackId, null, [points]),
+    [trackId, points],
+  );
+  const matched = useMemo(
+    () => mapMatchLap(points, centerline),
+    [points, centerline],
+  );
+  const [gpsMode, setGpsMode] = useState<GpsDisplayMode>("snapped");
+  const analysis = useMemo(
+    () => enrichTelemetry(analysisPoints(matched, points)),
+    [matched, points],
+  );
+  const data = useMemo(
+    () =>
+      enrichTelemetry(
+        displayPoints(matched, points, centerline ? gpsMode : "raw"),
+      ),
+    [matched, points, gpsMode, centerline],
+  );
   const [progress, setProgress] = useState<number | null>(null);
+  const chartPoints = analysis;
   const index =
-    progress == null || data.length < 2
+    progress == null || chartPoints.length < 2
       ? null
-      : Math.round(progress * (data.length - 1));
+      : Math.round(progress * (chartPoints.length - 1));
   const durationHint =
-    data.length > 1 ? data[data.length - 1].t - data[0].t : undefined;
+    chartPoints.length > 1
+      ? chartPoints[chartPoints.length - 1].t - chartPoints[0].t
+      : undefined;
 
   function hoverFromChart(next: number | null) {
-    if (next == null || data.length < 2) {
+    if (next == null || chartPoints.length < 2) {
       setProgress(null);
       return;
     }
-    setProgress(next / (data.length - 1));
+    setProgress(next / (chartPoints.length - 1));
   }
 
   return (
@@ -58,18 +89,21 @@ export function LapCharts({
           ]}
           activeProgress={progress}
           onProgress={setProgress}
+          centerline={centerline}
+          gpsMode={centerline ? gpsMode : undefined}
+          onGpsModeChange={centerline ? setGpsMode : undefined}
         />
       ) : (
         <MissingGps />
       )}
       <SpeedChart
-        points={data}
+        points={chartPoints}
         activeIndex={index}
         onHoverIndex={hoverFromChart}
         syncId="lap-detail"
       />
       <GChart
-        points={data}
+        points={chartPoints}
         activeIndex={index}
         onHoverIndex={hoverFromChart}
         syncId="lap-detail"
