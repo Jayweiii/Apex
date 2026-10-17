@@ -5,16 +5,19 @@ import { DataKindBadge } from "@/components/Attribution";
 import { AppHeader } from "@/components/AppHeader";
 import { SessionUpload } from "@/components/SessionUpload";
 import { PublicCloudSessions } from "@/components/PublicCloudSessions";
+import { TrackMap } from "@/components/TrackMap";
 import { YourSessions } from "@/components/YourSessions";
 import {
   catalogBestMs,
   catalogSessionsForTrack,
   CATALOG_SESSIONS,
+  loadCatalogSession,
   type CatalogSession,
 } from "@/lib/catalog";
+import { builtinCenterline } from "@/lib/centerlines";
+import { fetchSharedTracks } from "@/lib/cloud-tracks";
 import { formatLapTime } from "@/lib/format";
 import { listLocalSessions, type StoredSession } from "@/lib/local-store";
-import { fetchSharedTracks } from "@/lib/cloud-tracks";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
 import {
   getTrack,
@@ -25,6 +28,7 @@ import {
   type Track,
 } from "@/lib/tracks";
 import type { DataKind } from "@/lib/attribution";
+import type { TelemetryPoint } from "@/lib/types";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -289,6 +293,90 @@ export function TrackHome() {
   );
 }
 
+function TrackOverviewMap({
+  track,
+  local,
+}: {
+  track: Track;
+  local: StoredSession[] | null;
+}) {
+  const [catalogPoints, setCatalogPoints] = useState<TelemetryPoint[] | null>(
+    null,
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    const centerline = builtinCenterline(track.id);
+    if (centerline) {
+      setCatalogPoints(
+        centerline.map((point, index) => ({
+          t: index,
+          speed: 120,
+          lat: point.lat,
+          lon: point.lon,
+        })),
+      );
+      return;
+    }
+    const localWithGps = (local ?? []).find((session) =>
+      session.laps.some((lap) =>
+        lap.telemetry.some((point) => point.lat != null && point.lon != null),
+      ),
+    );
+    if (localWithGps) {
+      const lap =
+        localWithGps.laps.find((item) =>
+          item.telemetry.some((point) => point.lat != null && point.lon != null),
+        ) ?? localWithGps.laps[0];
+      setCatalogPoints(lap?.telemetry ?? null);
+      return;
+    }
+    const catalog = catalogSessionsForTrack(track.id)[0];
+    if (!catalog) {
+      if (track.lat && track.lon) {
+        setCatalogPoints([
+          { t: 0, speed: 0, lat: track.lat, lon: track.lon },
+          {
+            t: 1,
+            speed: 0,
+            lat: track.lat + 0.002,
+            lon: track.lon + 0.002,
+          },
+        ]);
+      }
+      return;
+    }
+    void loadCatalogSession(catalog.id).then((session) => {
+      if (cancelled || !session) return;
+      const lap = session.laps.find((item) =>
+        item.telemetry.some((point) => point.lat != null && point.lon != null),
+      );
+      setCatalogPoints(lap?.telemetry ?? null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [track, local]);
+
+  const centerline = builtinCenterline(track.id);
+  if (!catalogPoints || catalogPoints.length < 2) return null;
+
+  return (
+    <TrackMap
+      traces={[
+        {
+          id: `${track.id}-overview`,
+          label: track.name,
+          color: "#f97316",
+          points: catalogPoints,
+          colorBySpeed: true,
+        },
+      ]}
+      centerline={centerline}
+    />
+  );
+}
+
 export function TrackDetail({ id }: { id: string }) {
   const [track, setTrack] = useState<Track | null>(() => getTrack(id));
   const local = useLocalSessions();
@@ -335,6 +423,7 @@ export function TrackDetail({ id }: { id: string }) {
           </h1>
           <p className="mt-1 text-sm text-zinc-500">{track.location}</p>
         </div>
+        <TrackOverviewMap track={track} local={local} />
         <SessionUpload trackId={track.id} />
         <LeaderboardPanel trackId={track.id} />
         <div className="flex flex-col gap-6">
