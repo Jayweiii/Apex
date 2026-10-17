@@ -38,6 +38,8 @@ export function CloudSessionView({ id }: { id: string }) {
   );
   const [laps, setLaps] = useState<LapRow[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [visibilityError, setVisibilityError] = useState<string | null>(null);
+  const [visibilityBusy, setVisibilityBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -98,18 +100,76 @@ export function CloudSessionView({ id }: { id: string }) {
   }, [id]);
 
   async function onVisibility(next: SessionVisibility) {
-    if (!session || !userId || session.user_id !== userId) return;
-    const supabase = createClient();
-    const { error: updateError } = await supabase
-      .from("sessions")
-      .update({ visibility: next })
-      .eq("id", session.id)
-      .eq("user_id", userId);
-    if (updateError) {
-      setError(updateError.message);
+    if (!session || !userId || session.user_id !== userId || visibilityBusy) {
       return;
     }
+    const previous = normalizeVisibility(
+      session.visibility ?? DEFAULT_VISIBILITY,
+    );
+    // Optimistic UI so clicks feel instant; roll back on failure.
+    setVisibilityError(null);
+    setVisibilityBusy(true);
     setSession({ ...session, visibility: next });
+
+    try {
+      // Prefer same-origin API (clear missing-column errors), then browser client.
+      const response = await fetch(`/api/sessions/${session.id}/visibility`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ visibility: next }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        visibility?: SessionVisibility;
+        code?: string;
+      };
+
+      if (response.ok && payload.visibility) {
+        setSession({ ...session, visibility: payload.visibility });
+        return;
+      }
+
+      // If API auth cookies missed, fall back to browser Supabase client.
+      if (response.status === 401) {
+        const supabase = createClient();
+        const { data, error: updateError } = await supabase
+          .from("sessions")
+          .update({ visibility: next })
+          .eq("id", session.id)
+          .eq("user_id", userId)
+          .select("id, visibility")
+          .maybeSingle();
+        if (updateError) {
+          setSession({ ...session, visibility: previous });
+          setVisibilityError(
+            /visibility/i.test(updateError.message)
+              ? "Run supabase/migrations/20261017_session_visibility.sql in the Supabase SQL editor, then retry."
+              : updateError.message,
+          );
+          return;
+        }
+        if (!data) {
+          setSession({ ...session, visibility: previous });
+          setVisibilityError("Update blocked — are you the session owner?");
+          return;
+        }
+        setSession({ ...session, visibility: data.visibility ?? next });
+        return;
+      }
+
+      setSession({ ...session, visibility: previous });
+      setVisibilityError(
+        payload.error ?? `Could not update visibility (${response.status})`,
+      );
+    } catch (err) {
+      setSession({ ...session, visibility: previous });
+      setVisibilityError(
+        err instanceof Error ? err.message : "Could not update visibility",
+      );
+    } finally {
+      setVisibilityBusy(false);
+    }
   }
 
   if (session === undefined) {
@@ -185,6 +245,7 @@ export function CloudSessionView({ id }: { id: string }) {
               {Number.isFinite(best) ? ` · best ${formatLapTime(best)}` : ""}
               {session.driver_name ? ` · ${session.driver_name}` : ""}
               {mine ? " · saved to your account" : ""}
+              {!mine ? ` · ${visibility}` : ""}
             </p>
             {href ? (
               <Link
@@ -196,10 +257,24 @@ export function CloudSessionView({ id }: { id: string }) {
             ) : null}
           </div>
           {mine ? (
-            <SessionVisibilityControl
-              value={visibility}
-              onChange={onVisibility}
-            />
+            <div className="space-y-2">
+              <SessionVisibilityControl
+                value={visibility}
+                onChange={onVisibility}
+                disabled={visibilityBusy}
+              />
+              {visibilityBusy ? (
+                <p className="text-xs text-zinc-500">Saving visibility…</p>
+              ) : null}
+              {visibilityError ? (
+                <p
+                  role="alert"
+                  className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100"
+                >
+                  {visibilityError}
+                </p>
+              ) : null}
+            </div>
           ) : (
             <p className="text-xs uppercase tracking-[0.16em] text-zinc-600">
               Visibility · {visibility}

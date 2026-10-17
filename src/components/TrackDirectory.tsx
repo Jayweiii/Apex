@@ -4,6 +4,7 @@ import { LeaderboardPanel } from "@/components/LeaderboardPanel";
 import { DataKindBadge } from "@/components/Attribution";
 import { AppHeader } from "@/components/AppHeader";
 import { SessionUpload } from "@/components/SessionUpload";
+import { PublicCloudSessions } from "@/components/PublicCloudSessions";
 import { YourSessions } from "@/components/YourSessions";
 import {
   catalogBestMs,
@@ -126,6 +127,8 @@ export function TrackHome() {
         <SessionUpload />
 
         <YourSessions />
+
+        <PublicCloudSessions />
 
         <LeaderboardPanel />
 

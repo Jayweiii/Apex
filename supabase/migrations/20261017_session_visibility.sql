@@ -1,6 +1,10 @@
 -- Session visibility: private | friends | public
 -- Run in the Supabase SQL editor for project Apex (xhysarrdspledfenabnz).
 -- Filename: supabase/migrations/20261017_session_visibility.sql
+--
+-- Live status (2026-10-17): this migration is NOT applied yet.
+-- Applied migrations are only apex_base_schema + youtube_sync_friends.
+-- Until this runs, Public uploads silently drop visibility and toggle updates fail.
 
 alter table public.sessions
   add column if not exists visibility text not null default 'friends';
@@ -26,8 +30,14 @@ end $$;
 create index if not exists sessions_visibility_idx
   on public.sessions (visibility, created_at desc);
 
+-- Jason's Public upload at 19:34 UTC — column did not exist yet, so mark it public.
+update public.sessions
+set visibility = 'public'
+where id = '1c782e8b-c306-4c05-90d6-738bb948eee8';
+
 -- Replace blanket "any authenticated can read everything" policies
 -- with visibility-aware rules. Owners always see their own rows.
+-- Public rows are readable by anon (signed-out) via visibility = 'public'.
 
 drop policy if exists "sessions_select_authenticated" on public.sessions;
 drop policy if exists "sessions_select_own" on public.sessions;
@@ -76,7 +86,7 @@ create policy "session_videos_select_visible"
     )
   );
 
--- Owners can still update visibility (and other fields)
+-- Owners can update visibility (and other fields)
 drop policy if exists "sessions_update_own" on public.sessions;
 create policy "sessions_update_own"
   on public.sessions for update

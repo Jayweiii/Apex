@@ -145,11 +145,22 @@ export async function saveSessionToCloud(
     .insert(payload.session)
     .select("id")
     .single();
-  // Before visibility migration is applied, retry without the column.
+  // Before visibility migration is applied: only silently drop the column when
+  // the chosen visibility is the default (friends). Explicit private/public
+  // must fail loudly so the user knows to run the migration.
   if (
     sessionInsert.error &&
     /visibility/i.test(String(sessionInsert.error.message ?? ""))
   ) {
+    const chosen = normalizeVisibility(
+      (payload.session.visibility as SessionVisibility | undefined) ??
+        DEFAULT_VISIBILITY,
+    );
+    if (chosen !== DEFAULT_VISIBILITY) {
+      throw new Error(
+        "Visibility is not available yet. Run supabase/migrations/20261017_session_visibility.sql in the Supabase SQL editor, then upload again (or set visibility after the migration).",
+      );
+    }
     const { visibility: _omit, ...withoutVisibility } = payload.session;
     void _omit;
     sessionInsert = await client
