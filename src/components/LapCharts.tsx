@@ -14,7 +14,8 @@ import {
   type GpsDisplayMode,
 } from "@/lib/map-match";
 import type { TelemetryPoint } from "@/lib/types";
-import { useMemo, useState } from "react";
+import { progressFromIndex } from "@/lib/scrub";
+import { useCallback, useMemo, useState } from "react";
 
 export function LapCharts({
   points,
@@ -58,13 +59,12 @@ export function LapCharts({
       ? chartPoints[chartPoints.length - 1].t - chartPoints[0].t
       : undefined;
 
-  function hoverFromChart(next: number | null) {
-    if (next == null || chartPoints.length < 2) {
-      setProgress(null);
-      return;
-    }
-    setProgress(next / (chartPoints.length - 1));
-  }
+  const hoverFromChart = useCallback(
+    (next: number | null) => {
+      setProgress(progressFromIndex(next, chartPoints.length));
+    },
+    [chartPoints.length],
+  );
 
   return (
     <>

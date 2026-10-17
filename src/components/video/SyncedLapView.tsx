@@ -32,7 +32,8 @@ import {
   videoTimeFromLapProgress,
   type SyncLap,
 } from "@/lib/video-sync";
-import { useMemo, useRef, useState } from "react";
+import { progressFromIndex } from "@/lib/scrub";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 export function SyncedLapView({
   lap,
@@ -159,21 +160,45 @@ export function SyncedLapView({
   const deltaVsBest =
     bestLapMs != null ? (lap.lap_time_ms - bestLapMs) / 1000 : null;
 
-  function hoverFromChart(next: number | null) {
-    if (next == null || chartData.length < 2) {
-      setProgress(null);
-      return;
-    }
-    const nextProgress = next / (chartData.length - 1);
-    setProgress(nextProgress);
-    if (!activeVideo) return;
-    const paused = player?.isPaused() ?? true;
-    if (follow || paused) {
-      const t = videoTimeFromLapProgress(currentSyncLap, nextProgress, activeVideo);
-      seek(t);
-      setVideoTime(t);
-    }
-  }
+  const hoverFromChart = useCallback(
+    (next: number | null) => {
+      const nextProgress = progressFromIndex(next, chartData.length);
+      setProgress(nextProgress);
+      if (nextProgress == null || !activeVideo) return;
+      const paused = player?.isPaused() ?? true;
+      if (follow || paused) {
+        const t = videoTimeFromLapProgress(
+          currentSyncLap,
+          nextProgress,
+          activeVideo,
+        );
+        seek(t);
+        setVideoTime(t);
+      }
+    },
+    [
+      chartData.length,
+      activeVideo,
+      player,
+      follow,
+      currentSyncLap,
+      seek,
+    ],
+  );
+
+  const onMapProgress = useCallback(
+    (next: number | null) => {
+      setProgress(next);
+      if (next == null || !activeVideo) return;
+      const paused = player?.isPaused() ?? true;
+      if (follow || paused) {
+        const t = videoTimeFromLapProgress(currentSyncLap, next, activeVideo);
+        seek(t);
+        setVideoTime(t);
+      }
+    },
+    [activeVideo, player, follow, currentSyncLap, seek],
+  );
 
   const mapProps = {
     centerline,
@@ -240,20 +265,7 @@ export function SyncedLapView({
                   },
                 ]}
                 activeProgress={progress}
-                onProgress={(next) => {
-                  setProgress(next);
-                  if (next == null || !activeVideo) return;
-                  const paused = player?.isPaused() ?? true;
-                  if (follow || paused) {
-                    const t = videoTimeFromLapProgress(
-                      currentSyncLap,
-                      next,
-                      activeVideo,
-                    );
-                    seek(t);
-                    setVideoTime(t);
-                  }
-                }}
+                onProgress={onMapProgress}
                 {...mapProps}
               />
             ) : (
@@ -273,7 +285,7 @@ export function SyncedLapView({
             },
           ]}
           activeProgress={progress}
-          onProgress={setProgress}
+          onProgress={onMapProgress}
           {...mapProps}
         />
       ) : (

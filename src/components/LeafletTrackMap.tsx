@@ -3,6 +3,11 @@
 import { GpsModeToggle } from "@/components/GpsModeToggle";
 import { formatG } from "@/lib/format";
 import type { GpsDisplayMode } from "@/lib/map-match";
+import {
+  progressNearPoint,
+  sampleAtProgress,
+  type GpsPoint,
+} from "@/lib/scrub";
 import type { TelemetryPoint } from "@/lib/types";
 import L from "leaflet";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -15,8 +20,6 @@ export type TrackTrace = {
   points: TelemetryPoint[];
   colorBySpeed?: boolean;
 };
-
-type GpsPoint = TelemetryPoint & { lat: number; lon: number };
 
 export type BasemapMode = "satellite" | "street";
 
@@ -40,49 +43,50 @@ function speedColor(speed: number, min: number, max: number) {
   return `rgb(${r} ${g} ${b})`;
 }
 
-function sampleAt(points: GpsPoint[], progress: number): GpsPoint {
-  if (points.length === 1) return points[0];
-  const position = Math.min(1, Math.max(0, progress)) * (points.length - 1);
-  const index = Math.min(points.length - 2, Math.floor(position));
-  const mix = position - index;
-  const left = points[index];
-  const right = points[index + 1];
-  const mixNumber = (a?: number, b?: number) =>
-    (a ?? 0) + ((b ?? 0) - (a ?? 0)) * mix;
-  return {
-    ...right,
-    t: mixNumber(left.t, right.t),
-    speed: mixNumber(left.speed, right.speed),
-    lat: mixNumber(left.lat, right.lat),
-    lon: mixNumber(left.lon, right.lon),
-    latG: mixNumber(left.latG, right.latG),
-    lonG: mixNumber(left.lonG, right.lonG),
-    g: mixNumber(left.g, right.g),
-  };
-}
-
 function toLatLngs(points: GpsPoint[]): L.LatLngExpression[] {
   return points.map((point) => [point.lat, point.lon] as [number, number]);
+}
+
+function haversine(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number,
+) {
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 function nearestProgress(
   latlng: L.LatLng,
   traces: Array<TrackTrace & { points: GpsPoint[] }>,
 ) {
-  let bestDistance = Number.POSITIVE_INFINITY;
-  let best = 0;
+  let best = { progress: 0, distance: Number.POSITIVE_INFINITY };
   for (const trace of traces) {
-    trace.points.forEach((point, index) => {
-      const distance = latlng.distanceTo(
-        L.latLng(Number(point.lat), Number(point.lon)),
-      );
-      if (distance < bestDistance) {
-        bestDistance = distance;
-        best = index / (trace.points.length - 1);
-      }
-    });
+    const candidate = progressNearPoint(
+      trace.points,
+      latlng.lat,
+      latlng.lng,
+      haversine,
+    );
+    if (candidate.distance < best.distance) best = candidate;
   }
-  return best;
+  return best.progress;
+}
+
+function tracesKey(traces: Array<TrackTrace & { points: GpsPoint[] }>) {
+  return traces
+    .map((trace) => {
+      const first = trace.points[0];
+      const last = trace.points[trace.points.length - 1];
+      return `${trace.id}:${trace.points.length}:${first?.lat?.toFixed(5)}:${last?.lat?.toFixed(5)}:${trace.colorBySpeed ? 1 : 0}`;
+    })
+    .join("|");
 }
 
 export function LeafletTrackMap({
@@ -105,15 +109,15 @@ export function LeafletTrackMap({
   const layersRef = useRef<L.LayerGroup | null>(null);
   const markersRef = useRef<L.LayerGroup | null>(null);
   const tileRef = useRef<L.TileLayer | null>(null);
+  const onProgressRef = useRef(onProgress);
+  const drawableRef = useRef<Array<TrackTrace & { points: GpsPoint[] }>>([]);
+  const fittedKeyRef = useRef<string>("");
   const [basemap, setBasemap] = useState<BasemapMode>("satellite");
-  const [hover, setHover] = useState<{
-    x: number;
-    y: number;
-    markers: Array<{
-      trace: TrackTrace & { points: GpsPoint[] };
-      point: GpsPoint;
-    }>;
-  } | null>(null);
+  const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(
+    null,
+  );
+
+  onProgressRef.current = onProgress;
 
   const drawable = useMemo(
     () =>
@@ -128,6 +132,7 @@ export function LeafletTrackMap({
         .filter((trace) => trace.points.length > 1),
     [traces],
   );
+  drawableRef.current = drawable;
 
   const centerlineGps = useMemo(
     () =>
@@ -145,6 +150,7 @@ export function LeafletTrackMap({
   const maxSpeed = speeds.length ? Math.max(...speeds) : 1;
   const showLegend =
     drawable.length > 1 || drawable.some((trace) => trace.colorBySpeed);
+  const drawKey = tracesKey(drawable);
 
   // Create map once.
   useEffect(() => {
@@ -152,18 +158,82 @@ export function LeafletTrackMap({
     const map = L.map(containerRef.current, {
       zoomControl: true,
       attributionControl: true,
+      // Keep drag for pan; scrub via mousemove / touch without breaking pan much.
     });
     mapRef.current = map;
-    layersRef.current = L.layerGroup().addTo(map);
-    markersRef.current = L.layerGroup().addTo(map);
 
-    const tile = L.tileLayer(ESRI_IMAGERY.url, {
+    if (!map.getPane("scrub")) {
+      map.createPane("scrub");
+      const pane = map.getPane("scrub");
+      if (pane) pane.style.zIndex = "650";
+    }
+
+    layersRef.current = L.layerGroup().addTo(map);
+    markersRef.current = L.layerGroup([], { pane: "scrub" }).addTo(map);
+
+    tileRef.current = L.tileLayer(ESRI_IMAGERY.url, {
       attribution: ESRI_IMAGERY.attribution,
       maxZoom: 19,
     }).addTo(map);
-    tileRef.current = tile;
+
+    const emitProgress = (latlng: L.LatLng, clientX?: number, clientY?: number) => {
+      const current = drawableRef.current;
+      if (!current.length) return;
+      const progress = nearestProgress(latlng, current);
+      onProgressRef.current?.(progress);
+      if (clientX != null && clientY != null) {
+        const rect = map.getContainer().getBoundingClientRect();
+        setHoverPos({ x: clientX - rect.left, y: clientY - rect.top });
+      }
+    };
+
+    const onMove = (event: L.LeafletMouseEvent) => {
+      emitProgress(
+        event.latlng,
+        event.originalEvent.clientX,
+        event.originalEvent.clientY,
+      );
+    };
+
+    const onLeave = () => {
+      onProgressRef.current?.(null);
+      setHoverPos(null);
+    };
+
+    const scrubFromTouch = (event: TouchEvent) => {
+      const touch = event.touches[0] ?? event.changedTouches[0];
+      if (!touch) return;
+      const rect = map.getContainer().getBoundingClientRect();
+      const point = L.point(touch.clientX - rect.left, touch.clientY - rect.top);
+      const latlng = map.containerPointToLatLng(point);
+      emitProgress(latlng, touch.clientX, touch.clientY);
+    };
+
+    const onTouchStart = (event: TouchEvent) => {
+      if (event.touches.length !== 1) return;
+      scrubFromTouch(event);
+    };
+    const onTouchMove = (event: TouchEvent) => {
+      if (event.touches.length !== 1) return;
+      // One-finger scrub; let two-finger / drag pan remain Leaflet's job.
+      event.preventDefault();
+      scrubFromTouch(event);
+    };
+
+    map.on("mousemove", onMove);
+    map.on("click", onMove);
+    const container = map.getContainer();
+    // Prefer container mouseleave — Leaflet mouseout fires when crossing polylines.
+    container.addEventListener("mouseleave", onLeave);
+    container.addEventListener("touchstart", onTouchStart, { passive: true });
+    container.addEventListener("touchmove", onTouchMove, { passive: false });
 
     return () => {
+      container.removeEventListener("mouseleave", onLeave);
+      container.removeEventListener("touchstart", onTouchStart);
+      container.removeEventListener("touchmove", onTouchMove);
+      map.off("mousemove", onMove);
+      map.off("click", onMove);
       map.remove();
       mapRef.current = null;
       layersRef.current = null;
@@ -187,14 +257,13 @@ export function LeafletTrackMap({
     }).addTo(map);
   }, [basemap]);
 
-  // Draw traces + centerline; bind map click/mousemove for scrubbing.
+  // Draw traces + centerline only when geometry identity changes.
   useEffect(() => {
     const map = mapRef.current;
     const layers = layersRef.current;
     if (!map || !layers || !drawable.length) return;
 
     layers.clearLayers();
-
     const bounds = L.latLngBounds([]);
 
     if (centerlineGps.length > 1) {
@@ -205,6 +274,7 @@ export function LeafletTrackMap({
           weight: 2,
           opacity: 0.75,
           dashArray: "4 6",
+          interactive: false,
         },
       );
       layers.addLayer(line);
@@ -216,40 +286,45 @@ export function LeafletTrackMap({
         for (let i = 1; i < trace.points.length; i += 1) {
           const prev = trace.points[i - 1];
           const next = trace.points[i];
-          const segment = L.polyline(
-            [
-              [prev.lat, prev.lon],
-              [next.lat, next.lon],
-            ],
-            {
-              color: speedColor(next.speed, minSpeed, maxSpeed),
-              weight: 4,
-              opacity: 0.95,
-              lineCap: "round",
-              lineJoin: "round",
-            },
+          layers.addLayer(
+            L.polyline(
+              [
+                [prev.lat, prev.lon],
+                [next.lat, next.lon],
+              ],
+              {
+                color: speedColor(next.speed, minSpeed, maxSpeed),
+                weight: 4,
+                opacity: 0.95,
+                lineCap: "round",
+                lineJoin: "round",
+                interactive: false,
+              },
+            ),
           );
-          layers.addLayer(segment);
         }
       } else {
-        const line = L.polyline(toLatLngs(trace.points), {
-          color: trace.color,
-          weight: 4,
-          opacity: 0.95,
-          lineCap: "round",
-          lineJoin: "round",
-        });
-        layers.addLayer(line);
+        layers.addLayer(
+          L.polyline(toLatLngs(trace.points), {
+            color: trace.color,
+            weight: 4,
+            opacity: 0.95,
+            lineCap: "round",
+            lineJoin: "round",
+            interactive: false,
+          }),
+        );
       }
 
       const start = trace.points[0];
       layers.addLayer(
         L.circleMarker([start.lat, start.lon], {
-          radius: 5,
+          radius: 4,
           color: "#fafafa",
           fillColor: "#fafafa",
           fillOpacity: 1,
           weight: 1,
+          interactive: false,
         }),
       );
 
@@ -258,58 +333,43 @@ export function LeafletTrackMap({
       }
     }
 
-    if (bounds.isValid()) {
+    if (bounds.isValid() && fittedKeyRef.current !== drawKey) {
       map.fitBounds(bounds.pad(0.12));
+      fittedKeyRef.current = drawKey;
     }
+  }, [drawable, centerlineGps, minSpeed, maxSpeed, drawKey]);
 
-    const onMove = (event: L.LeafletMouseEvent) => {
-      const progress = nearestProgress(event.latlng, drawable);
-      onProgress?.(progress);
-      const markers = drawable.map((trace) => ({
-        trace,
-        point: sampleAt(trace.points, progress),
-      }));
-      const container = map.getContainer().getBoundingClientRect();
-      setHover({
-        x: event.originalEvent.clientX - container.left,
-        y: event.originalEvent.clientY - container.top,
-        markers,
-      });
-    };
-    const onLeave = () => {
-      onProgress?.(null);
-      setHover(null);
-    };
-
-    map.on("mousemove", onMove);
-    map.on("click", onMove);
-    map.on("mouseout", onLeave);
-
-    return () => {
-      map.off("mousemove", onMove);
-      map.off("click", onMove);
-      map.off("mouseout", onLeave);
-    };
-  }, [drawable, centerlineGps, minSpeed, maxSpeed, onProgress]);
-
-  // Scrub markers from chart-driven activeProgress.
+  // Scrub markers follow shared progress (charts, map, video).
   useEffect(() => {
     const markers = markersRef.current;
     if (!markers) return;
     markers.clearLayers();
-    if (activeProgress == null || !drawable.length) {
-      if (activeProgress == null) setHover(null);
-      return;
-    }
+    if (activeProgress == null || !drawable.length) return;
+
     for (const trace of drawable) {
-      const point = sampleAt(trace.points, activeProgress);
+      const point = sampleAtProgress(trace.points, activeProgress);
+      const color = trace.colorBySpeed ? "#f97316" : trace.color;
       markers.addLayer(
         L.circleMarker([point.lat, point.lon], {
-          radius: 7,
-          color: trace.colorBySpeed ? "#f97316" : trace.color,
+          radius: 9,
+          color: "#fafafa",
+          fillColor: color,
+          fillOpacity: 1,
+          weight: 3,
+          pane: "scrub",
+          interactive: false,
+        }),
+      );
+      // Inner highlight for dual-lap readability.
+      markers.addLayer(
+        L.circleMarker([point.lat, point.lon], {
+          radius: 3,
+          color: "#fafafa",
           fillColor: "#fafafa",
           fillOpacity: 1,
-          weight: 2,
+          weight: 0,
+          pane: "scrub",
+          interactive: false,
         }),
       );
     }
@@ -318,13 +378,12 @@ export function LeafletTrackMap({
   if (!drawable.length) return null;
 
   const tooltipMarkers =
-    hover?.markers ??
-    (activeProgress != null
-      ? drawable.map((trace) => ({
+    activeProgress == null
+      ? []
+      : drawable.map((trace) => ({
           trace,
-          point: sampleAt(trace.points, activeProgress),
-        }))
-      : []);
+          point: sampleAtProgress(trace.points, activeProgress),
+        }));
 
   return (
     <div className="relative overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950/40 p-4">
@@ -390,20 +449,30 @@ export function LeafletTrackMap({
       </div>
       <div
         ref={containerRef}
-        className="h-[260px] w-full overflow-hidden rounded-xl sm:h-[380px] [&_.leaflet-control-attribution]:bg-zinc-950/80 [&_.leaflet-control-attribution]:text-[10px] [&_.leaflet-control-attribution]:text-zinc-400"
+        className="h-[260px] w-full touch-none overflow-hidden rounded-xl sm:h-[380px] [&_.leaflet-control-attribution]:bg-zinc-950/80 [&_.leaflet-control-attribution]:text-[10px] [&_.leaflet-control-attribution]:text-zinc-400"
       />
       {tooltipMarkers.length ? (
         <div
           className="pointer-events-none absolute z-[500] min-w-36 rounded-xl border border-zinc-800 bg-zinc-950/95 px-3 py-2 text-xs text-zinc-100 shadow-lg"
           style={{
-            left: `clamp(12px, ${(hover?.x ?? 24) + 12}px, calc(100% - 160px))`,
-            top: `clamp(56px, ${(hover?.y ?? 56) + 48}px, calc(100% - 120px))`,
+            left: `clamp(12px, ${(hoverPos?.x ?? 24) + 12}px, calc(100% - 160px))`,
+            top: `clamp(56px, ${(hoverPos?.y ?? 56) + 48}px, calc(100% - 120px))`,
           }}
         >
           {tooltipMarkers.map((marker) => (
             <div key={marker.trace.id} className="mt-1 first:mt-0">
               {drawable.length > 1 ? (
-                <p className="text-zinc-500">{marker.trace.label}</p>
+                <p className="flex items-center gap-2 text-zinc-500">
+                  <span
+                    className="inline-block h-2 w-2 rounded-full"
+                    style={{
+                      background: marker.trace.colorBySpeed
+                        ? "#f97316"
+                        : marker.trace.color,
+                    }}
+                  />
+                  {marker.trace.label}
+                </p>
               ) : (
                 <p className="text-zinc-500">{marker.point.t.toFixed(1)}s</p>
               )}

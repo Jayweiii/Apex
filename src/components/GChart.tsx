@@ -1,6 +1,7 @@
 "use client";
 
 import { hoverIndex } from "@/components/chart-hover";
+import { bindChartScrub } from "@/components/chart-scrub";
 import { formatG } from "@/lib/format";
 import {
   CartesianGrid,
@@ -33,6 +34,7 @@ export function GChart({
   syncId?: string;
 }) {
   const active = activeIndex != null ? points[activeIndex] : null;
+  const scrub = bindChartScrub(points.length, onHoverIndex);
 
   return (
     <div className="h-[260px] w-full max-w-full overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950/40 p-3 sm:h-[320px] sm:p-4">
@@ -44,7 +46,7 @@ export function GChart({
             : "Lateral and longitudinal"}
         </p>
       </div>
-      <div className="h-[200px] sm:h-[260px]">
+      <div className="h-[200px] touch-none sm:h-[260px]" {...scrub}>
         <ResponsiveContainer width="100%" height="100%">
           <LineChart
             data={points}
