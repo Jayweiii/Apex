@@ -95,6 +95,9 @@ export function LeafletTrackMap({
   onProgress,
   gpsMode,
   onGpsModeChange,
+  analysisMode,
+  onAnalysisModeChange,
+  analysisDisabled = false,
   centerline,
 }: {
   traces: TrackTrace[];
@@ -102,6 +105,9 @@ export function LeafletTrackMap({
   onProgress?: (progress: number | null) => void;
   gpsMode?: GpsDisplayMode;
   onGpsModeChange?: (mode: GpsDisplayMode) => void;
+  analysisMode?: GpsDisplayMode;
+  onAnalysisModeChange?: (mode: GpsDisplayMode) => void;
+  analysisDisabled?: boolean;
   centerline?: Array<{ lat: number; lon: number }> | null;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -389,11 +395,26 @@ export function LeafletTrackMap({
     <div className="relative overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950/40 p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
-          <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
-            Map{gpsMode ? ` · ${gpsMode}` : ""}
-          </p>
           {gpsMode && onGpsModeChange ? (
-            <GpsModeToggle mode={gpsMode} onChange={onGpsModeChange} />
+            <GpsModeToggle
+              mode={gpsMode}
+              onChange={onGpsModeChange}
+              label="Map"
+              ariaLabel="Map GPS display mode"
+            />
+          ) : (
+            <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
+              Map
+            </p>
+          )}
+          {analysisMode && onAnalysisModeChange ? (
+            <GpsModeToggle
+              mode={analysisMode}
+              onChange={onAnalysisModeChange}
+              label="Delta"
+              ariaLabel="Delta calculation mode"
+              disabled={analysisDisabled}
+            />
           ) : null}
           <div
             className="inline-flex rounded-lg border border-zinc-800 bg-zinc-950/80 p-0.5 text-xs"

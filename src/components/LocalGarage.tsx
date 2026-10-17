@@ -12,7 +12,9 @@ import { LapCharts } from "@/components/LapCharts";
 import { SessionVideosCard } from "@/components/SessionVideosCard";
 import { SyncedLapView } from "@/components/video/SyncedLapView";
 import { ShareLinkButton } from "@/components/ShareLinkButton";
+import { GpsModeToggle } from "@/components/GpsModeToggle";
 import { cornerBreakdown, theoreticalBestLap } from "@/lib/analysis";
+import { useAnalysisMode } from "@/lib/analysis-mode";
 import { getLocalBlob } from "@/lib/blob-store";
 import { catalogSessionsForTrack, loadCatalogSession } from "@/lib/catalog";
 import { resolveTrackCenterline } from "@/lib/cloud-tracks";
@@ -151,6 +153,16 @@ export function LocalCompare({
     };
   }, [session]);
 
+  const compareCenterline = useMemo(() => {
+    if (!session) return null;
+    return resolveTrackCenterline(
+      session.trackId,
+      null,
+      session.laps.map((item) => item.telemetry),
+    );
+  }, [session]);
+  const { mode: analysisMode } = useAnalysisMode(Boolean(compareCenterline));
+
   if (session === undefined) return <LoadingShell label="Loading comparison…" />;
   if (!session) {
     return <MissingShell message="Session not found in this browser." />;
@@ -209,11 +221,6 @@ export function LocalCompare({
   const otherLap =
     otherSession?.laps.find((lap) => lap.id === otherId) ??
     session.laps.find((lap) => lap.id === otherId);
-  const compareCenterline = resolveTrackCenterline(
-    session.trackId,
-    null,
-    session.laps.map((item) => item.telemetry),
-  );
   const corners =
     refLap && otherLap && refLap.id !== otherLap.id
       ? cornerBreakdown(
@@ -223,6 +230,7 @@ export function LocalCompare({
             points: analysisPoints(
               mapMatchLap(refLap.telemetry, compareCenterline),
               refLap.telemetry,
+              analysisMode,
             ),
           },
           {
@@ -231,6 +239,7 @@ export function LocalCompare({
             points: analysisPoints(
               mapMatchLap(otherLap.telemetry, compareCenterline),
               otherLap.telemetry,
+              analysisMode,
             ),
           },
         )
@@ -323,13 +332,22 @@ export function LocalSession({ id }: { id: string }) {
   const [reprocessMsg, setReprocessMsg] = useState<string | null>(null);
   const [reprocessBusy, setReprocessBusy] = useState(false);
 
-  const theo = useMemo(() => {
+  const centerline = useMemo(() => {
     if (!session) return null;
-    const centerline = resolveTrackCenterline(
+    return resolveTrackCenterline(
       session.trackId,
       null,
       session.laps.map((lap) => lap.telemetry),
     );
+  }, [session]);
+  const {
+    mode: analysisMode,
+    setMode: setAnalysisMode,
+    hasSnap: hasAnalysisSnap,
+  } = useAnalysisMode(Boolean(centerline));
+
+  const theo = useMemo(() => {
+    if (!session) return null;
     return theoreticalBestLap(
       session.laps.map((lap) => ({
         lapNumber: lap.lap_number,
@@ -337,10 +355,11 @@ export function LocalSession({ id }: { id: string }) {
         points: analysisPoints(
           mapMatchLap(lap.telemetry, centerline),
           lap.telemetry,
+          analysisMode,
         ),
       })),
     );
-  }, [session]);
+  }, [session, centerline, analysisMode]);
 
   if (session === undefined) return <LoadingShell label="Loading session…" />;
   if (!session) {
@@ -483,7 +502,19 @@ export function LocalSession({ id }: { id: string }) {
             window.location.reload();
           }}
         />
-        {theo ? <TheoreticalBestCard result={theo} /> : null}
+        {theo ? (
+          <div className="space-y-3">
+            {hasAnalysisSnap ? (
+              <GpsModeToggle
+                mode={analysisMode}
+                onChange={setAnalysisMode}
+                label="Delta"
+                ariaLabel="Delta calculation mode"
+              />
+            ) : null}
+            <TheoreticalBestCard result={theo} />
+          </div>
+        ) : null}
         {laps.length ? (
           <LapList sessionId={session.id} laps={laps} />
         ) : (
@@ -556,23 +587,29 @@ export function LocalLap({
     };
   }, [session, lapId, videoParam]);
 
+  const lapCenterline = useMemo(() => {
+    if (!session) return null;
+    return resolveTrackCenterline(
+      session.trackId,
+      null,
+      session.laps.map((item) => item.telemetry),
+    );
+  }, [session]);
+  const { mode: analysisMode } = useAnalysisMode(Boolean(lapCenterline));
+
   if (session === undefined) return <LoadingShell label="Loading lap…" />;
   if (!session || !lap) {
     return <MissingShell message="Lap not found in this browser." />;
   }
 
   const peak = lap.telemetry.reduce((max, point) => Math.max(max, point.speed), 0);
-  const lapCenterline = resolveTrackCenterline(
-    session.trackId,
-    null,
-    session.laps.map((item) => item.telemetry),
-  );
   const corners = cornerBreakdown({
     lapNumber: lap.lap_number,
     lapTimeMs: lap.lap_time_ms,
     points: analysisPoints(
       mapMatchLap(lap.telemetry, lapCenterline),
       lap.telemetry,
+      analysisMode,
     ),
   });
   const videos = session.videos ?? [];

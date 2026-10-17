@@ -3,6 +3,7 @@
 import { hoverIndex } from "@/components/chart-hover";
 import { bindChartScrub } from "@/components/chart-scrub";
 import { MissingGps, TrackMap } from "@/components/TrackMap";
+import { useAnalysisMode } from "@/lib/analysis-mode";
 import { resolveTrackCenterline } from "@/lib/cloud-tracks";
 import { compareLaps, defaultLapPair, hasGps } from "@/lib/compare";
 import {
@@ -227,16 +228,21 @@ export function LapCompare({
   );
 
   const [gpsMode, setGpsMode] = useState<GpsDisplayMode>("snapped");
+  const {
+    mode: analysisMode,
+    setMode: setAnalysisMode,
+    hasSnap: hasAnalysisSnap,
+  } = useAnalysisMode(Boolean(centerline));
 
   const series = useMemo(
     () =>
       reference && other && !sameLap
         ? compareLaps(
-            analysisPoints(refMatched, reference.telemetry),
-            analysisPoints(otherMatched, other.telemetry),
+            analysisPoints(refMatched, reference.telemetry, analysisMode),
+            analysisPoints(otherMatched, other.telemetry, analysisMode),
           )
         : [],
-    [reference, other, sameLap, refMatched, otherMatched],
+    [reference, other, sameLap, refMatched, otherMatched, analysisMode],
   );
   const refPoints = useMemo(
     () =>
@@ -414,12 +420,23 @@ export function LapCompare({
               centerline={centerline}
               gpsMode={centerline ? gpsMode : undefined}
               onGpsModeChange={centerline ? setGpsMode : undefined}
+              analysisMode={centerline ? analysisMode : undefined}
+              onAnalysisModeChange={centerline ? setAnalysisMode : undefined}
+              analysisDisabled={!hasAnalysisSnap}
             />
           ) : (
             <MissingGps />
           )}
 
-          <ChartCard title="Speed" hint="Aligned along each lap" scrub={chartScrub}>
+          <ChartCard
+            title="Speed"
+            hint={
+              analysisMode === "snapped"
+                ? "Aligned on snapped track distance"
+                : "Aligned on raw GPS path"
+            }
+            scrub={chartScrub}
+          >
             <ResponsiveContainer width="100%" height="100%">
               <LineChart
                 data={series}
@@ -470,7 +487,11 @@ export function LapCompare({
 
           <ChartCard
             title="Delta"
-            hint="Positive means the compared lap is behind"
+            hint={
+              analysisMode === "snapped"
+                ? "Snapped · positive means compared lap is behind"
+                : "Raw · positive means compared lap is behind"
+            }
             scrub={chartScrub}
           >
             <ResponsiveContainer width="100%" height="100%">

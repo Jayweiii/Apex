@@ -450,6 +450,8 @@ export function displayPoints(
 export function analysisPoints(
   matched: MatchedPoint[] | null,
   raw: TelemetryPoint[],
+  mode: GpsDisplayMode = "snapped",
 ): TelemetryPoint[] {
-  return matched ?? raw;
+  if (mode === "raw" || !matched) return raw;
+  return matched;
 }
