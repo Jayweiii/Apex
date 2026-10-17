@@ -24,3 +24,13 @@ export function formatClock(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) return "0.0";
   return `${seconds.toFixed(1)}s`;
 }
+
+export function formatMph(kmh: number): string {
+  if (!Number.isFinite(kmh)) return "—";
+  return `${(kmh / 1.60934).toFixed(0)} mph`;
+}
+
+export function formatKmh(kmh: number): string {
+  if (!Number.isFinite(kmh)) return "—";
+  return `${kmh.toFixed(0)} km/h`;
+}

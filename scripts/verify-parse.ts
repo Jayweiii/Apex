@@ -14,7 +14,8 @@ const fixture = fs.readFileSync(
 );
 assert(fixture.startsWith("# RaceRender"), "fixture should keep TrackAddict preamble");
 
-const fixtureLaps = parseTelemetryCsv(fixture);
+const fixtureParsed = parseTelemetryCsv(fixture);
+const fixtureLaps = fixtureParsed.laps;
 assert(fixtureLaps.length === 2, `fixture expected 2 laps, got ${fixtureLaps.length}`);
 const peak = Math.max(...fixtureLaps.flatMap((l) => l.points.map((p) => p.speed)));
 assert(peak > 140, `Speed (MPH) should convert to km/h (peak ${peak})`);
@@ -23,18 +24,38 @@ assert(
   "fixture laps should keep GPS",
 );
 
+// Absolute UTC Time column must drive startedAtMs (not the elapsed Time column).
+assert(
+  fixtureParsed.startedAtMs != null,
+  "fixture should expose startedAtMs from UTC Time",
+);
+assert(
+  fixtureParsed.startedAtMs === 1789940468 * 1000,
+  `startedAtMs expected 1789940468000, got ${fixtureParsed.startedAtMs}`,
+);
+assert(fixtureParsed.sessionDate, "fixture should expose sessionDate");
+assert(
+  fixtureLaps[0].startOffsetSec != null && fixtureLaps[0].startOffsetSec >= 0,
+  "lap 1 should keep startOffsetSec",
+);
+assert(
+  fixtureLaps[1].startOffsetSec != null &&
+    fixtureLaps[1].startOffsetSec! > fixtureLaps[0].startOffsetSec!,
+  "lap 2 startOffsetSec should be after lap 1",
+);
+
 const sample = parseTelemetryCsv(
   fs.readFileSync(path.join(root, "public/sample-telemetry.csv"), "utf8"),
 );
-assert(sample.length === 3, `sample expected 3 laps, got ${sample.length}`);
+assert(sample.laps.length === 3, `sample expected 3 laps, got ${sample.laps.length}`);
 
 const thunderhillPath = process.env.THUNDERHILL_CSV;
 if (thunderhillPath && fs.existsSync(thunderhillPath)) {
   const laps = parseTelemetryCsv(fs.readFileSync(thunderhillPath, "utf8"));
-  assert(laps.length === 6, `Thunderhill expected 6 laps, got ${laps.length}`);
+  assert(laps.laps.length === 6, `Thunderhill expected 6 laps, got ${laps.laps.length}`);
   console.log(
     "thunderhill ok:",
-    laps.map((l) => ({ lap: l.lapNumber, ms: l.lapTimeMs })),
+    laps.laps.map((l) => ({ lap: l.lapNumber, ms: l.lapTimeMs })),
   );
 }
 
@@ -43,6 +64,8 @@ console.log(
   fixtureLaps.map((l) => ({
     lap: l.lapNumber,
     ms: l.lapTimeMs,
+    startOffsetSec: l.startOffsetSec,
     maxKmh: Math.round(Math.max(...l.points.map((p) => p.speed))),
   })),
+  { startedAtMs: fixtureParsed.startedAtMs, sessionDate: fixtureParsed.sessionDate },
 );

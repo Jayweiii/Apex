@@ -2,15 +2,23 @@ import Papa from "papaparse";
 import type { ParsedLap, TelemetryPoint } from "./types";
 
 const LAP_KEYS = ["lap", "lap_number", "lapnumber", "lap_index", "lap_n"];
-const TIME_KEYS = [
+/** Elapsed / relative time within the session (not absolute wall clock). */
+const ELAPSED_TIME_KEYS = [
   "time",
-  "timestamp",
   "t",
   "elapsed",
   "elapsed_time",
-  "gps_time",
-  "utc",
   "session_time",
+];
+/** Absolute / wall-clock columns (TrackAddict "UTC Time", GPS time, …). */
+const ABS_TIME_KEYS = [
+  "utc_time",
+  "utc",
+  "gps_time",
+  "gps_utc",
+  "timestamp",
+  "date_time",
+  "datetime",
 ];
 const SPEED_KEYS = [
   "speed",
@@ -51,7 +59,6 @@ function normalizeHeader(header: string): string {
   return header
     .trim()
     .toLowerCase()
-    // Keep units from parentheses so "Speed (MPH)" → "speed_mph".
     .replace(/\(([^)]*)\)/g, (_, unit: string) => ` ${unit} `)
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_|_$/g, "")
@@ -92,6 +99,24 @@ function parseTimeValue(raw: string, treatAsMs: boolean): number | null {
   return treatAsMs ? n / 1000 : n;
 }
 
+/**
+ * Absolute timestamps: unix seconds (~1e9), unix ms (~1e12), or ISO strings.
+ * Returns epoch milliseconds.
+ */
+function parseAbsoluteMs(raw: string): number | null {
+  const value = raw.trim();
+  if (!value) return null;
+  if (value.includes("-") || value.includes("T")) {
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  if (n > 1e12) return n; // already ms
+  if (n > 1e9) return n * 1000; // unix seconds
+  return null;
+}
+
 function parseNumber(raw: unknown): number | null {
   if (raw == null) return null;
   const n = Number(String(raw).trim());
@@ -105,7 +130,6 @@ function toG(value: number | null, header: string): number | null {
     header.endsWith("_g") ||
     header.startsWith("g_") ||
     header.includes("gforce") ||
-    // TrackAddict Accel X/Y/Z columns are already in g.
     header.startsWith("accel_");
   return alreadyG ? value : value / 9.80665;
 }
@@ -128,9 +152,18 @@ function downsample(points: TelemetryPoint[], max = MAX_POINTS): TelemetryPoint[
   return result;
 }
 
+function sessionDateFromMs(ms: number): string {
+  const d = new Date(ms);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 type Sample = {
   lap: number | null;
   t: number;
+  absMs: number | null;
   speed: number;
   distance: number | null;
   lat: number | null;
@@ -141,6 +174,7 @@ type Sample = {
 
 type LapSample = {
   tAbs: number;
+  absMs: number | null;
   speed: number;
   lat: number | null;
   lon: number | null;
@@ -148,10 +182,20 @@ type LapSample = {
   lonG: number | null;
 };
 
-export function parseTelemetryCsv(csv: string): ParsedLap[] {
+export type ParseTelemetryResult = {
+  laps: ParsedLap[];
+  startedAtMs?: number;
+  sessionDate?: string;
+};
+
+/**
+ * Parse TrackAddict / RaceRender / generic telemetry CSV.
+ * Prefer an elapsed `Time` column for lap timing, and keep absolute
+ * `UTC Time` / timestamp for session start + per-lap start offsets.
+ */
+export function parseTelemetryCsv(csv: string): ParseTelemetryResult {
   const parsed = Papa.parse<Record<string, string>>(csv, {
     header: true,
-    // TrackAddict / RaceRender exports start with "# …" metadata lines.
     comments: "#",
     skipEmptyLines: "greedy",
     transformHeader: normalizeHeader,
@@ -167,7 +211,8 @@ export function parseTelemetryCsv(csv: string): ParsedLap[] {
   }
 
   const lapCol = findColumn(headers, LAP_KEYS);
-  const timeCol = findColumn(headers, TIME_KEYS);
+  const elapsedCol = findColumn(headers, ELAPSED_TIME_KEYS);
+  const absCol = findColumn(headers, ABS_TIME_KEYS);
   const speedCol = findColumn(headers, SPEED_KEYS);
   const distanceCol = findColumn(headers, DISTANCE_KEYS);
   const latGCol = findColumn(headers, LAT_G_KEYS);
@@ -178,6 +223,8 @@ export function parseTelemetryCsv(csv: string): ParsedLap[] {
   const latCol = findColumn(positionHeaders, LAT_KEYS);
   const lonCol = findColumn(positionHeaders, LON_KEYS);
 
+  // Fall back: if only an absolute column exists, use it as both clock and elapsed base.
+  const timeCol = elapsedCol ?? absCol;
   if (!timeCol) {
     throw new Error("CSV needs a time column (time, timestamp, elapsed, …)");
   }
@@ -189,7 +236,15 @@ export function parseTelemetryCsv(csv: string): ParsedLap[] {
   const samples: Sample[] = [];
 
   for (const row of parsed.data) {
-    const t = parseTimeValue(String(row[timeCol] ?? ""), timeLooksLikeMs);
+    const absMs = absCol ? parseAbsoluteMs(String(row[absCol] ?? "")) : null;
+    let t: number | null = null;
+    if (elapsedCol) {
+      t = parseTimeValue(String(row[elapsedCol] ?? ""), timeLooksLikeMs);
+    } else if (absMs != null) {
+      t = absMs / 1000;
+    } else {
+      t = parseTimeValue(String(row[timeCol] ?? ""), timeLooksLikeMs);
+    }
     const speedRaw = parseNumber(row[speedCol]);
     if (t == null || speedRaw == null) continue;
 
@@ -198,6 +253,7 @@ export function parseTelemetryCsv(csv: string): ParsedLap[] {
     samples.push({
       lap: lapCol ? parseNumber(row[lapCol]) : null,
       t,
+      absMs,
       speed: speedToKmh(speedRaw, speedCol),
       distance: distanceCol ? parseNumber(row[distanceCol]) : null,
       lat: lat != null && lat >= -90 && lat <= 90 ? lat : null,
@@ -211,11 +267,19 @@ export function parseTelemetryCsv(csv: string): ParsedLap[] {
     throw new Error("Not enough valid telemetry rows to build laps");
   }
 
+  // If we used absolute-as-elapsed without a dedicated elapsed column, keep seconds.
   const medianTime = [...samples.map((s) => s.t)].sort((a, b) => a - b)[
     Math.floor(samples.length / 2)
   ];
-  const scale = !timeLooksLikeMs && medianTime > 100_000 ? 0.001 : 1;
+  const usedAbsAsElapsed = !elapsedCol && absCol != null;
+  const scale =
+    !usedAbsAsElapsed && !timeLooksLikeMs && medianTime > 100_000 ? 0.001 : 1;
   for (const sample of samples) sample.t *= scale;
+
+  const sessionStartT = samples[0].t;
+  const startedAtMs =
+    samples.find((s) => s.absMs != null)?.absMs ??
+    (usedAbsAsElapsed ? Math.round(sessionStartT * 1000) : undefined);
 
   const groups = groupIntoLaps(samples, Boolean(lapCol));
   const laps: ParsedLap[] = [];
@@ -226,6 +290,13 @@ export function parseTelemetryCsv(csv: string): ParsedLap[] {
     const end = points[points.length - 1].tAbs;
     const lapTimeMs = Math.max(0, Math.round((end - start) * 1000));
     if (lapTimeMs < 1000) continue;
+
+    const startOffsetSec = Number((start - sessionStartT).toFixed(3));
+    const lapStartedAtMs =
+      points[0].absMs ??
+      (startedAtMs != null
+        ? Math.round(startedAtMs + startOffsetSec * 1000)
+        : undefined);
 
     const telemetry = downsample(
       points.map((p) => {
@@ -243,14 +314,25 @@ export function parseTelemetryCsv(csv: string): ParsedLap[] {
       }),
     );
 
-    laps.push({ lapNumber, lapTimeMs, points: telemetry });
+    laps.push({
+      lapNumber,
+      lapTimeMs,
+      points: telemetry,
+      startOffsetSec,
+      startedAtMs: lapStartedAtMs,
+    });
   }
 
   if (!laps.length) {
     throw new Error("No complete laps found in this file");
   }
 
-  return laps.sort((a, b) => a.lapNumber - b.lapNumber);
+  const sorted = laps.sort((a, b) => a.lapNumber - b.lapNumber);
+  return {
+    laps: sorted,
+    startedAtMs,
+    sessionDate: startedAtMs != null ? sessionDateFromMs(startedAtMs) : undefined,
+  };
 }
 
 function groupIntoLaps(
@@ -293,6 +375,7 @@ function push(groups: Map<number, LapSample[]>, lapNumber: number, sample: Sampl
   const list = groups.get(lapNumber) ?? [];
   list.push({
     tAbs: sample.t,
+    absMs: sample.absMs,
     speed: sample.speed,
     lat: sample.lat,
     lon: sample.lon,

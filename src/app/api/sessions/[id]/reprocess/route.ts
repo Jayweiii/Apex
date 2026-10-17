@@ -47,20 +47,35 @@ export async function POST(
     return NextResponse.json({ error: "Raw file missing from storage" }, { status: 404 });
   }
 
-  const laps = parseTelemetryCsv(raw.toString("utf8"));
+  const parsed = parseTelemetryCsv(raw.toString("utf8"));
   await supabase.from("laps").delete().eq("session_id", id).eq("user_id", user.id);
   const { error: insertError } = await supabase.from("laps").insert(
-    laps.map((lap) => ({
+    parsed.laps.map((lap) => ({
       session_id: id,
       user_id: user.id,
       lap_number: lap.lapNumber,
       lap_time_ms: lap.lapTimeMs,
       telemetry: lap.points,
+      start_offset_sec: lap.startOffsetSec ?? null,
+      started_at_ms: lap.startedAtMs ?? null,
     })),
   );
   if (insertError) {
     return NextResponse.json({ error: insertError.message }, { status: 500 });
   }
 
-  return NextResponse.json({ ok: true, laps: laps.length });
+  if (parsed.startedAtMs != null || parsed.sessionDate) {
+    await supabase
+      .from("sessions")
+      .update({
+        started_at: parsed.startedAtMs
+          ? new Date(parsed.startedAtMs).toISOString()
+          : null,
+        session_date: parsed.sessionDate ?? null,
+      })
+      .eq("id", id)
+      .eq("user_id", user.id);
+  }
+
+  return NextResponse.json({ ok: true, laps: parsed.laps.length });
 }

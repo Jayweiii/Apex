@@ -28,7 +28,12 @@ export default async function SessionPage({
     : { data: null };
 
   if (!user || !session) return <LocalSession id={id} />;
-  const sessionRow = session as SessionRow;
+  const sessionRow = session as SessionRow & {
+    track_id?: string | null;
+    car?: string | null;
+    driver_name?: string | null;
+    user_id?: string;
+  };
 
   const { data: laps } = await supabase
     .from("laps")
@@ -42,6 +47,7 @@ export default async function SessionPage({
     Number.POSITIVE_INFINITY,
   );
   const href = compareHref(sessionRow.id, lapRows);
+  const mine = sessionRow.user_id === user.id;
 
   return (
     <>
@@ -49,18 +55,21 @@ export default async function SessionPage({
       <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-8 px-6 py-8">
         <div>
           <Link
-            href="/"
+            href={mine ? "/account" : "/friends"}
             className="text-xs uppercase tracking-[0.2em] text-zinc-500 hover:text-zinc-300"
           >
-            All sessions
+            {mine ? "Your account sessions" : "Friends"}
           </Link>
           <h1 className="mt-3 text-2xl font-semibold tracking-tight text-zinc-50">
             {sessionRow.name}
           </h1>
           <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-zinc-500">
+              {sessionRow.car ? `${sessionRow.car} · ` : ""}
               {lapRows.length} laps
               {Number.isFinite(best) ? ` · best ${formatLapTime(best)}` : ""}
+              {sessionRow.driver_name ? ` · ${sessionRow.driver_name}` : ""}
+              {mine ? " · saved to your account" : ""}
             </p>
             {href ? (
               <Link

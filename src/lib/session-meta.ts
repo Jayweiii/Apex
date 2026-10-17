@@ -28,14 +28,26 @@ export type ShareTargets = {
 
 export function sessionSharePaths(
   sessionId: string,
-  options?: { lapId?: string; ref?: string; other?: string },
+  options?: {
+    lapId?: string;
+    ref?: string;
+    other?: string;
+    videoId?: string;
+    videoTime?: number;
+  },
 ): ShareTargets {
   const sessionPath = `/sessions/${sessionId}`;
+  let lapPath: string | undefined;
+  if (options?.lapId) {
+    const params = new URLSearchParams();
+    if (options.videoId) params.set("v", options.videoId);
+    if (options.videoTime != null) params.set("t", String(options.videoTime));
+    const qs = params.toString();
+    lapPath = `/sessions/${sessionId}/laps/${options.lapId}${qs ? `?${qs}` : ""}`;
+  }
   return {
     sessionPath,
-    lapPath: options?.lapId
-      ? `/sessions/${sessionId}/laps/${options.lapId}`
-      : undefined,
+    lapPath,
     comparePath:
       options?.ref && options?.other
         ? `/sessions/${sessionId}/compare?ref=${encodeURIComponent(options.ref)}&other=${encodeURIComponent(options.other)}`

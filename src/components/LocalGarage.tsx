@@ -9,6 +9,8 @@ import { AppHeader } from "@/components/AppHeader";
 import { LapCompare } from "@/components/LapCompare";
 import { LapList } from "@/components/LapList";
 import { LapCharts } from "@/components/LapCharts";
+import { SessionVideosCard } from "@/components/SessionVideosCard";
+import { SyncedLapView } from "@/components/video/SyncedLapView";
 import { ShareLinkButton } from "@/components/ShareLinkButton";
 import { cornerBreakdown, theoreticalBestLap } from "@/lib/analysis";
 import { getLocalBlob } from "@/lib/blob-store";
@@ -19,12 +21,15 @@ import {
   getLocalSession,
   listSessionsForCompare,
   replaceLocalSessionLaps,
+  updateLocalSession,
   type StoredSession,
 } from "@/lib/local-store";
 import { parseTelemetryCsv } from "@/lib/parse-telemetry";
+import type { SessionVideo } from "@/lib/types";
 import { getTrack } from "@/lib/tracks";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 function CompareLink({
   sessionId,
@@ -346,9 +351,12 @@ export function LocalSession({ id }: { id: string }) {
         const blob = await getLocalBlob(current.rawObjectKey);
         if (!blob) throw new Error("Original CSV is missing from this browser.");
         const lapsParsed = parseTelemetryCsv(await blob.text());
-        const updated = replaceLocalSessionLaps(current.id, lapsParsed);
+        const updated = replaceLocalSessionLaps(current.id, lapsParsed.laps, {
+          startedAtMs: lapsParsed.startedAtMs,
+          sessionDate: lapsParsed.sessionDate,
+        });
         if (!updated) throw new Error("Could not update session");
-        setReprocessMsg(`Re-processed ${lapsParsed.length} laps from the stored CSV.`);
+        setReprocessMsg(`Re-processed ${lapsParsed.laps.length} laps from the stored CSV.`);
         window.location.reload();
         return;
       }
@@ -358,8 +366,11 @@ export function LocalSession({ id }: { id: string }) {
         );
         if (!response.ok) throw new Error("Could not download stored CSV");
         const lapsParsed = parseTelemetryCsv(await response.text());
-        replaceLocalSessionLaps(current.id, lapsParsed);
-        setReprocessMsg(`Re-processed ${lapsParsed.length} laps.`);
+        replaceLocalSessionLaps(current.id, lapsParsed.laps, {
+          startedAtMs: lapsParsed.startedAtMs,
+          sessionDate: lapsParsed.sessionDate,
+        });
+        setReprocessMsg(`Re-processed ${lapsParsed.laps.length} laps.`);
         window.location.reload();
         return;
       }
@@ -429,6 +440,25 @@ export function LocalSession({ id }: { id: string }) {
             </div>
           ) : null}
         </div>
+        <SessionVideosCard
+          session={{
+            id: session.id,
+            trackId: session.trackId,
+            sessionDate: session.sessionDate,
+            startedAtMs: session.startedAtMs,
+            created_at: session.created_at,
+            laps: session.laps.map((lap) => ({
+              id: lap.id,
+              lap_number: lap.lap_number,
+              lap_time_ms: lap.lap_time_ms,
+            })),
+          }}
+          videos={session.videos ?? []}
+          onChange={(videos) => {
+            updateLocalSession(session.id, { videos });
+            window.location.reload();
+          }}
+        />
         {theo ? <TheoreticalBestCard result={theo} /> : null}
         {laps.length ? (
           <LapList sessionId={session.id} laps={laps} />
@@ -452,12 +482,36 @@ export function LocalLap({
   const session = useLocalSession(sessionId);
   const lap = session?.laps.find((item) => item.id === lapId);
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
+  const searchParams = useSearchParams();
+  const videoParam = searchParams.get("v");
+  const tParam = searchParams.get("t");
 
   useEffect(() => {
     let url: string | null = null;
     let cancelled = false;
     async function loadVideo() {
       if (!session) return;
+      const videos = session.videos ?? [];
+      const chosen =
+        videos.find((item) => item.id === videoParam) ??
+        videos.find((item) => item.lapId === lapId) ??
+        videos.find((item) => item.provider === "mp4") ??
+        null;
+      if (chosen?.provider === "mp4") {
+        if (chosen.objectKey) {
+          setVideoSrc(
+            `/api/storage/download?key=${encodeURIComponent(chosen.objectKey)}`,
+          );
+          return;
+        }
+        if (chosen.localKey) {
+          const blob = await getLocalBlob(chosen.localKey);
+          if (!blob || cancelled) return;
+          url = URL.createObjectURL(blob);
+          setVideoSrc(url);
+          return;
+        }
+      }
       if (session.videoObjectKey) {
         setVideoSrc(
           `/api/storage/download?key=${encodeURIComponent(session.videoObjectKey)}`,
@@ -476,7 +530,7 @@ export function LocalLap({
       cancelled = true;
       if (url) URL.revokeObjectURL(url);
     };
-  }, [session]);
+  }, [session, lapId, videoParam]);
 
   if (session === undefined) return <LoadingShell label="Loading lap…" />;
   if (!session || !lap) {
@@ -489,6 +543,21 @@ export function LocalLap({
     lapTimeMs: lap.lap_time_ms,
     points: lap.telemetry,
   });
+  const videos = session.videos ?? [];
+  const activeVideo: SessionVideo | null =
+    videos.find((item) => item.id === videoParam) ??
+    videos.find((item) => item.lapId === lap.id) ??
+    videos.find((item) => item.provider === "youtube") ??
+    videos[0] ??
+    null;
+  const bestMs = Math.min(...session.laps.map((item) => item.lap_time_ms));
+  const sharePath = `/sessions/${session.id}/laps/${lap.id}${
+    activeVideo
+      ? `?v=${encodeURIComponent(activeVideo.id)}${
+          tParam ? `&t=${encodeURIComponent(tParam)}` : ""
+        }`
+      : ""
+  }`;
 
   return (
     <>
@@ -513,10 +582,7 @@ export function LocalLap({
             <div className="flex flex-col items-start gap-2 sm:items-end">
               <p className="text-sm text-zinc-500">Peak {peak.toFixed(0)} km/h</p>
               <div className="flex flex-wrap gap-2">
-                <ShareLinkButton
-                  path={`/sessions/${session.id}/laps/${lap.id}`}
-                  label="Copy lap link"
-                />
+                <ShareLinkButton path={sharePath} label="Copy lap link" />
                 <CompareLink
                   sessionId={session.id}
                   laps={session.laps.map((item) => ({
@@ -536,11 +602,47 @@ export function LocalLap({
           />
         </div>
         {lap.telemetry.length ? (
-          <LapCharts
-            points={lap.telemetry}
-            label={`Lap ${lap.lap_number}`}
-            videoSrc={videoSrc}
-          />
+          activeVideo || videoSrc ? (
+            <SyncedLapView
+              lap={{
+                id: lap.id,
+                lap_number: lap.lap_number,
+                lap_time_ms: lap.lap_time_ms,
+                start_offset_sec: lap.start_offset_sec,
+                telemetry: lap.telemetry,
+              }}
+              siblingLaps={session.laps.map((item) => ({
+                id: item.id,
+                lap_number: item.lap_number,
+                lap_time_ms: item.lap_time_ms,
+                start_offset_sec: item.start_offset_sec,
+                telemetry: item.telemetry,
+              }))}
+              video={activeVideo}
+              mp4Src={videoSrc}
+              sessionStartedAtMs={session.startedAtMs}
+              bestLapMs={bestMs}
+              onVideoChange={
+                activeVideo && session.kind === "upload"
+                  ? (next) => {
+                      const nextVideos = (session.videos ?? []).map((item) =>
+                        item.id === next.id ? next : item,
+                      );
+                      if (!nextVideos.some((item) => item.id === next.id)) {
+                        nextVideos.push(next);
+                      }
+                      updateLocalSession(session.id, { videos: nextVideos });
+                    }
+                  : undefined
+              }
+            />
+          ) : (
+            <LapCharts
+              points={lap.telemetry}
+              label={`Lap ${lap.lap_number}`}
+              videoSrc={videoSrc}
+            />
+          )
         ) : (
           <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-8 text-center text-sm text-zinc-500">
             No speed samples on this lap.

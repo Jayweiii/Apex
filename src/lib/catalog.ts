@@ -109,14 +109,16 @@ export function catalogBestMs(session: CatalogSession): number {
   return Math.round(SAMPLE_BEST_MS * (session.timeScale ?? 1));
 }
 
-let sampleLaps: Promise<ReturnType<typeof parseTelemetryCsv>> | null = null;
+let sampleLaps: Promise<Awaited<ReturnType<typeof parseTelemetryCsv>>["laps"]> | null =
+  null;
 const datasetCache = new Map<string, Promise<PublicDatasetFile>>();
 
 function loadSampleLaps() {
   if (!sampleLaps) {
     sampleLaps = fetch("/sample-telemetry.csv").then(async (response) => {
       if (!response.ok) throw new Error("Could not load sample telemetry");
-      return parseTelemetryCsv(await response.text());
+      const parsed = parseTelemetryCsv(await response.text());
+      return parsed.laps;
     });
   }
   return sampleLaps;
@@ -190,6 +192,8 @@ export async function loadCatalogSession(id: string): Promise<StoredSession | nu
       lap_number: lap.lapNumber,
       lap_time_ms: Math.round(lap.lapTimeMs * timeScale),
       telemetry: lap.points.map((point) => shiftPoint(point, timeScale, 0, 0)),
+      start_offset_sec: lap.startOffsetSec,
+      started_at_ms: lap.startedAtMs,
     })),
   };
 }

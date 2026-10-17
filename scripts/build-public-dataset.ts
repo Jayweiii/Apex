@@ -7,7 +7,7 @@ const source = path.join(root, "third_party", "STC_log.csv");
 const out = path.join(root, "public", "datasets", "spreewaldring-stc.json");
 
 const csv = fs.readFileSync(source, "utf8");
-const laps = parseTelemetryCsv(csv).filter((lap) => {
+const laps = parseTelemetryCsv(csv).laps.filter((lap) => {
   const max = Math.max(...lap.points.map((point) => point.speed));
   return max >= 80 && lap.lapTimeMs >= 30_000 && lap.lapTimeMs <= 240_000;
 });

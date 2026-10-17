@@ -1,0 +1,175 @@
+import type { ParsedLap, SessionVideo } from "@/lib/types";
+
+export type CloudSessionMeta = {
+  name: string;
+  filename: string | null;
+  trackId: string;
+  car: string;
+  carClass: string;
+  carTags: string[];
+  driver?: string;
+  weather?: string;
+  tires?: string;
+  notes?: string;
+  sourceKind: "csv" | "gopro";
+  rawObjectKey?: string | null;
+  videoObjectKey?: string | null;
+  storageBackend?: string | null;
+  startedAtMs?: number;
+  sessionDate?: string;
+  /** Prefer this id so R2/object keys match the session row. */
+  id?: string;
+  videos?: SessionVideo[];
+};
+
+export type CloudSessionPayload = {
+  session: Record<string, unknown>;
+  laps: Array<Record<string, unknown>>;
+  videos: Array<Record<string, unknown>>;
+};
+
+/** Build the rows that will be inserted into Supabase (no network). */
+export function buildCloudSessionPayload(
+  userId: string,
+  laps: ParsedLap[],
+  meta: CloudSessionMeta,
+): CloudSessionPayload {
+  if (!meta.trackId.trim()) throw new Error("Choose a track");
+  if (!meta.car.trim()) throw new Error("Enter the car");
+  if (!laps.length) throw new Error("No laps to save");
+
+  const session: Record<string, unknown> = {
+    user_id: userId,
+    name: meta.name,
+    filename: meta.filename,
+    track_id: meta.trackId,
+    car: meta.car,
+    car_class: meta.carClass,
+    car_tags: meta.carTags,
+    driver_name: meta.driver?.trim() || null,
+    weather: meta.weather?.trim() || null,
+    tires: meta.tires?.trim() || null,
+    notes: meta.notes?.trim() || null,
+    source_kind: meta.sourceKind,
+    raw_object_key: meta.rawObjectKey ?? null,
+    video_object_key: meta.videoObjectKey ?? null,
+    storage_backend: meta.storageBackend ?? null,
+    started_at: meta.startedAtMs
+      ? new Date(meta.startedAtMs).toISOString()
+      : null,
+    session_date: meta.sessionDate ?? null,
+  };
+  if (meta.id) session.id = meta.id;
+
+  const lapRows = laps.map((lap) => ({
+    // session_id filled after insert
+    user_id: userId,
+    lap_number: lap.lapNumber,
+    lap_time_ms: lap.lapTimeMs,
+    telemetry: lap.points,
+    start_offset_sec: lap.startOffsetSec ?? null,
+    started_at_ms: lap.startedAtMs ?? null,
+  }));
+
+  const videosMeta =
+    meta.videos ??
+    (meta.videoObjectKey
+      ? [
+          {
+            id: crypto.randomUUID(),
+            provider: "mp4" as const,
+            objectKey: meta.videoObjectKey,
+            offsetSec: 0,
+            rate: 1,
+            syncSource:
+              meta.sourceKind === "gopro"
+                ? ("auto" as const)
+                : ("unsynced" as const),
+            lapId: null as string | null,
+          },
+        ]
+      : []);
+
+  const videos = videosMeta.map((video) => ({
+    id: video.id,
+    user_id: userId,
+    provider: video.provider,
+    youtube_id: video.youtubeId ?? null,
+    object_key: video.objectKey ?? null,
+    title: video.title ?? null,
+    // lap_id resolved after lap insert when possible
+    lap_id: video.lapId ?? null,
+    offset_sec: video.offsetSec,
+    rate: video.rate ?? 1,
+    sync_source: video.syncSource,
+    video_started_at: video.videoStartedAtMs
+      ? new Date(video.videoStartedAtMs).toISOString()
+      : null,
+  }));
+
+  return { session, laps: lapRows, videos };
+}
+
+/** Minimal shape used for inserts; accepts the real Supabase browser client. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type SupabaseLike = any;
+
+/**
+ * Persist a parsed session + laps (+ optional videos) to Supabase.
+ */
+export async function saveSessionToCloud(
+  client: SupabaseLike,
+  laps: ParsedLap[],
+  meta: CloudSessionMeta,
+): Promise<{ sessionId: string; lapCount: number }> {
+  const {
+    data: { user },
+    error: userError,
+  } = await client.auth.getUser();
+  if (userError || !user) {
+    throw new Error(userError?.message ?? "You need to be signed in");
+  }
+
+  const payload = buildCloudSessionPayload(user.id, laps, meta);
+
+  const { data: session, error: sessionError } = await client
+    .from("sessions")
+    .insert(payload.session)
+    .select("id")
+    .single();
+  if (sessionError || !session?.id) {
+    throw new Error(sessionError?.message ?? "Could not create session");
+  }
+  const sessionId = String(session.id);
+
+  const lapsWithSession = payload.laps.map((lap) => ({
+    ...lap,
+    session_id: sessionId,
+  }));
+
+  const lapResult = await client
+    .from("laps")
+    .insert(lapsWithSession)
+    .select("id, lap_number");
+  if (lapResult.error) throw new Error(lapResult.error.message);
+  const insertedLaps = (lapResult.data ?? []) as Array<{
+    id: string;
+    lap_number?: number;
+  }>;
+  const firstLapId = insertedLaps[0]?.id ?? null;
+
+  for (const video of payload.videos) {
+    const { error: videoError } = await client
+      .from("session_videos")
+      .insert({
+        ...video,
+        session_id: sessionId,
+        lap_id: video.lap_id ?? firstLapId,
+      })
+      .select("id")
+      .single();
+    if (videoError) throw new Error(videoError.message);
+  }
+
+  return { sessionId, lapCount: laps.length };
+}

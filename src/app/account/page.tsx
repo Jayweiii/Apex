@@ -1,4 +1,5 @@
 import { AppHeader } from "@/components/AppHeader";
+import { ImportLocalSessions } from "@/components/ImportLocalSessions";
 import { SessionUpload } from "@/components/SessionUpload";
 import { formatLapTime } from "@/lib/format";
 import { hasSupabaseConfig } from "@/lib/supabase/env";
@@ -55,9 +56,10 @@ export default async function AccountPage() {
             Account sessions
           </h1>
           <p className="mt-1 text-sm text-zinc-500">
-            Saved to your account. Import a CSV and Apex will split it into laps.
+            Saved to your account so friends can browse laps and videos.
           </p>
         </div>
+        <ImportLocalSessions />
         <SessionUpload />
         {sessionRows.length === 0 ? (
           <p className="text-sm text-zinc-500">No sessions yet.</p>

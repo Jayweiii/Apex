@@ -9,7 +9,8 @@ import {
 } from "@/lib/local-store";
 import { parseGoProChapters } from "@/lib/parse-gopro";
 import { parseTelemetryCsv } from "@/lib/parse-telemetry";
-import { createClient } from "@/lib/supabase/client";
+import { saveSessionToCloud } from "@/lib/save-session-cloud";
+import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
 import {
   listCustomTracks,
   popularTracks,
@@ -17,6 +18,7 @@ import {
   type Track,
 } from "@/lib/tracks";
 import { presignUpload, uploadToTarget } from "@/lib/storage/upload-client";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 
@@ -24,15 +26,19 @@ const CAR_CLASSES = ["Open", "Spec Miata", "GR Cup", "GT4", "GT3", "Prototype"];
 const NEW_TRACK = "__new_track__";
 const NEW_CAR = "__new_car__";
 
+type Destination = "checking" | "cloud" | "local" | "unavailable";
+
 export function SessionUpload({
-  storage = "supabase",
+  storage = "auto",
   trackId,
 }: {
-  storage?: "supabase" | "local";
+  /** auto = Supabase when signed in, else local browser storage */
+  storage?: "auto" | "supabase" | "local";
   trackId?: string;
 }) {
   const router = useRouter();
-  const local = storage === "local";
+  const [destination, setDestination] = useState<Destination>("checking");
+  const [userEmail, setUserEmail] = useState<string | null>(null);
   const [customTracks, setCustomTracks] = useState<Track[]>([]);
   const [pickedTrack, setPickedTrack] = useState(trackId ?? "");
   const [newTrackName, setNewTrackName] = useState("");
@@ -51,6 +57,46 @@ export function SessionUpload({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
+  const [savedBanner, setSavedBanner] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function resolveDestination() {
+      if (storage === "local") {
+        if (!cancelled) setDestination("local");
+        return;
+      }
+      if (!hasSupabaseConfig()) {
+        if (!cancelled) {
+          setDestination(storage === "supabase" ? "unavailable" : "local");
+        }
+        return;
+      }
+      try {
+        const supabase = createClient();
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (cancelled) return;
+        if (user) {
+          setUserEmail(user.email ?? null);
+          setDestination("cloud");
+        } else if (storage === "supabase") {
+          setDestination("unavailable");
+        } else {
+          setDestination("local");
+        }
+      } catch {
+        if (!cancelled) {
+          setDestination(storage === "supabase" ? "unavailable" : "local");
+        }
+      }
+    }
+    resolveDestination();
+    return () => {
+      cancelled = true;
+    };
+  }, [storage, busy]);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -79,11 +125,13 @@ export function SessionUpload({
   const isGoPro = Boolean(primary && /\.mp4$/i.test(primary.name));
   const creatingTrack = !trackId && pickedTrack === NEW_TRACK;
   const creatingCar = carChoice === NEW_CAR;
+  const useCloud = destination === "cloud";
 
   function onFile(event: ChangeEvent<HTMLInputElement>) {
     const next = Array.from(event.target.files ?? []);
     setFiles(next);
     setError(null);
+    setSavedBanner(null);
     if (next[0] && !name) {
       setName(next[0].name.replace(/\.(csv|mp4)$/i, "").replace(/[_-]+/g, " "));
     }
@@ -161,6 +209,11 @@ export function SessionUpload({
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
     setError(null);
+    setSavedBanner(null);
+    if (destination === "unavailable") {
+      setError("Sign in to save sessions to the server.");
+      return;
+    }
     if (!files.length) {
       setError("Choose a CSV or GoPro MP4 file");
       return;
@@ -174,6 +227,8 @@ export function SessionUpload({
     setProgress("Parsing…");
     try {
       let laps;
+      let startedAtMs: number | undefined;
+      let sessionDate: string | undefined;
       let sourceKind: "csv" | "gopro" = "csv";
       if (isGoPro) {
         setProgress("Extracting GoPro GPMF…");
@@ -181,125 +236,90 @@ export function SessionUpload({
           setProgress(`Extracting GoPro GPMF… ${Math.round(percent)}%`);
         });
         laps = parsed.laps;
+        startedAtMs = parsed.startedAtMs;
+        sessionDate = parsed.sessionDate;
         sourceKind = "gopro";
       } else {
         const csv = await files[0].text();
-        laps = parseTelemetryCsv(csv);
+        const parsed = parseTelemetryCsv(csv);
+        laps = parsed.laps;
+        startedAtMs = parsed.startedAtMs;
+        sessionDate = parsed.sessionDate;
       }
 
       const sessionId = crypto.randomUUID();
-      setProgress("Storing original…");
+      setProgress(
+        useCloud ? "Saving to your account…" : "Saving in this browser…",
+      );
       const stored = await storeRawAndMaybeVideo(sessionId, files);
-      const resolvedTrack = local ? await resolveTrackId() : chosenTrack;
-      await saveSession(
+      const resolvedTrack = await resolveTrackId();
+      const tags = carTags
+        .split(",")
+        .map((tag) => tag.trim())
+        .filter(Boolean);
+      const carName = car.trim();
+      if (!carName) throw new Error("Enter the car");
+
+      if (useCloud) {
+        const supabase = createClient();
+        const result = await saveSessionToCloud(supabase, laps, {
+          id: sessionId,
+          name: name.trim() || files[0].name,
+          filename: files.map((file) => file.name).join(", "),
+          trackId: resolvedTrack,
+          car: carName,
+          carClass,
+          carTags: tags,
+          driver: driver.trim() || undefined,
+          weather: weather.trim() || undefined,
+          tires: tires.trim() || undefined,
+          notes: notes.trim() || undefined,
+          sourceKind,
+          rawObjectKey: stored.rawObjectKey,
+          videoObjectKey: stored.videoObjectKey,
+          storageBackend: stored.storageBackend,
+          startedAtMs,
+          sessionDate,
+        });
+        setProgress("Saved to server");
+        setSavedBanner("Saved to your account — opening session…");
+        router.push(`/sessions/${result.sessionId}`);
+        router.refresh();
+        return;
+      }
+
+      const session = saveLocalSession(
         name.trim() || files[0].name,
         files.map((file) => file.name).join(", "),
         laps,
         {
-          ...stored,
+          id: sessionId,
+          trackId: resolvedTrack,
+          car: carName,
+          carClass,
+          carTags: tags,
+          driver: driver.trim() || undefined,
+          weather: weather.trim() || undefined,
+          tires: tires.trim() || undefined,
+          notes: notes.trim() || undefined,
           sourceKind,
-          forcedId: sessionId,
-          trackIdOverride: resolvedTrack,
+          rawObjectKey: stored.rawObjectKey,
+          videoObjectKey: stored.videoObjectKey,
+          videoLocalKey: stored.videoLocalKey,
+          storageBackend: stored.storageBackend,
+          startedAtMs,
+          sessionDate,
         },
       );
+      setSavedBanner("Saved in this browser (local only)");
+      router.push(`/sessions/${session.id}`);
+      router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setBusy(false);
       setProgress(null);
     }
-  }
-
-  async function saveSession(
-    sessionName: string,
-    filename: string,
-    laps: ReturnType<typeof parseTelemetryCsv>,
-    extra: {
-      sourceKind: "csv" | "gopro";
-      rawObjectKey: string | null;
-      videoObjectKey: string | null;
-      videoLocalKey: string | null;
-      storageBackend: "r2" | "local" | "idb";
-      forcedId?: string;
-      trackIdOverride?: string;
-    },
-  ) {
-    const tags = carTags
-      .split(",")
-      .map((tag) => tag.trim())
-      .filter(Boolean);
-    const carName = car.trim();
-
-    if (storage === "local") {
-      const track = extra.trackIdOverride || chosenTrack;
-      if (!track) throw new Error("Choose a track");
-      if (!carName) throw new Error("Enter the car");
-      const session = saveLocalSession(sessionName, filename, laps, {
-        id: extra.forcedId,
-        trackId: track,
-        car: carName,
-        carClass,
-        carTags: tags,
-        driver: driver.trim() || undefined,
-        weather: weather.trim() || undefined,
-        tires: tires.trim() || undefined,
-        notes: notes.trim() || undefined,
-        sourceKind: extra.sourceKind,
-        rawObjectKey: extra.rawObjectKey,
-        videoObjectKey: extra.videoObjectKey,
-        videoLocalKey: extra.videoLocalKey,
-        storageBackend: extra.storageBackend,
-      });
-      router.push(`/sessions/${session.id}`);
-      router.refresh();
-      return;
-    }
-
-    const supabase = createClient();
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-    if (userError || !user) throw new Error("You need to be signed in");
-
-    const { data: session, error: sessionError } = await supabase
-      .from("sessions")
-      .insert({
-        user_id: user.id,
-        name: sessionName,
-        filename,
-        track_id: extra.trackIdOverride || chosenTrack || null,
-        car: carName || null,
-        car_class: carClass,
-        car_tags: tags,
-        driver_name: driver.trim() || null,
-        weather: weather.trim() || null,
-        tires: tires.trim() || null,
-        notes: notes.trim() || null,
-        source_kind: extra.sourceKind,
-        raw_object_key: extra.rawObjectKey,
-        video_object_key: extra.videoObjectKey,
-        storage_backend: extra.storageBackend,
-      })
-      .select("id")
-      .single();
-    if (sessionError || !session) {
-      throw new Error(sessionError?.message ?? "Could not create session");
-    }
-
-    const { error: lapsError } = await supabase.from("laps").insert(
-      laps.map((lap) => ({
-        session_id: session.id,
-        user_id: user.id,
-        lap_number: lap.lapNumber,
-        lap_time_ms: lap.lapTimeMs,
-        telemetry: lap.points,
-      })),
-    );
-    if (lapsError) throw new Error(lapsError.message);
-
-    router.push(`/sessions/${session.id}`);
-    router.refresh();
   }
 
   return (
@@ -317,8 +337,44 @@ export function SessionUpload({
         </div>
         <DataKindBadge kind="upload" />
       </div>
+
+      {destination === "cloud" ? (
+        <p className="mb-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
+          Signed in{userEmail ? ` as ${userEmail}` : ""}. Uploads save to your
+          account and show up under{" "}
+          <Link href="/account" className="underline underline-offset-2">
+            Account
+          </Link>{" "}
+          and{" "}
+          <Link href="/friends" className="underline underline-offset-2">
+            Friends
+          </Link>
+          .
+        </p>
+      ) : null}
+      {destination === "local" ? (
+        <p className="mb-4 rounded-xl border border-zinc-700/80 bg-zinc-900/60 px-3 py-2 text-sm text-zinc-400">
+          Saving in this browser only.{" "}
+          <Link
+            href="/login"
+            className="text-orange-400 underline-offset-2 hover:underline"
+          >
+            Sign in to save to the server and share with friends
+          </Link>
+          .
+        </p>
+      ) : null}
+      {destination === "unavailable" ? (
+        <p className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+          <Link href="/login" className="font-medium underline underline-offset-2">
+            Sign in
+          </Link>{" "}
+          to save sessions to the server.
+        </p>
+      ) : null}
+
       <div className="grid gap-3">
-        {local && !trackId ? (
+        {!trackId ? (
           <div className="grid gap-3">
             <label className="flex flex-col gap-1.5 text-sm">
               <span className="text-zinc-400">Track</span>
@@ -353,41 +409,39 @@ export function SessionUpload({
           </div>
         ) : null}
         <div className="grid gap-3 sm:grid-cols-2">
-          {local ? (
-            <div className="grid gap-3">
-              <label className="flex flex-col gap-1.5 text-sm">
-                <span className="text-zinc-400">Car</span>
-                <select
-                  required
-                  value={carChoice}
-                  onChange={(event) => onCarChoice(event.target.value)}
-                  className="min-h-12 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
-                >
-                  <option value="" disabled={knownCars.length === 0}>
-                    Choose a car
+          <div className="grid gap-3">
+            <label className="flex flex-col gap-1.5 text-sm">
+              <span className="text-zinc-400">Car</span>
+              <select
+                required
+                value={carChoice}
+                onChange={(event) => onCarChoice(event.target.value)}
+                className="min-h-12 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
+              >
+                <option value="" disabled={knownCars.length === 0}>
+                  Choose a car
+                </option>
+                {knownCars.map((value) => (
+                  <option key={value} value={value}>
+                    {value}
                   </option>
-                  {knownCars.map((value) => (
-                    <option key={value} value={value}>
-                      {value}
-                    </option>
-                  ))}
-                  <option value={NEW_CAR}>+ Create new car…</option>
-                </select>
+                ))}
+                <option value={NEW_CAR}>+ Create new car…</option>
+              </select>
+            </label>
+            {creatingCar ? (
+              <label className="flex flex-col gap-1.5 text-sm">
+                <span className="text-zinc-400">New car name</span>
+                <input
+                  required
+                  value={car}
+                  onChange={(event) => setCar(event.target.value)}
+                  placeholder="NA Miata"
+                  className="min-h-12 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
+                />
               </label>
-              {creatingCar ? (
-                <label className="flex flex-col gap-1.5 text-sm">
-                  <span className="text-zinc-400">New car name</span>
-                  <input
-                    required
-                    value={car}
-                    onChange={(event) => setCar(event.target.value)}
-                    placeholder="NA Miata"
-                    className="min-h-12 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
-                  />
-                </label>
-              ) : null}
-            </div>
-          ) : null}
+            ) : null}
+          </div>
           <label className="flex flex-col gap-1.5 text-sm">
             <span className="text-zinc-400">Class</span>
             <select
@@ -509,13 +563,22 @@ export function SessionUpload({
         </p>
       ) : null}
       {progress ? <p className="mt-3 text-sm text-zinc-400">{progress}</p> : null}
+      {savedBanner ? (
+        <p className="mt-3 text-sm text-emerald-300">{savedBanner}</p>
+      ) : null}
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <button
           type="submit"
-          disabled={busy}
+          disabled={busy || destination === "checking" || destination === "unavailable"}
           className="min-h-11 rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-black hover:bg-orange-400 disabled:opacity-50"
         >
-          {busy ? "Working…" : "Upload session"}
+          {busy
+            ? useCloud
+              ? "Saving to your account…"
+              : "Saving…"
+            : useCloud
+              ? "Upload to account"
+              : "Upload session"}
         </button>
         <button
           type="button"
