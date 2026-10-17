@@ -15,8 +15,10 @@ import { ShareLinkButton } from "@/components/ShareLinkButton";
 import { cornerBreakdown, theoreticalBestLap } from "@/lib/analysis";
 import { getLocalBlob } from "@/lib/blob-store";
 import { catalogSessionsForTrack, loadCatalogSession } from "@/lib/catalog";
+import { resolveTrackCenterline } from "@/lib/cloud-tracks";
 import { compareHref } from "@/lib/compare";
 import { formatLapTime } from "@/lib/format";
+import { analysisPoints, mapMatchLap } from "@/lib/map-match";
 import {
   getLocalSession,
   listSessionsForCompare,
@@ -207,18 +209,29 @@ export function LocalCompare({
   const otherLap =
     otherSession?.laps.find((lap) => lap.id === otherId) ??
     session.laps.find((lap) => lap.id === otherId);
+  const compareCenterline = resolveTrackCenterline(
+    session.trackId,
+    null,
+    session.laps.map((item) => item.telemetry),
+  );
   const corners =
     refLap && otherLap && refLap.id !== otherLap.id
       ? cornerBreakdown(
           {
             lapNumber: refLap.lap_number,
             lapTimeMs: refLap.lap_time_ms,
-            points: refLap.telemetry,
+            points: analysisPoints(
+              mapMatchLap(refLap.telemetry, compareCenterline),
+              refLap.telemetry,
+            ),
           },
           {
             lapNumber: otherLap.lap_number,
             lapTimeMs: otherLap.lap_time_ms,
-            points: otherLap.telemetry,
+            points: analysisPoints(
+              mapMatchLap(otherLap.telemetry, compareCenterline),
+              otherLap.telemetry,
+            ),
           },
         )
       : [];
@@ -541,10 +554,18 @@ export function LocalLap({
   }
 
   const peak = lap.telemetry.reduce((max, point) => Math.max(max, point.speed), 0);
+  const lapCenterline = resolveTrackCenterline(
+    session.trackId,
+    null,
+    session.laps.map((item) => item.telemetry),
+  );
   const corners = cornerBreakdown({
     lapNumber: lap.lap_number,
     lapTimeMs: lap.lap_time_ms,
-    points: lap.telemetry,
+    points: analysisPoints(
+      mapMatchLap(lap.telemetry, lapCenterline),
+      lap.telemetry,
+    ),
   });
   const videos = session.videos ?? [];
   const activeVideo: SessionVideo | null =
@@ -625,6 +646,7 @@ export function LocalLap({
               mp4Src={videoSrc}
               sessionStartedAtMs={session.startedAtMs}
               bestLapMs={bestMs}
+              trackId={session.trackId}
               onVideoChange={
                 activeVideo && session.kind === "upload"
                   ? (next) => {
@@ -644,6 +666,7 @@ export function LocalLap({
               points={lap.telemetry}
               label={`Lap ${lap.lap_number}`}
               videoSrc={videoSrc}
+              trackId={session.trackId}
             />
           )
         ) : (

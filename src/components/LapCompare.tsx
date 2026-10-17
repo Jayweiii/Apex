@@ -2,12 +2,19 @@
 
 import { hoverIndex } from "@/components/chart-hover";
 import { MissingGps, TrackMap } from "@/components/TrackMap";
+import { resolveTrackCenterline } from "@/lib/cloud-tracks";
 import { compareLaps, defaultLapPair, hasGps } from "@/lib/compare";
 import {
   type CompareSessionOption,
 } from "@/lib/compare-sessions";
 import { formatG, formatGap, formatLapTime } from "@/lib/format";
 import { enrichTelemetry } from "@/lib/gforce";
+import {
+  analysisPoints,
+  displayPoints,
+  mapMatchLap,
+  type GpsDisplayMode,
+} from "@/lib/map-match";
 import { getTrack } from "@/lib/tracks";
 import type { LapRow } from "@/lib/types";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
@@ -195,20 +202,61 @@ export function LapCompare({
     otherSession?.laps[0] ??
     reference;
   const sameLap = reference?.id === other?.id;
+
+  const centerline = useMemo(() => {
+    const sampleLaps = [
+      ...(reference?.telemetry ? [reference.telemetry] : []),
+      ...(other?.telemetry && other.id !== reference?.id
+        ? [other.telemetry]
+        : []),
+      ...(refSession?.laps.map((lap) => lap.telemetry) ?? []),
+    ];
+    return resolveTrackCenterline(trackFilter || undefined, null, sampleLaps);
+  }, [trackFilter, reference, other, refSession]);
+
+  const refMatched = useMemo(
+    () =>
+      reference ? mapMatchLap(reference.telemetry, centerline) : null,
+    [reference, centerline],
+  );
+  const otherMatched = useMemo(
+    () => (other ? mapMatchLap(other.telemetry, centerline) : null),
+    [other, centerline],
+  );
+
+  const [gpsMode, setGpsMode] = useState<GpsDisplayMode>("snapped");
+
   const series = useMemo(
     () =>
       reference && other && !sameLap
-        ? compareLaps(reference.telemetry, other.telemetry)
+        ? compareLaps(
+            analysisPoints(refMatched, reference.telemetry),
+            analysisPoints(otherMatched, other.telemetry),
+          )
         : [],
-    [reference, other, sameLap],
+    [reference, other, sameLap, refMatched, otherMatched],
   );
   const refPoints = useMemo(
-    () => enrichTelemetry(reference?.telemetry ?? []),
-    [reference],
+    () =>
+      enrichTelemetry(
+        displayPoints(
+          refMatched,
+          reference?.telemetry ?? [],
+          centerline ? gpsMode : "raw",
+        ),
+      ),
+    [reference, refMatched, gpsMode, centerline],
   );
   const otherPoints = useMemo(
-    () => enrichTelemetry(other?.telemetry ?? []),
-    [other],
+    () =>
+      enrichTelemetry(
+        displayPoints(
+          otherMatched,
+          other?.telemetry ?? [],
+          centerline ? gpsMode : "raw",
+        ),
+      ),
+    [other, otherMatched, gpsMode, centerline],
   );
   const [progress, setProgress] = useState<number | null>(null);
   const hoverAt =
@@ -361,6 +409,9 @@ export function LapCompare({
               ]}
               activeProgress={progress}
               onProgress={setProgress}
+              centerline={centerline}
+              gpsMode={centerline ? gpsMode : undefined}
+              onGpsModeChange={centerline ? setGpsMode : undefined}
             />
           ) : (
             <MissingGps />

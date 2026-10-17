@@ -9,6 +9,14 @@ export type TelemetryPoint = {
   lonG?: number;
   /** Combined acceleration in g. */
   g?: number;
+  /** Distance along track centerline (meters), when map-matched. */
+  trackDist?: number;
+  /** Signed lateral offset from centerline (meters), when map-matched. */
+  lateralOffset?: number;
+  /** Original GPS latitude before snapping. */
+  rawLat?: number;
+  /** Original GPS longitude before snapping. */
+  rawLon?: number;
 };
 
 export type ParsedLap = {

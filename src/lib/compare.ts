@@ -70,6 +70,16 @@ function haversine(lat1: number, lon1: number, lat2: number, lon2: number) {
 
 export function withDistance(points: TelemetryPoint[]): DistSample[] {
   if (!points.length) return [];
+
+  // Prefer map-matched along-track distance when present.
+  if (points.some((point) => point.trackDist != null)) {
+    const base = points[0].trackDist ?? 0;
+    return points.map((point) => ({
+      ...point,
+      dist: Math.max(0, (point.trackDist ?? base) - base),
+    }));
+  }
+
   const out: DistSample[] = [{ ...points[0], dist: 0 }];
   let dist = 0;
   for (let i = 1; i < points.length; i += 1) {

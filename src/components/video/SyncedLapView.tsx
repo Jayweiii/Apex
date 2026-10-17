@@ -10,6 +10,7 @@ import {
   useVideoSync,
   type VideoPlayerHandle,
 } from "@/components/video/useVideoSync";
+import { resolveTrackCenterline } from "@/lib/cloud-tracks";
 import { hasGps } from "@/lib/compare";
 import {
   formatGap,
@@ -18,6 +19,12 @@ import {
   formatMph,
 } from "@/lib/format";
 import { enrichTelemetry } from "@/lib/gforce";
+import {
+  analysisPoints,
+  displayPoints,
+  mapMatchLap,
+  type GpsDisplayMode,
+} from "@/lib/map-match";
 import type { SessionVideo, TelemetryPoint } from "@/lib/types";
 import {
   cursorFromVideoTime,
@@ -36,6 +43,7 @@ export function SyncedLapView({
   bestLapMs,
   followCharts = true,
   onVideoChange,
+  trackId,
 }: {
   lap: {
     id: string;
@@ -57,8 +65,32 @@ export function SyncedLapView({
   bestLapMs?: number;
   followCharts?: boolean;
   onVideoChange?: (next: SessionVideo) => void;
+  trackId?: string | null;
 }) {
-  const data = useMemo(() => enrichTelemetry(lap.telemetry), [lap.telemetry]);
+  const centerline = useMemo(
+    () =>
+      resolveTrackCenterline(trackId, null, [
+        lap.telemetry,
+        ...siblingLaps.map((item) => item.telemetry),
+      ]),
+    [trackId, lap.telemetry, siblingLaps],
+  );
+  const matched = useMemo(
+    () => mapMatchLap(lap.telemetry, centerline),
+    [lap.telemetry, centerline],
+  );
+  const [gpsMode, setGpsMode] = useState<GpsDisplayMode>("snapped");
+  const chartData = useMemo(
+    () => enrichTelemetry(analysisPoints(matched, lap.telemetry)),
+    [matched, lap.telemetry],
+  );
+  const data = useMemo(
+    () =>
+      enrichTelemetry(
+        displayPoints(matched, lap.telemetry, centerline ? gpsMode : "raw"),
+      ),
+    [matched, lap.telemetry, gpsMode, centerline],
+  );
   const syncLaps = useMemo(
     () =>
       toSyncLaps(
@@ -117,22 +149,22 @@ export function SyncedLapView({
   });
 
   const index =
-    progress == null || data.length < 2
+    progress == null || chartData.length < 2
       ? null
-      : Math.round(progress * (data.length - 1));
+      : Math.round(progress * (chartData.length - 1));
   const cursorPoint =
-    index != null && data[Math.round(index)]
-      ? data[Math.round(index)]
+    index != null && chartData[Math.round(index)]
+      ? chartData[Math.round(index)]
       : null;
   const deltaVsBest =
     bestLapMs != null ? (lap.lap_time_ms - bestLapMs) / 1000 : null;
 
   function hoverFromChart(next: number | null) {
-    if (next == null || data.length < 2) {
+    if (next == null || chartData.length < 2) {
       setProgress(null);
       return;
     }
-    const nextProgress = next / (data.length - 1);
+    const nextProgress = next / (chartData.length - 1);
     setProgress(nextProgress);
     if (!activeVideo) return;
     const paused = player?.isPaused() ?? true;
@@ -142,6 +174,12 @@ export function SyncedLapView({
       setVideoTime(t);
     }
   }
+
+  const mapProps = {
+    centerline,
+    gpsMode: centerline ? gpsMode : undefined,
+    onGpsModeChange: centerline ? setGpsMode : undefined,
+  } as const;
 
   function bindPlayer(handle: VideoPlayerHandle | null) {
     playerRef.current = handle;
@@ -216,6 +254,7 @@ export function SyncedLapView({
                     setVideoTime(t);
                   }
                 }}
+                {...mapProps}
               />
             ) : (
               <MissingGps />
@@ -235,6 +274,7 @@ export function SyncedLapView({
           ]}
           activeProgress={progress}
           onProgress={setProgress}
+          {...mapProps}
         />
       ) : (
         <MissingGps />
@@ -257,13 +297,13 @@ export function SyncedLapView({
       ) : null}
 
       <SpeedChart
-        points={data}
+        points={chartData}
         activeIndex={index}
         onHoverIndex={hoverFromChart}
         syncId="lap-detail"
       />
       <GChart
-        points={data}
+        points={chartData}
         activeIndex={index}
         onHoverIndex={hoverFromChart}
         syncId="lap-detail"
