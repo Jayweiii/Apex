@@ -14,7 +14,16 @@ import {
 } from "@/lib/catalog";
 import { formatLapTime } from "@/lib/format";
 import { listLocalSessions, type StoredSession } from "@/lib/local-store";
-import { getTrack, listCustomTracks, popularTracks, type Track } from "@/lib/tracks";
+import { fetchSharedTracks } from "@/lib/cloud-tracks";
+import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
+import {
+  getTrack,
+  listCustomTracks,
+  listSharedTracksCache,
+  popularTracks,
+  setSharedTracksCache,
+  type Track,
+} from "@/lib/tracks";
 import type { DataKind } from "@/lib/attribution";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -80,23 +89,45 @@ function useLocalSessions() {
   return local;
 }
 
-function useCustomTracks() {
-  const [custom, setCustom] = useState<Track[]>([]);
+function useExtraTracks() {
+  const [extra, setExtra] = useState<Track[]>([]);
   useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      const local = listCustomTracks();
+      let shared = listSharedTracksCache();
+      if (hasSupabaseConfig()) {
+        try {
+          shared = await fetchSharedTracks(createClient());
+          if (!cancelled) setSharedTracksCache(shared);
+        } catch {
+          // keep local
+        }
+      }
+      if (cancelled) return;
+      const merged: Track[] = [];
+      for (const track of [...shared, ...local]) {
+        if (!merged.some((item) => item.id === track.id)) merged.push(track);
+      }
+      setExtra(merged);
+    }
     const frame = window.requestAnimationFrame(() => {
-      setCustom(listCustomTracks());
+      void load();
     });
-    return () => window.cancelAnimationFrame(frame);
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(frame);
+    };
   }, []);
-  return custom;
+  return extra;
 }
 
 export function TrackHome() {
   const [query, setQuery] = useState("");
-  const customTracks = useCustomTracks();
+  const extraTracks = useExtraTracks();
   const tracks = useMemo(
-    () => popularTracks(query, customTracks),
-    [query, customTracks],
+    () => popularTracks(query, extraTracks),
+    [query, extraTracks],
   );
   const publicSessions = CATALOG_SESSIONS.filter((s) => s.kind === "public");
   const demoCount = CATALOG_SESSIONS.filter((s) => s.kind === "demo").length;
@@ -228,7 +259,9 @@ export function TrackHome() {
                           {track.name}
                           {track.id.startsWith("custom-") ? (
                             <span className="ml-2 text-xs font-normal text-zinc-500">
-                              yours
+                              {track.location === "Added in this browser"
+                                ? "this browser"
+                                : "community"}
                             </span>
                           ) : null}
                         </p>

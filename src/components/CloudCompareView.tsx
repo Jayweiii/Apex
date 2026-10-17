@@ -6,12 +6,14 @@ import {
   catalogSessionsForTrack,
   loadCatalogSession,
 } from "@/lib/catalog";
+import { fetchSharedTracks } from "@/lib/cloud-tracks";
 import {
   groupLapsBySession,
   type AccessibleSessionMeta,
   type CompareSessionOption,
 } from "@/lib/compare-sessions";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
+import { setSharedTracksCache } from "@/lib/tracks";
 import type { LapRow, SessionRow } from "@/lib/types";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -145,6 +147,14 @@ export function CloudCompareView({
         if (cancelled) return;
         setEmail(user?.email ?? undefined);
         setUserId(user?.id ?? null);
+
+        // Populate shared track names for filters / labels.
+        try {
+          const shared = await fetchSharedTracks(supabase);
+          if (!cancelled) setSharedTracksCache(shared);
+        } catch {
+          // optional until migration
+        }
 
         const { data: row, error: sessionError } = await supabase
           .from("sessions")
