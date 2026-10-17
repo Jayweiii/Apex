@@ -48,6 +48,7 @@ assert(payload.session.id === "sess-1", "session id preserved for R2 key match")
 assert(payload.session.user_id === "user-1", "user id");
 assert(payload.session.track_id === "thunderhill-east", "track");
 assert(payload.session.car === "ND Miata", "car");
+assert(payload.session.visibility === "friends", "default visibility friends");
 assert(payload.session.raw_object_key === "r2/sess-1/raw/morning.csv", "raw key");
 assert(payload.session.started_at === new Date(1_700_000_000_000).toISOString(), "started_at");
 assert(payload.laps.length === 2, "two laps");
@@ -56,6 +57,18 @@ assert(payload.laps[0].telemetry != null, "telemetry kept");
 assert(payload.videos.length === 1, "mp4 video row from videoObjectKey");
 assert(payload.videos[0].provider === "mp4", "video provider");
 assert(payload.videos[0].object_key === "r2/sess-1/video/clip.mp4", "video key");
+
+const privatePayload = buildCloudSessionPayload("user-1", laps, {
+  name: "Private run",
+  filename: null,
+  trackId: "thunderhill-east",
+  car: "ND",
+  carClass: "Open",
+  carTags: [],
+  sourceKind: "csv",
+  visibility: "private",
+});
+assert(privatePayload.session.visibility === "private", "explicit private");
 
 let threw = false;
 try {

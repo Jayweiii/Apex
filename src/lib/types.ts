@@ -55,6 +55,10 @@ export type SessionRow = {
   name: string;
   filename: string | null;
   created_at: string;
+  visibility?: "private" | "friends" | "public" | null;
+  track_id?: string | null;
+  car?: string | null;
+  driver_name?: string | null;
 };
 
 export type LapRow = {

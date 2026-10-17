@@ -43,9 +43,10 @@ export default async function FriendsSessionsPage() {
     );
   }
 
+  // RLS filters by visibility (friends + public + own). Private of others hidden.
   const { data: sessions } = await supabase
     .from("sessions")
-    .select("id, name, track_id, car, driver_name, created_at, user_id")
+    .select("id, name, track_id, car, driver_name, created_at, user_id, visibility")
     .order("created_at", { ascending: false })
     .limit(40);
 
@@ -71,8 +72,8 @@ export default async function FriendsSessionsPage() {
             Friends&apos; sessions
           </h1>
           <p className="mt-2 text-sm text-zinc-400">
-            Signed-in drivers can browse each other&apos;s uploaded sessions and
-            attached videos. Requires the friends RLS migration.
+            Sessions set to Friends or Public link. Private sessions stay with
+            their owner.
           </p>
         </div>
         {!sessions?.length ? (
@@ -105,6 +106,7 @@ export default async function FriendsSessionsPage() {
                             ? ` · ${session.driver_name}`
                             : ""}
                           {mine ? " · you" : ""}
+                          {session.visibility ? ` · ${session.visibility}` : ""}
                           {videoBySession.get(session.id)
                             ? ` · ${videoBySession.get(session.id)} video(s)`
                             : ""}
