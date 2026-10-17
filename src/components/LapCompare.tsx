@@ -1,6 +1,7 @@
 "use client";
 
 import { hoverIndex } from "@/components/chart-hover";
+import { bindChartScrub } from "@/components/chart-scrub";
 import { MissingGps, TrackMap } from "@/components/TrackMap";
 import { resolveTrackCenterline } from "@/lib/cloud-tracks";
 import { compareLaps, defaultLapPair, hasGps } from "@/lib/compare";
@@ -15,9 +16,10 @@ import {
   mapMatchLap,
   type GpsDisplayMode,
 } from "@/lib/map-match";
+import { progressFromIndex } from "@/lib/scrub";
 import { getTrack } from "@/lib/tracks";
 import type { LapRow } from "@/lib/types";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   CartesianGrid,
   Legend,
@@ -264,13 +266,13 @@ export function LapCompare({
       ? null
       : Math.round(progress * (series.length - 1));
 
-  function hoverFromChart(next: number | null) {
-    if (next == null || series.length < 2) {
-      setProgress(null);
-      return;
-    }
-    setProgress(next / (series.length - 1));
-  }
+  const hoverFromChart = useCallback(
+    (next: number | null) => {
+      setProgress(progressFromIndex(next, series.length));
+    },
+    [series.length],
+  );
+  const chartScrub = bindChartScrub(series.length, hoverFromChart);
   const gapMs =
     reference && other ? other.lap_time_ms - reference.lap_time_ms : 0;
   const showMap =
@@ -417,7 +419,7 @@ export function LapCompare({
             <MissingGps />
           )}
 
-          <ChartCard title="Speed" hint="Aligned along each lap">
+          <ChartCard title="Speed" hint="Aligned along each lap" scrub={chartScrub}>
             <ResponsiveContainer width="100%" height="100%">
               <LineChart
                 data={series}
@@ -466,7 +468,11 @@ export function LapCompare({
             </ResponsiveContainer>
           </ChartCard>
 
-          <ChartCard title="Delta" hint="Positive means the compared lap is behind">
+          <ChartCard
+            title="Delta"
+            hint="Positive means the compared lap is behind"
+            scrub={chartScrub}
+          >
             <ResponsiveContainer width="100%" height="100%">
               <LineChart
                 data={series}
@@ -506,7 +512,7 @@ export function LapCompare({
             </ResponsiveContainer>
           </ChartCard>
 
-          <ChartCard title="G" hint="Combined acceleration">
+          <ChartCard title="G" hint="Combined acceleration" scrub={chartScrub}>
             <ResponsiveContainer width="100%" height="100%">
               <LineChart
                 data={series}
@@ -626,10 +632,12 @@ function ChartCard({
   title,
   hint,
   children,
+  scrub,
 }: {
   title: string;
   hint: string;
   children: ReactNode;
+  scrub?: ReturnType<typeof bindChartScrub>;
 }) {
   return (
     <div className="h-[260px] max-w-full overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950/40 p-3 sm:h-[340px] sm:p-4">
@@ -637,7 +645,9 @@ function ChartCard({
         <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">{title}</p>
         <p className="hidden text-xs text-zinc-600 sm:block">{hint}</p>
       </div>
-      <div className="h-[200px] sm:h-[280px]">{children}</div>
+      <div className="h-[200px] touch-none sm:h-[280px]" {...scrub}>
+        {children}
+      </div>
     </div>
   );
 }
