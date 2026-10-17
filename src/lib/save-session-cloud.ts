@@ -1,4 +1,9 @@
 import type { ParsedLap, SessionVideo } from "@/lib/types";
+import {
+  DEFAULT_VISIBILITY,
+  normalizeVisibility,
+  type SessionVisibility,
+} from "@/lib/visibility";
 
 export type CloudSessionMeta = {
   name: string;
@@ -20,6 +25,8 @@ export type CloudSessionMeta = {
   /** Prefer this id so R2/object keys match the session row. */
   id?: string;
   videos?: SessionVideo[];
+  /** private | friends | public — defaults to friends */
+  visibility?: SessionVisibility;
 };
 
 export type CloudSessionPayload = {
@@ -58,6 +65,7 @@ export function buildCloudSessionPayload(
       ? new Date(meta.startedAtMs).toISOString()
       : null,
     session_date: meta.sessionDate ?? null,
+    visibility: normalizeVisibility(meta.visibility ?? DEFAULT_VISIBILITY),
   };
   if (meta.id) session.id = meta.id;
 
@@ -132,15 +140,30 @@ export async function saveSessionToCloud(
 
   const payload = buildCloudSessionPayload(user.id, laps, meta);
 
-  const { data: session, error: sessionError } = await client
+  let sessionInsert = await client
     .from("sessions")
     .insert(payload.session)
     .select("id")
     .single();
-  if (sessionError || !session?.id) {
-    throw new Error(sessionError?.message ?? "Could not create session");
+  // Before visibility migration is applied, retry without the column.
+  if (
+    sessionInsert.error &&
+    /visibility/i.test(String(sessionInsert.error.message ?? ""))
+  ) {
+    const { visibility: _omit, ...withoutVisibility } = payload.session;
+    void _omit;
+    sessionInsert = await client
+      .from("sessions")
+      .insert(withoutVisibility)
+      .select("id")
+      .single();
   }
-  const sessionId = String(session.id);
+  if (sessionInsert.error || !sessionInsert.data?.id) {
+    throw new Error(
+      sessionInsert.error?.message ?? "Could not create session",
+    );
+  }
+  const sessionId = String(sessionInsert.data.id);
 
   const lapsWithSession = payload.laps.map((lap) => ({
     ...lap,

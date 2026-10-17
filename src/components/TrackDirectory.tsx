@@ -4,6 +4,7 @@ import { LeaderboardPanel } from "@/components/LeaderboardPanel";
 import { DataKindBadge } from "@/components/Attribution";
 import { AppHeader } from "@/components/AppHeader";
 import { SessionUpload } from "@/components/SessionUpload";
+import { YourSessions } from "@/components/YourSessions";
 import {
   catalogBestMs,
   catalogSessionsForTrack,
@@ -123,6 +124,8 @@ export function TrackHome() {
         </section>
 
         <SessionUpload />
+
+        <YourSessions />
 
         <LeaderboardPanel />
 

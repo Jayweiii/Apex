@@ -105,6 +105,7 @@ async function importOne(
         : null,
       session_date: local.sessionDate ?? null,
       created_at: local.created_at,
+      visibility: "friends",
     })
     .select("id")
     .single();
@@ -132,6 +133,7 @@ async function importOne(
           ? new Date(local.startedAtMs).toISOString()
           : null,
         session_date: local.sessionDate ?? null,
+        visibility: "friends",
       })
       .select("id")
       .single();

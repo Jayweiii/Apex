@@ -9,6 +9,7 @@ import {
 } from "@/lib/local-store";
 import { parseGoProChapters } from "@/lib/parse-gopro";
 import { parseTelemetryCsv } from "@/lib/parse-telemetry";
+import { SessionVisibilityControl } from "@/components/SessionVisibilityControl";
 import { saveSessionToCloud } from "@/lib/save-session-cloud";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
 import {
@@ -18,6 +19,10 @@ import {
   type Track,
 } from "@/lib/tracks";
 import { presignUpload, uploadToTarget } from "@/lib/storage/upload-client";
+import {
+  DEFAULT_VISIBILITY,
+  type SessionVisibility,
+} from "@/lib/visibility";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
@@ -54,6 +59,8 @@ export function SessionUpload({
   const [notes, setNotes] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [keepVideo, setKeepVideo] = useState(false);
+  const [visibility, setVisibility] =
+    useState<SessionVisibility>(DEFAULT_VISIBILITY);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
@@ -280,6 +287,7 @@ export function SessionUpload({
           storageBackend: stored.storageBackend,
           startedAtMs,
           sessionDate,
+          visibility,
         });
         setProgress("Saved to server");
         setSavedBanner("Saved to your account — opening session…");
@@ -552,6 +560,14 @@ export function SessionUpload({
               locally either way. Multi-chapter: select several MP4s together.
             </span>
           </label>
+        ) : null}
+        {useCloud ? (
+          <SessionVisibilityControl
+            value={visibility}
+            onChange={setVisibility}
+            disabled={busy}
+            compact
+          />
         ) : null}
       </div>
       {error ? (
