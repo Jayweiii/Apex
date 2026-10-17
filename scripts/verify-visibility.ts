@@ -23,4 +23,10 @@ assert(
 assert(!isCloudSessionId("demo-laguna-seca-gt3"), "demo not cloud");
 assert(!isCloudSessionId("pub-spreewaldring"), "pub not cloud");
 
+// Public upload that needs backfill after migration
+assert(
+  isCloudSessionId("1c782e8b-c306-4c05-90d6-738bb948eee8"),
+  "jason public attempt uuid",
+);
+
 console.log("verify-visibility ok");
