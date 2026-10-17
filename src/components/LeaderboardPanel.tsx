@@ -148,7 +148,7 @@ export function LeaderboardPanel({
       {filtered.length === 0 ? (
         <p className="mt-4 rounded-xl border border-dashed border-zinc-800 px-4 py-6 text-center text-sm text-zinc-500">
           No uploaded sessions yet. Import a CSV or GoPro above
-          {hasSupabaseConfig() ? ", or sign in and upload to your account" : ""}.
+          {hasSupabaseConfig() ? ", or upload a session above" : ""}.
         </p>
       ) : (
         <ol className="mt-4 divide-y divide-zinc-900 overflow-hidden rounded-xl border border-zinc-800/80">

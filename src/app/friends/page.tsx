@@ -33,11 +33,12 @@ export default async function FriendsSessionsPage() {
         <main className="mx-auto w-full max-w-4xl px-4 py-10 sm:px-6">
           <h1 className="text-2xl font-semibold text-zinc-50">Friends</h1>
           <p className="mt-3 text-sm text-zinc-400">
-            Sign in to see sessions and videos from other Apex drivers.
+            Upload a session (guest is fine) or{" "}
+            <Link href="/login" className="text-orange-400">
+              sign in
+            </Link>{" "}
+            to browse friends&apos; and public cloud sessions.
           </p>
-          <Link href="/login" className="mt-4 inline-block text-sm text-orange-400">
-            Sign in
-          </Link>
         </main>
       </>
     );

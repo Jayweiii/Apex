@@ -1,3 +1,4 @@
+import { assertUserUploadRateLimit } from "@/lib/abuse-limits";
 import type { ParsedLap, SessionVideo } from "@/lib/types";
 import {
   DEFAULT_VISIBILITY,
@@ -137,6 +138,8 @@ export async function saveSessionToCloud(
   if (userError || !user) {
     throw new Error(userError?.message ?? "You need to be signed in");
   }
+
+  await assertUserUploadRateLimit(client, user.id);
 
   const payload = buildCloudSessionPayload(user.id, laps, meta);
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { isAnonymousUser } from "@/lib/guest-auth";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -32,20 +33,25 @@ export function SignOutButton() {
 export function AppHeader({ email }: { email?: string }) {
   const configured = hasSupabaseConfig();
   const [sessionEmail, setSessionEmail] = useState(email);
+  const [guest, setGuest] = useState(false);
 
   useEffect(() => {
-    if (!configured || email) return;
+    if (!configured) return;
     let cancelled = false;
     createClient()
       .auth.getUser()
       .then(({ data }) => {
-        if (!cancelled) setSessionEmail(data.user?.email ?? undefined);
+        if (cancelled) return;
+        setSessionEmail(data.user?.email ?? email);
+        setGuest(isAnonymousUser(data.user));
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
   }, [configured, email]);
+
+  const signedIn = Boolean(sessionEmail) || guest;
 
   return (
     <header className="sticky top-0 z-20 flex items-center justify-between border-b border-zinc-900/90 bg-zinc-950/85 px-4 py-3 backdrop-blur sm:px-6 sm:py-4">
@@ -70,7 +76,7 @@ export function AppHeader({ email }: { email?: string }) {
         >
           Friends
         </Link>
-        {sessionEmail ? (
+        {signedIn ? (
           <>
             <Link
               href="/account"
@@ -79,9 +85,18 @@ export function AppHeader({ email }: { email?: string }) {
               Account
             </Link>
             <span className="hidden max-w-[220px] truncate text-xs text-zinc-500 sm:block">
-              {sessionEmail}
+              {sessionEmail ?? (guest ? "Guest" : "")}
             </span>
-            <SignOutButton />
+            {guest ? (
+              <Link
+                href="/login"
+                className="inline-flex min-h-10 items-center rounded-full border border-zinc-800 px-3 py-1.5 text-xs font-medium tracking-wide text-orange-300 transition hover:border-orange-500/50"
+              >
+                Keep sessions
+              </Link>
+            ) : (
+              <SignOutButton />
+            )}
           </>
         ) : (
           <Link

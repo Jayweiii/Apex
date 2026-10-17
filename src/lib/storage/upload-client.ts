@@ -11,6 +11,7 @@ export async function presignUpload(input: {
   contentType: string;
   kind: "raw" | "video";
   sessionId?: string;
+  bytes?: number;
 }): Promise<UploadTarget> {
   const response = await fetch("/api/storage/presign", {
     method: "POST",

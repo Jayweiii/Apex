@@ -144,9 +144,9 @@ export function TrackHome() {
             Review real sessions and your own TrackAddict logs
           </h1>
           <p className="max-w-2xl text-sm leading-relaxed text-zinc-400 sm:text-base">
-            Upload a CSV or GoPro. Signed-in uploads save to your account for
-            friends; signed-out uploads stay in this browser. Public datasets
-            and demos need no account.
+            Upload a CSV or GoPro — no account required. Guests save to the
+            cloud (default Public link); add an email later to keep sessions
+            across devices. Public datasets and demos are always available.
           </p>
           <div className="mt-1 flex flex-wrap gap-2 text-xs text-zinc-500">
             <DataKindBadge kind="public" />
