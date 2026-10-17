@@ -2,11 +2,108 @@
 
 import { AppHeader } from "@/components/AppHeader";
 import { LapCompare } from "@/components/LapCompare";
+import {
+  catalogSessionsForTrack,
+  loadCatalogSession,
+} from "@/lib/catalog";
+import {
+  groupLapsBySession,
+  type AccessibleSessionMeta,
+  type CompareSessionOption,
+} from "@/lib/compare-sessions";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
 import type { LapRow, SessionRow } from "@/lib/types";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
+async function catalogAsCompareOptions(
+  trackId: string | null | undefined,
+): Promise<CompareSessionOption[]> {
+  if (!trackId) return [];
+  const entries = catalogSessionsForTrack(trackId).slice(0, 6);
+  const loaded = await Promise.all(
+    entries.map((entry) => loadCatalogSession(entry.id)),
+  );
+  return loaded
+    .filter((item): item is NonNullable<typeof item> => item != null)
+    .map((item) => ({
+      id: item.id,
+      name: item.name,
+      car: item.car,
+      kind: item.kind,
+      trackId: item.trackId,
+      laps: item.laps.map((lap) => ({
+        id: lap.id,
+        session_id: item.id,
+        user_id: "catalog",
+        lap_number: lap.lap_number,
+        lap_time_ms: lap.lap_time_ms,
+        telemetry: lap.telemetry,
+      })),
+    }));
+}
+
+async function fetchAccessibleSessions(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  trackId: string | null | undefined,
+  limit: number,
+): Promise<{ rows: AccessibleSessionMeta[]; error: string | null }> {
+  const withVisibility = trackId
+    ? await supabase
+        .from("sessions")
+        .select(
+          "id, name, track_id, car, driver_name, user_id, visibility, created_at",
+        )
+        .eq("track_id", trackId)
+        .order("created_at", { ascending: false })
+        .limit(limit)
+    : await supabase
+        .from("sessions")
+        .select(
+          "id, name, track_id, car, driver_name, user_id, visibility, created_at",
+        )
+        .order("created_at", { ascending: false })
+        .limit(limit);
+
+  if (
+    withVisibility.error &&
+    /visibility/i.test(String(withVisibility.error.message ?? ""))
+  ) {
+    const without = trackId
+      ? await supabase
+          .from("sessions")
+          .select("id, name, track_id, car, driver_name, user_id, created_at")
+          .eq("track_id", trackId)
+          .order("created_at", { ascending: false })
+          .limit(limit)
+      : await supabase
+          .from("sessions")
+          .select("id, name, track_id, car, driver_name, user_id, created_at")
+          .order("created_at", { ascending: false })
+          .limit(limit);
+    if (without.error) {
+      return { rows: [], error: without.error.message };
+    }
+    return {
+      rows: (without.data ?? []) as AccessibleSessionMeta[],
+      error: null,
+    };
+  }
+
+  if (withVisibility.error) {
+    return { rows: [], error: withVisibility.error.message };
+  }
+  return {
+    rows: (withVisibility.data ?? []) as AccessibleSessionMeta[],
+    error: null,
+  };
+}
+
+/**
+ * Cloud compare: current session plus every accessible peer
+ * (own / friends / public via RLS) and catalog demos, filterable by track.
+ */
 export function CloudCompareView({
   id,
   initialRef,
@@ -19,10 +116,15 @@ export function CloudCompareView({
   initialOtherSession?: string;
 }) {
   const [email, setEmail] = useState<string | undefined>();
-  const [session, setSession] = useState<SessionRow | null | undefined>(
-    undefined,
+  const [userId, setUserId] = useState<string | null>(null);
+  const [session, setSession] = useState<
+    | (SessionRow & { track_id?: string | null; car?: string | null })
+    | null
+    | undefined
+  >(undefined);
+  const [compareSessions, setCompareSessions] = useState<CompareSessionOption[]>(
+    [],
   );
-  const [laps, setLaps] = useState<LapRow[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -42,6 +144,7 @@ export function CloudCompareView({
         } = await supabase.auth.getUser();
         if (cancelled) return;
         setEmail(user?.email ?? undefined);
+        setUserId(user?.id ?? null);
 
         const { data: row, error: sessionError } = await supabase
           .from("sessions")
@@ -59,14 +162,71 @@ export function CloudCompareView({
           setError(user ? "not-found" : "sign-in");
           return;
         }
-        setSession(row as SessionRow);
+        const current = row as SessionRow & {
+          track_id?: string | null;
+          car?: string | null;
+        };
+        setSession(current);
 
-        const { data: lapRows } = await supabase
+        // Same-track peers first (RLS: own + friends; + public after migration).
+        const sameTrack = await fetchAccessibleSessions(
+          supabase,
+          current.track_id,
+          80,
+        );
+        if (sameTrack.error) {
+          if (!cancelled) setError(sameTrack.error);
+          return;
+        }
+
+        const metas = [...sameTrack.rows];
+        if (!metas.some((meta) => meta.id === current.id)) {
+          metas.unshift({
+            id: current.id,
+            name: current.name,
+            track_id: current.track_id,
+            car: current.car,
+            user_id: current.user_id,
+          });
+        }
+
+        // Broader recent accessible sessions for the track filter.
+        const broad = await fetchAccessibleSessions(supabase, null, 60);
+        for (const meta of broad.rows) {
+          if (!metas.some((existing) => existing.id === meta.id)) {
+            metas.push(meta);
+          }
+        }
+
+        const ids = metas.map((meta) => meta.id);
+        const { data: lapRows, error: lapsError } = await supabase
           .from("laps")
           .select("*")
-          .eq("session_id", id)
+          .in("session_id", ids)
           .order("lap_number", { ascending: true });
-        if (!cancelled) setLaps((lapRows ?? []) as LapRow[]);
+        if (lapsError) {
+          if (!cancelled) setError(lapsError.message);
+          return;
+        }
+
+        const cloudOptions = groupLapsBySession(
+          metas,
+          (lapRows ?? []) as LapRow[],
+          user?.id ?? null,
+        );
+        const catalogOptions = (
+          await catalogAsCompareOptions(current.track_id)
+        ).filter(
+          (option) => !cloudOptions.some((cloud) => cloud.id === option.id),
+        );
+
+        if (!cancelled) {
+          const merged = new Map<string, CompareSessionOption>();
+          for (const option of [...cloudOptions, ...catalogOptions]) {
+            if (!merged.has(option.id)) merged.set(option.id, option);
+          }
+          setCompareSessions([...merged.values()]);
+        }
       } catch (err) {
         if (!cancelled) {
           setSession(null);
@@ -79,6 +239,11 @@ export function CloudCompareView({
       cancelled = true;
     };
   }, [id]);
+
+  const currentLaps = useMemo(() => {
+    const match = compareSessions.find((option) => option.id === id);
+    return match?.laps ?? [];
+  }, [compareSessions, id]);
 
   if (session === undefined) {
     return (
@@ -98,7 +263,9 @@ export function CloudCompareView({
         <main className="mx-auto w-full max-w-5xl px-6 py-8">
           {error === "sign-in" ? (
             <>
-              <p className="text-sm text-zinc-300">Sign in to compare these laps.</p>
+              <p className="text-sm text-zinc-300">
+                Sign in to compare against friends&apos; and public sessions.
+              </p>
               <Link
                 href={`/login?next=${encodeURIComponent(`/sessions/${id}/compare`)}`}
                 className="mt-4 inline-block text-sm text-orange-400"
@@ -132,12 +299,24 @@ export function CloudCompareView({
           <h1 className="mt-3 text-2xl font-semibold tracking-tight text-zinc-50">
             Compare laps
           </h1>
+          <p className="mt-1 text-sm text-zinc-500">
+            Pick any lap from your sessions, friends, or public uploads
+            {session.track_id ? " — filter by track" : ""}.
+            {!userId
+              ? " Sign in to see friends' sessions."
+              : ""}
+          </p>
+          {error ? (
+            <p className="mt-2 text-sm text-amber-200">{error}</p>
+          ) : null}
         </div>
         <LapCompare
-          laps={laps}
+          laps={currentLaps}
+          sessions={compareSessions}
           initialRef={initialRef}
           initialOther={initialOther}
           initialOtherSession={initialOtherSession}
+          initialTrackId={session.track_id ?? undefined}
         />
       </main>
     </>

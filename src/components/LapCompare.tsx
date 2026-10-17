@@ -3,8 +3,12 @@
 import { hoverIndex } from "@/components/chart-hover";
 import { MissingGps, TrackMap } from "@/components/TrackMap";
 import { compareLaps, defaultLapPair, hasGps } from "@/lib/compare";
+import {
+  type CompareSessionOption,
+} from "@/lib/compare-sessions";
 import { formatG, formatGap, formatLapTime } from "@/lib/format";
 import { enrichTelemetry } from "@/lib/gforce";
+import { getTrack } from "@/lib/tracks";
 import type { LapRow } from "@/lib/types";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
@@ -19,16 +23,10 @@ import {
   YAxis,
 } from "recharts";
 
+export type { CompareSessionOption };
+
 const REF_COLOR = "#f97316";
 const OTHER_COLOR = "#38bdf8";
-
-export type CompareSessionOption = {
-  id: string;
-  name: string;
-  car?: string;
-  kind?: string;
-  laps: LapRow[];
-};
 
 function formatDistance(meters: number) {
   if (meters >= 1000) return `${(meters / 1000).toFixed(1)} km`;
@@ -49,13 +47,16 @@ export function LapCompare({
   initialRef,
   initialOther,
   initialOtherSession,
+  initialTrackId,
 }: {
   laps: LapRow[];
-  /** Extra sessions (usually your uploads) available for cross-session compare. */
+  /** Sessions available for cross-session compare (own / friends / public / local). */
   sessions?: CompareSessionOption[];
   initialRef?: string;
   initialOther?: string;
   initialOtherSession?: string;
+  /** Prefer filtering pickers to this track when multiple tracks are present. */
+  initialTrackId?: string;
 }) {
   const allSessions = useMemo<CompareSessionOption[]>(() => {
     if (sessions?.length) return sessions;
@@ -68,31 +69,94 @@ export function LapCompare({
     ];
   }, [sessions, laps]);
 
-  const defaults = defaultLapPair(laps);
-  const [refSessionId, setRefSessionId] = useState(
-    () => findSessionForLap(allSessions, initialRef)?.id ?? allSessions[0]?.id ?? "",
-  );
-  const [otherSessionId, setOtherSessionId] = useState(() => {
-    if (initialOtherSession && allSessions.some((s) => s.id === initialOtherSession)) {
-      return initialOtherSession;
+  const trackOptions = useMemo(() => {
+    const ids = [
+      ...new Set(
+        allSessions
+          .map((session) => session.trackId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    return ids;
+  }, [allSessions]);
+
+  const [trackFilter, setTrackFilter] = useState(() => {
+    if (initialTrackId && trackOptions.includes(initialTrackId)) {
+      return initialTrackId;
     }
-    const fromOther = findSessionForLap(allSessions, initialOther);
-    if (fromOther) return fromOther.id;
-    // Prefer another upload session when available.
-    const upload = allSessions.find(
-      (session) =>
-        session.id !== allSessions[0]?.id &&
-        (session.kind === "upload" || session.name.toLowerCase().includes("upload")),
-    );
-    return upload?.id ?? allSessions[1]?.id ?? allSessions[0]?.id ?? "";
+    return trackOptions[0] ?? "";
   });
 
+  useEffect(() => {
+    if (!trackOptions.length) {
+      setTrackFilter("");
+      return;
+    }
+    if (trackFilter && trackOptions.includes(trackFilter)) return;
+    if (initialTrackId && trackOptions.includes(initialTrackId)) {
+      setTrackFilter(initialTrackId);
+      return;
+    }
+    setTrackFilter(trackOptions[0] ?? "");
+  }, [trackOptions, trackFilter, initialTrackId]);
+
+  const filteredSessions = useMemo(() => {
+    if (!trackFilter) return allSessions;
+    const matched = allSessions.filter(
+      (session) => !session.trackId || session.trackId === trackFilter,
+    );
+    return matched.length ? matched : allSessions;
+  }, [allSessions, trackFilter]);
+
+  const [refSessionId, setRefSessionId] = useState(
+    () =>
+      findSessionForLap(filteredSessions, initialRef)?.id ??
+      filteredSessions[0]?.id ??
+      "",
+  );
+  const [otherSessionId, setOtherSessionId] = useState(() => {
+    if (
+      initialOtherSession &&
+      filteredSessions.some((s) => s.id === initialOtherSession)
+    ) {
+      return initialOtherSession;
+    }
+    const fromOther = findSessionForLap(filteredSessions, initialOther);
+    if (fromOther) return fromOther.id;
+    const otherPeer = filteredSessions.find(
+      (session) =>
+        session.id !== filteredSessions[0]?.id &&
+        (session.kind === "upload" ||
+          session.kind === "friends" ||
+          session.kind === "public"),
+    );
+    return (
+      otherPeer?.id ??
+      filteredSessions[1]?.id ??
+      filteredSessions[0]?.id ??
+      ""
+    );
+  });
+
+  useEffect(() => {
+    if (!filteredSessions.some((session) => session.id === refSessionId)) {
+      setRefSessionId(filteredSessions[0]?.id ?? "");
+    }
+    if (!filteredSessions.some((session) => session.id === otherSessionId)) {
+      const peer =
+        filteredSessions.find((session) => session.id !== refSessionId) ??
+        filteredSessions[0];
+      setOtherSessionId(peer?.id ?? "");
+    }
+  }, [filteredSessions, refSessionId, otherSessionId]);
+
   const refSession =
-    allSessions.find((session) => session.id === refSessionId) ?? allSessions[0];
+    filteredSessions.find((session) => session.id === refSessionId) ??
+    filteredSessions[0];
   const otherSession =
-    allSessions.find((session) => session.id === otherSessionId) ??
-    allSessions[1] ??
-    allSessions[0];
+    filteredSessions.find((session) => session.id === otherSessionId) ??
+    filteredSessions[1] ??
+    filteredSessions[0];
 
   const [refId, setRefId] = useState(() => {
     if (initialRef && refSession?.laps.some((lap) => lap.id === initialRef)) {
@@ -165,30 +229,49 @@ export function LapCompare({
     reference &&
     other &&
     (hasGps(reference.telemetry) || hasGps(other.telemetry));
-  const multiSession = allSessions.length > 1;
-  const totalLaps = allSessions.reduce((sum, session) => sum + session.laps.length, 0);
+  const multiSession = filteredSessions.length > 1;
+  const totalLaps = filteredSessions.reduce(
+    (sum, session) => sum + session.laps.length,
+    0,
+  );
 
   if (totalLaps < 2) {
     return (
       <p className="text-sm text-zinc-500">
-        Need at least two laps to compare. Upload another session or pick a demo
-        lap from the same track.
+        Need at least two laps to compare. Upload another session, open a
+        friends/public session on this track, or pick a demo lap.
       </p>
     );
   }
 
   return (
     <div className="flex flex-col gap-6">
+      {trackOptions.length > 1 ? (
+        <label className="flex max-w-md flex-col gap-1.5 text-sm">
+          <span className="text-zinc-400">Track filter</span>
+          <select
+            value={trackFilter}
+            onChange={(event) => setTrackFilter(event.target.value)}
+            className="min-h-12 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
+          >
+            {trackOptions.map((trackId) => (
+              <option key={trackId} value={trackId}>
+                {getTrack(trackId)?.name ?? trackId}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="grid gap-3">
           {multiSession ? (
             <SessionSelect
               label="Reference session"
               value={refSession?.id ?? ""}
-              sessions={allSessions}
+              sessions={filteredSessions}
               onChange={(id) => {
                 setRefSessionId(id);
-                const next = allSessions.find((session) => session.id === id);
+                const next = filteredSessions.find((session) => session.id === id);
                 setRefId(defaultLapPair(next?.laps ?? []).ref);
               }}
             />
@@ -205,10 +288,10 @@ export function LapCompare({
             <SessionSelect
               label="Compared session"
               value={otherSession?.id ?? ""}
-              sessions={allSessions}
+              sessions={filteredSessions}
               onChange={(id) => {
                 setOtherSessionId(id);
-                const next = allSessions.find((session) => session.id === id);
+                const next = filteredSessions.find((session) => session.id === id);
                 const pair = defaultLapPair(next?.laps ?? []);
                 setOtherId(id === refSessionId ? pair.other || pair.ref : pair.ref);
               }}
@@ -448,8 +531,8 @@ function SessionSelect({
         {sessions.map((session) => (
           <option key={session.id} value={session.id}>
             {session.name}
-            {session.car ? ` · ${session.car}` : ""}
-            {session.kind === "upload" ? " · your upload" : ""}
+            {session.kind === "upload" ? " · you" : ""}
+            {session.kind === "friends" ? " · friends" : ""}
             {session.kind === "demo" ? " · demo" : ""}
             {session.kind === "public" ? " · public" : ""}
           </option>

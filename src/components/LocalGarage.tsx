@@ -170,6 +170,7 @@ export function LocalCompare({
       name: item.name,
       car: item.car,
       kind: item.kind,
+      trackId: item.trackId,
       laps: toRows(item),
     })),
     ...catalogPeers
@@ -179,6 +180,7 @@ export function LocalCompare({
         name: item.name,
         car: item.car,
         kind: item.kind,
+        trackId: item.trackId,
         laps: toRows(item),
       })),
   ];
@@ -238,8 +240,8 @@ export function LocalCompare({
                 Compare laps
               </h1>
               <p className="mt-1 text-sm text-zinc-500">
-                Compare within this session or against your other uploads
-                {session.trackId ? " on the same track" : ""}.
+                Compare within this session or against other uploads and catalog
+                sessions{session.trackId ? " — filter by track" : ""}.
               </p>
             </div>
             {href ? <ShareLinkButton path={href} label="Copy compare link" /> : null}
@@ -257,6 +259,7 @@ export function LocalCompare({
           initialRef={initialRef}
           initialOther={initialOther}
           initialOtherSession={initialOtherSession}
+          initialTrackId={session.trackId}
         />
         {corners.length ? (
           <CornerBreakdownTable

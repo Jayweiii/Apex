@@ -5,6 +5,8 @@
 -- Live status (2026-10-17): this migration is NOT applied yet.
 -- Applied migrations are only apex_base_schema + youtube_sync_friends.
 -- Until this runs, Public uploads silently drop visibility and toggle updates fail.
+-- After apply: signed-out users can SELECT public sessions/laps (needed for
+-- public cross-session compare). Friends visibility still requires auth.uid().
 
 alter table public.sessions
   add column if not exists visibility text not null default 'friends';
