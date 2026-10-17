@@ -1,3 +1,4 @@
+import { assertContentLengthWithinLimits } from "@/lib/abuse-limits";
 import { getObjectStorage, storageBackendLabel } from "@/lib/storage";
 import { NextResponse } from "next/server";
 
@@ -9,11 +10,13 @@ export async function POST(request: Request) {
       kind?: "raw" | "video";
       sessionId?: string;
       filename?: string;
+      bytes?: number;
     };
 
     const filename = (body.filename || "upload.bin").replace(/[^\w.\-]+/g, "_");
     const sessionId = body.sessionId || crypto.randomUUID();
     const kind = body.kind === "video" ? "video" : "raw";
+    assertContentLengthWithinLimits(body.bytes, kind);
     const key =
       body.key ||
       `sessions/${sessionId}/${kind}/${Date.now()}-${filename}`;
@@ -27,9 +30,8 @@ export async function POST(request: Request) {
       backend: storageBackendLabel(),
     });
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Presign failed" },
-      { status: 500 },
-    );
+    const message = error instanceof Error ? error.message : "Presign failed";
+    const status = /too large|exceeds|limit/i.test(message) ? 413 : 500;
+    return NextResponse.json({ error: message }, { status });
   }
 }

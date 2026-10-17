@@ -10,7 +10,12 @@ import {
 import { parseGoProChapters } from "@/lib/parse-gopro";
 import { parseTelemetryCsv } from "@/lib/parse-telemetry";
 import { SessionVisibilityControl } from "@/components/SessionVisibilityControl";
+import { assertFileWithinLimits } from "@/lib/abuse-limits";
 import { ensureSharedTrack, fetchSharedTracks } from "@/lib/cloud-tracks";
+import {
+  ensureAuthenticatedUser,
+  isAnonymousUser,
+} from "@/lib/guest-auth";
 import { saveSessionToCloud } from "@/lib/save-session-cloud";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
 import {
@@ -25,6 +30,7 @@ import { presignUpload, uploadToTarget } from "@/lib/storage/upload-client";
 import type { ParsedLap } from "@/lib/types";
 import {
   DEFAULT_VISIBILITY,
+  defaultVisibilityForUser,
   type SessionVisibility,
 } from "@/lib/visibility";
 import Link from "next/link";
@@ -41,13 +47,14 @@ export function SessionUpload({
   storage = "auto",
   trackId,
 }: {
-  /** auto = Supabase when signed in, else local browser storage */
+  /** auto = cloud via guest/email auth when Supabase is configured */
   storage?: "auto" | "supabase" | "local";
   trackId?: string;
 }) {
   const router = useRouter();
   const [destination, setDestination] = useState<Destination>("checking");
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [isGuest, setIsGuest] = useState(false);
   const [extraTracks, setExtraTracks] = useState<Track[]>([]);
   const [pickedTrack, setPickedTrack] = useState(trackId ?? "");
   const [newTrackName, setNewTrackName] = useState("");
@@ -65,6 +72,7 @@ export function SessionUpload({
   const [keepVideo, setKeepVideo] = useState(false);
   const [visibility, setVisibility] =
     useState<SessionVisibility>(DEFAULT_VISIBILITY);
+  const [visibilityTouched, setVisibilityTouched] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
@@ -83,20 +91,20 @@ export function SessionUpload({
         }
         return;
       }
+      // Cloud path is available without an email account — guest auth on submit.
       try {
         const supabase = createClient();
         const {
           data: { user },
         } = await supabase.auth.getUser();
         if (cancelled) return;
-        if (user) {
-          setUserEmail(user.email ?? null);
-          setDestination("cloud");
-        } else if (storage === "supabase") {
-          setDestination("unavailable");
-        } else {
-          setDestination("local");
+        const guest = isAnonymousUser(user);
+        setIsGuest(guest || !user);
+        setUserEmail(user?.email ?? null);
+        if (!visibilityTouched) {
+          setVisibility(defaultVisibilityForUser(guest || !user));
         }
+        setDestination("cloud");
       } catch {
         if (!cancelled) {
           setDestination(storage === "supabase" ? "unavailable" : "local");
@@ -107,7 +115,7 @@ export function SessionUpload({
     return () => {
       cancelled = true;
     };
-  }, [storage, busy]);
+  }, [storage, busy, visibilityTouched]);
 
   useEffect(() => {
     let cancelled = false;
@@ -194,6 +202,7 @@ export function SessionUpload({
           contentType: mainFile.type || "text/csv",
           kind: "raw",
           sessionId,
+          bytes: mainFile.size,
         });
         await uploadToTarget(target, mainFile);
         rawObjectKey = target.key;
@@ -213,6 +222,7 @@ export function SessionUpload({
           contentType: mainFile.type || "video/mp4",
           kind: "video",
           sessionId,
+          bytes: mainFile.size,
         });
         await uploadToTarget(target, mainFile);
         videoObjectKey = target.key;
@@ -235,6 +245,7 @@ export function SessionUpload({
       if (useCloud) {
         setProgress("Saving shared track…");
         const supabase = createClient();
+        await ensureAuthenticatedUser(supabase);
         const created = await ensureSharedTrack(supabase, {
           name: newTrackName,
           location: "Community",
@@ -277,7 +288,7 @@ export function SessionUpload({
     setError(null);
     setSavedBanner(null);
     if (destination === "unavailable") {
-      setError("Sign in to save sessions to the server.");
+      setError("Supabase is not configured in this environment.");
       return;
     }
     if (!files.length) {
@@ -292,6 +303,10 @@ export function SessionUpload({
     setBusy(true);
     setProgress("Parsing…");
     try {
+      for (const file of files) {
+        assertFileWithinLimits(file, /\.mp4$/i.test(file.name) ? "video" : "csv");
+      }
+
       let laps;
       let startedAtMs: number | undefined;
       let sessionDate: string | undefined;
@@ -315,7 +330,7 @@ export function SessionUpload({
 
       const sessionId = crypto.randomUUID();
       setProgress(
-        useCloud ? "Saving to your account…" : "Saving in this browser…",
+        useCloud ? "Saving session…" : "Saving in this browser…",
       );
       const stored = await storeRawAndMaybeVideo(sessionId, files);
       const resolvedTrack = await resolveTrackId(laps);
@@ -328,6 +343,34 @@ export function SessionUpload({
 
       if (useCloud) {
         const supabase = createClient();
+        const user = await ensureAuthenticatedUser(supabase);
+        const guest = isAnonymousUser(user);
+        setIsGuest(guest);
+        setUserEmail(user.email ?? null);
+        const effectiveVisibility = visibilityTouched
+          ? visibility
+          : defaultVisibilityForUser(guest);
+
+        const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+        const check = await fetch("/api/uploads/check", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({
+            bytes: totalBytes,
+            kind: isGoPro ? "video" : "session",
+          }),
+        });
+        if (!check.ok) {
+          const payload = (await check.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          // 401 before cookies settle — continue; saveSessionToCloud still rate-limits.
+          if (check.status !== 401) {
+            throw new Error(payload.error ?? "Upload rate limit");
+          }
+        }
+
         const result = await saveSessionToCloud(supabase, laps, {
           id: sessionId,
           name: name.trim() || files[0].name,
@@ -346,10 +389,14 @@ export function SessionUpload({
           storageBackend: stored.storageBackend,
           startedAtMs,
           sessionDate,
-          visibility,
+          visibility: effectiveVisibility,
         });
-        setProgress("Saved to server");
-        setSavedBanner("Saved to your account — opening session…");
+        setProgress("Saved");
+        setSavedBanner(
+          guest
+            ? "Saved as a guest — open Account to add an email and keep sessions across devices."
+            : "Saved to your account — opening session…",
+        );
         router.push(`/sessions/${result.sessionId}`);
         router.refresh();
         return;
@@ -407,36 +454,36 @@ export function SessionUpload({
 
       {destination === "cloud" ? (
         <p className="mb-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
-          Signed in{userEmail ? ` as ${userEmail}` : ""}. Uploads save to your
-          account and show up under{" "}
+          {userEmail
+            ? `Signed in as ${userEmail}. `
+            : isGuest
+              ? "No account needed — uploads save as a guest (default Public link). "
+              : "Uploads save to the cloud. "}
+          Manage them under{" "}
           <Link href="/account" className="underline underline-offset-2">
             Account
-          </Link>{" "}
-          and{" "}
-          <Link href="/friends" className="underline underline-offset-2">
-            Friends
           </Link>
+          {userEmail ? null : (
+            <>
+              {" "}
+              ·{" "}
+              <Link href="/login" className="underline underline-offset-2">
+                Add an email
+              </Link>{" "}
+              to keep sessions across devices
+            </>
+          )}
           .
         </p>
       ) : null}
       {destination === "local" ? (
         <p className="mb-4 rounded-xl border border-zinc-700/80 bg-zinc-900/60 px-3 py-2 text-sm text-zinc-400">
-          Saving in this browser only.{" "}
-          <Link
-            href="/login"
-            className="text-orange-400 underline-offset-2 hover:underline"
-          >
-            Sign in to save to the server and share with friends
-          </Link>
-          .
+          Saving in this browser only (Supabase not configured).
         </p>
       ) : null}
       {destination === "unavailable" ? (
         <p className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
-          <Link href="/login" className="font-medium underline underline-offset-2">
-            Sign in
-          </Link>{" "}
-          to save sessions to the server.
+          Supabase env vars are missing in this environment.
         </p>
       ) : null}
 
@@ -627,7 +674,10 @@ export function SessionUpload({
         {useCloud ? (
           <SessionVisibilityControl
             value={visibility}
-            onChange={setVisibility}
+            onChange={(next) => {
+              setVisibilityTouched(true);
+              setVisibility(next);
+            }}
             disabled={busy}
             compact
           />

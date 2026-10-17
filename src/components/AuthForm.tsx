@@ -1,18 +1,42 @@
 "use client";
 
+import {
+  claimAnonymousAccount,
+  ensureAuthenticatedUser,
+  isAnonymousUser,
+} from "@/lib/guest-auth";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 
 export function AuthForm() {
   const router = useRouter();
   const configured = hasSupabaseConfig();
-  const [mode, setMode] = useState<"login" | "signup">("login");
+  const [mode, setMode] = useState<"login" | "signup" | "claim">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [guestReady, setGuestReady] = useState(false);
+
+  useEffect(() => {
+    if (!configured) return;
+    let cancelled = false;
+    createClient()
+      .auth.getUser()
+      .then(({ data }) => {
+        if (cancelled) return;
+        if (isAnonymousUser(data.user)) {
+          setGuestReady(true);
+          setMode("claim");
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [configured]);
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
@@ -26,7 +50,13 @@ export function AuthForm() {
     setBusy(true);
     try {
       const supabase = createClient();
-      if (mode === "signup") {
+      if (mode === "claim") {
+        await ensureAuthenticatedUser(supabase);
+        await claimAnonymousAccount(supabase, { email, password });
+        setMessage(
+          "Check your email to confirm, then you can sign in with this address on any device.",
+        );
+      } else if (mode === "signup") {
         const { error: signUpError } = await supabase.auth.signUp({
           email,
           password,
@@ -57,6 +87,12 @@ export function AuthForm() {
           <code>.env.local</code> and add your project keys.
         </p>
       ) : null}
+      {mode === "claim" ? (
+        <p className="rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 text-sm text-zinc-400">
+          You&apos;re browsing as a guest. Add an email to keep your uploaded
+          sessions across devices.
+        </p>
+      ) : null}
       <label className="flex flex-col gap-1.5 text-sm">
         <span className="text-zinc-400">Email</span>
         <input
@@ -74,7 +110,7 @@ export function AuthForm() {
           type="password"
           required
           minLength={6}
-          autoComplete={mode === "signup" ? "new-password" : "current-password"}
+          autoComplete={mode === "login" ? "current-password" : "new-password"}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           className="rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2"
@@ -87,20 +123,36 @@ export function AuthForm() {
         disabled={busy}
         className="mt-1 rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-black transition hover:bg-orange-400 disabled:opacity-50"
       >
-        {busy ? "Working…" : mode === "login" ? "Sign in" : "Create account"}
+        {busy
+          ? "Working…"
+          : mode === "claim"
+            ? "Keep my sessions"
+            : mode === "login"
+              ? "Sign in"
+              : "Create account"}
       </button>
       <button
         type="button"
         onClick={() => {
-          setMode(mode === "login" ? "signup" : "login");
+          if (mode === "claim") {
+            setMode("login");
+          } else if (mode === "login") {
+            setMode(guestReady ? "claim" : "signup");
+          } else {
+            setMode("login");
+          }
           setError(null);
           setMessage(null);
         }}
         className="text-sm text-zinc-400 hover:text-zinc-200"
       >
-        {mode === "login"
-          ? "Need an account? Sign up"
-          : "Already have an account? Sign in"}
+        {mode === "claim"
+          ? "Already have an account? Sign in"
+          : mode === "login"
+            ? guestReady
+              ? "Keep guest sessions with an email"
+              : "Need an account? Sign up"
+            : "Already have an account? Sign in"}
       </button>
     </form>
   );

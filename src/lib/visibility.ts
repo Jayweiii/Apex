@@ -23,6 +23,8 @@ export const VISIBILITY_OPTIONS: Array<{
 ];
 
 export const DEFAULT_VISIBILITY: SessionVisibility = "friends";
+/** Guests (anonymous auth) default to public so share/compare works without an email account. */
+export const GUEST_DEFAULT_VISIBILITY: SessionVisibility = "public";
 
 export function isSessionVisibility(value: unknown): value is SessionVisibility {
   return value === "private" || value === "friends" || value === "public";
@@ -30,6 +32,10 @@ export function isSessionVisibility(value: unknown): value is SessionVisibility 
 
 export function normalizeVisibility(value: unknown): SessionVisibility {
   return isSessionVisibility(value) ? value : DEFAULT_VISIBILITY;
+}
+
+export function defaultVisibilityForUser(isAnonymous: boolean): SessionVisibility {
+  return isAnonymous ? GUEST_DEFAULT_VISIBILITY : DEFAULT_VISIBILITY;
 }
 
 /** UUID v4-ish ids used for cloud sessions (not catalog/demo/local). */
