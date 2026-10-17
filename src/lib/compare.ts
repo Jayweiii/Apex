@@ -4,6 +4,7 @@ import type { TelemetryPoint } from "./types";
 export type DistSample = TelemetryPoint & { dist: number };
 
 export type ComparedPoint = {
+  /** Meters from lap start along the shared distance axis (snapped trackDist when present). */
   dist: number;
   refSpeed: number;
   otherSpeed: number;
@@ -13,7 +14,13 @@ export type ComparedPoint = {
   otherLatG: number;
   refLonG: number;
   otherLonG: number;
+  /**
+   * Elapsed-time gap at this distance: other.t(d) − ref.t(d) in seconds.
+   * Positive means the compared lap is behind at this point on track.
+   */
   delta: number;
+  /** True when both laps contributed snapped trackDist for this series. */
+  snapped?: boolean;
 };
 
 export function hasGps(points: TelemetryPoint[]): boolean {
@@ -68,11 +75,19 @@ function haversine(lat1: number, lon1: number, lat2: number, lon2: number) {
   return 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+export function usesTrackDistance(points: TelemetryPoint[]): boolean {
+  return points.some((point) => point.trackDist != null);
+}
+
+/**
+ * Build a distance axis from lap start (meters).
+ * Prefers map-matched trackDist (distance along centerline from SF).
+ * Falls back to haversine between GPS samples, then speed×dt.
+ */
 export function withDistance(points: TelemetryPoint[]): DistSample[] {
   if (!points.length) return [];
 
-  // Prefer map-matched along-track distance when present.
-  if (points.some((point) => point.trackDist != null)) {
+  if (usesTrackDistance(points)) {
     const base = points[0].trackDist ?? 0;
     return points.map((point) => ({
       ...point,
@@ -104,7 +119,8 @@ function readValue(sample: DistSample | undefined, key: "t" | "speed" | "latG" |
   return typeof value === "number" ? value : 0;
 }
 
-function valueAt(
+/** Linear interpolate a telemetry channel at an absolute along-track distance. */
+export function valueAt(
   samples: DistSample[],
   dist: number,
   key: "t" | "speed" | "latG" | "lonG" | "g",
@@ -123,11 +139,21 @@ function valueAt(
   return readValue(left, key) + (readValue(right, key) - readValue(left, key)) * mix;
 }
 
+/**
+ * Compare two laps by aligning on identical distance from the start/finish.
+ *
+ * When both laps have map-matched `trackDist`, distance is meters along the
+ * shared centerline. Otherwise distance is cumulative raw GPS (haversine) or
+ * speed×dt. At each distance d on the reference axis:
+ *   delta(d) = t_other(d) − t_ref(d)  (seconds)
+ */
 export function compareLaps(
   reference: TelemetryPoint[],
   other: TelemetryPoint[],
   steps = 180,
 ): ComparedPoint[] {
+  const snapped =
+    usesTrackDistance(reference) && usesTrackDistance(other);
   const ref = withDistance(enrichTelemetry(reference));
   const alt = withDistance(enrichTelemetry(other));
   if (ref.length < 2 || alt.length < 2) return [];
@@ -135,24 +161,28 @@ export function compareLaps(
   const altEnd = alt[alt.length - 1].dist;
   if (refEnd <= 0 || altEnd <= 0) return [];
 
+  // Shared physical axis: meters from SF along the reference lap.
+  // Look up the other lap at the same absolute distance (not % of its own length).
+  const axisEnd = snapped ? Math.min(refEnd, altEnd) : refEnd;
+
   const points: ComparedPoint[] = [];
   for (let i = 0; i < steps; i += 1) {
     const progress = i / (steps - 1);
-    const refDist = progress * refEnd;
-    const altDist = progress * altEnd;
-    const refTime = valueAt(ref, refDist, "t");
-    const otherTime = valueAt(alt, altDist, "t");
+    const dist = progress * axisEnd;
+    const refTime = valueAt(ref, dist, "t");
+    const otherTime = valueAt(alt, dist, "t");
     points.push({
-      dist: refDist,
-      refSpeed: valueAt(ref, refDist, "speed"),
-      otherSpeed: valueAt(alt, altDist, "speed"),
-      refG: valueAt(ref, refDist, "g"),
-      otherG: valueAt(alt, altDist, "g"),
-      refLatG: valueAt(ref, refDist, "latG"),
-      otherLatG: valueAt(alt, altDist, "latG"),
-      refLonG: valueAt(ref, refDist, "lonG"),
-      otherLonG: valueAt(alt, altDist, "lonG"),
+      dist,
+      refSpeed: valueAt(ref, dist, "speed"),
+      otherSpeed: valueAt(alt, dist, "speed"),
+      refG: valueAt(ref, dist, "g"),
+      otherG: valueAt(alt, dist, "g"),
+      refLatG: valueAt(ref, dist, "latG"),
+      otherLatG: valueAt(alt, dist, "latG"),
+      refLonG: valueAt(ref, dist, "lonG"),
+      otherLonG: valueAt(alt, dist, "lonG"),
       delta: otherTime - refTime,
+      snapped,
     });
   }
   return points;

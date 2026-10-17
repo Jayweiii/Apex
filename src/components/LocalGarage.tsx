@@ -325,11 +325,19 @@ export function LocalSession({ id }: { id: string }) {
 
   const theo = useMemo(() => {
     if (!session) return null;
+    const centerline = resolveTrackCenterline(
+      session.trackId,
+      null,
+      session.laps.map((lap) => lap.telemetry),
+    );
     return theoreticalBestLap(
       session.laps.map((lap) => ({
         lapNumber: lap.lap_number,
         lapTimeMs: lap.lap_time_ms,
-        points: lap.telemetry,
+        points: analysisPoints(
+          mapMatchLap(lap.telemetry, centerline),
+          lap.telemetry,
+        ),
       })),
     );
   }, [session]);
