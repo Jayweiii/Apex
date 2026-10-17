@@ -111,8 +111,9 @@ export function TrackHome() {
             Review real sessions and your own TrackAddict logs
           </h1>
           <p className="max-w-2xl text-sm leading-relaxed text-zinc-400 sm:text-base">
-            Upload a CSV, open a public dataset with attribution, or try a
-            clearly labeled synthetic demo. No account needed for local use.
+            Upload a CSV or GoPro. Signed-in uploads save to your account for
+            friends; signed-out uploads stay in this browser. Public datasets
+            and demos need no account.
           </p>
           <div className="mt-1 flex flex-wrap gap-2 text-xs text-zinc-500">
             <DataKindBadge kind="public" />
@@ -121,7 +122,7 @@ export function TrackHome() {
           </div>
         </section>
 
-        <SessionUpload storage="local" />
+        <SessionUpload />
 
         <LeaderboardPanel />
 
@@ -295,7 +296,7 @@ export function TrackDetail({ id }: { id: string }) {
           </h1>
           <p className="mt-1 text-sm text-zinc-500">{track.location}</p>
         </div>
-        <SessionUpload storage="local" trackId={track.id} />
+        <SessionUpload trackId={track.id} />
         <LeaderboardPanel trackId={track.id} />
         <div className="flex flex-col gap-6">
           {loading ? (

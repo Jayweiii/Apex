@@ -10,7 +10,8 @@
     "test:parse": "tsx scripts/verify-parse.ts",
     "test:storage": "tsx scripts/verify-storage.ts",
     "test:sync": "tsx scripts/verify-sync.ts",
-    "test": "tsx scripts/verify-parse.ts && tsx scripts/verify-storage.ts && tsx scripts/verify-analysis.ts && tsx scripts/verify-sync.ts",
+    "test:cloud-save": "tsx scripts/verify-cloud-save.ts",
+    "test": "tsx scripts/verify-parse.ts && tsx scripts/verify-storage.ts && tsx scripts/verify-analysis.ts && tsx scripts/verify-sync.ts && tsx scripts/verify-cloud-save.ts",
     "import:youtube": "tsx scripts/import-youtube.ts",
     "build:datasets": "tsx scripts/build-public-dataset.ts"
   },

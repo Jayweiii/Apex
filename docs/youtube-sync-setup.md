@@ -31,9 +31,11 @@ npm run import:youtube -- --rss # from channel RSS (latest ~15)
 
 Commits `src/lib/youtube-catalog.ts`.
 
-## 4. How to try on the preview
+## 4. How to try on the preview / production
 
-1. Open home → upload a Thunderhill East CSV (TrackAddict with UTC Time preferred).
-2. On the session page, attach suggestion **Thunderhill East ND Miata 2:17.1** (or paste `https://youtu.be/BI0ZwJiqYk8`).
-3. Open the linked lap → use **Mark start/finish**, nudge (`,` / `.`), save offset.
-4. Sign in → Account → **Import my local sessions** → Friends feed shows cloud sessions.
+1. **Sign in** (header → Sign in), then open home.
+2. Use **Upload telemetry** on the home page. The banner should say uploads save to your account.
+3. Pick track/car, choose a CSV, click **Upload to account**. Progress shows “Saving to your account…”.
+4. You land on `/sessions/<id>` (“saved to your account”). It also appears under **Account** and **Friends**, and on the home leaderboard when signed in.
+5. Signed out: same form saves locally and prompts you to sign in to share.
+6. Optional: on a session, attach **Thunderhill East ND Miata 2:17.1** and sync on the lap page.
