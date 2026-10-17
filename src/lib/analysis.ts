@@ -1,3 +1,4 @@
+import { usesTrackDistance, withDistance, valueAt } from "./compare";
 import type { ParsedLap, TelemetryPoint } from "./types";
 
 export type SectorResult = {
@@ -13,56 +14,34 @@ export type TheoreticalBest = {
   actualBestMs: number;
   gapMs: number;
   sectors: SectorResult[];
+  /** True when sector splits used map-matched trackDist. */
+  snapped?: boolean;
 };
 
-function cumulativeDistance(points: TelemetryPoint[]) {
-  if (points.some((point) => point.trackDist != null)) {
-    const base = points[0]?.trackDist ?? 0;
-    return points.map((point) => Math.max(0, (point.trackDist ?? base) - base));
-  }
+/**
+ * Cumulative meters from lap start.
+ * Prefers snapped trackDist; else haversine GPS; else speed×dt.
+ */
+export function cumulativeDistance(points: TelemetryPoint[]) {
+  return withDistance(points).map((sample) => sample.dist);
+}
 
-  const dist = [0];
-  for (let i = 1; i < points.length; i += 1) {
-    const a = points[i - 1];
-    const b = points[i];
-    if (a.lat == null || a.lon == null || b.lat == null || b.lon == null) {
-      dist.push(dist[i - 1] + Math.max(0, (b.t - a.t) * ((a.speed + b.speed) / 2 / 3.6)));
-      continue;
-    }
-    const toRad = (d: number) => (d * Math.PI) / 180;
-    const dLat = toRad(b.lat - a.lat);
-    const dLon = toRad(b.lon - a.lon);
-    const aa =
-      Math.sin(dLat / 2) ** 2 +
-      Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLon / 2) ** 2;
-    const meters = 2 * 6371000 * Math.asin(Math.min(1, Math.sqrt(aa)));
-    dist.push(dist[i - 1] + meters);
-  }
-  return dist;
+function timeAtDistance(points: TelemetryPoint[], dist: number) {
+  const samples = withDistance(points);
+  if (!samples.length) return 0;
+  return valueAt(samples, dist, "t");
 }
 
 function sectorTimesForLap(points: TelemetryPoint[], sectorCount: number) {
   if (points.length < 2) return Array.from({ length: sectorCount }, () => 0);
-  const distances = cumulativeDistance(points);
-  const total = distances[distances.length - 1] || 1;
+  const samples = withDistance(points);
+  const total = samples[samples.length - 1]?.dist || 1;
   const times: number[] = [];
   for (let s = 0; s < sectorCount; s += 1) {
     const startD = (total * s) / sectorCount;
     const endD = (total * (s + 1)) / sectorCount;
-    let startT = points[0].t;
-    let endT = points[points.length - 1].t;
-    for (let i = 0; i < distances.length; i += 1) {
-      if (distances[i] >= startD) {
-        startT = points[i].t;
-        break;
-      }
-    }
-    for (let i = 0; i < distances.length; i += 1) {
-      if (distances[i] >= endD) {
-        endT = points[i].t;
-        break;
-      }
-    }
+    const startT = valueAt(samples, startD, "t");
+    const endT = valueAt(samples, endD, "t");
     times.push(Math.max(0, (endT - startT) * 1000));
   }
   return times;
@@ -75,6 +54,7 @@ export function theoreticalBestLap(
   const usable = laps.filter((lap) => lap.points.length >= 8 && lap.lapTimeMs >= 1000);
   if (!usable.length) return null;
 
+  const snapped = usable.every((lap) => usesTrackDistance(lap.points));
   const sectors: SectorResult[] = [];
   for (let s = 0; s < sectorCount; s += 1) {
     const timesMs = usable.map((lap) => ({
@@ -98,6 +78,7 @@ export function theoreticalBestLap(
     actualBestMs,
     gapMs: Math.max(0, actualBestMs - theoreticalMs),
     sectors,
+    snapped,
   };
 }
 
@@ -133,13 +114,17 @@ function findApexes(points: TelemetryPoint[], distances: number[]) {
   return apexes.slice(0, 16);
 }
 
+/**
+ * Corner breakdown aligned on distance from SF.
+ * When points include trackDist, apex distances and other-lap matching use
+ * snapped centerline meters (same axis as compare delta).
+ */
 export function cornerBreakdown(
   reference: ParsedLap,
   other?: ParsedLap | null,
 ): CornerStat[] {
   const distances = cumulativeDistance(reference.points);
   const apexes = findApexes(reference.points, distances);
-  const otherDistances = other ? cumulativeDistance(other.points) : null;
 
   return apexes.map((apexIndex, index) => {
     const start = Math.max(0, apexIndex - Math.floor(reference.points.length / 30));
@@ -157,23 +142,13 @@ export function cornerBreakdown(
     const timeMs = Math.round((reference.points[end].t - reference.points[start].t) * 1000);
 
     let deltaMs: number | null = null;
-    if (other && otherDistances) {
-      const target = distances[apexIndex];
-      let otherApex = 0;
-      let best = Number.POSITIVE_INFINITY;
-      for (let i = 0; i < otherDistances.length; i += 1) {
-        const d = Math.abs(otherDistances[i] - target);
-        if (d < best) {
-          best = d;
-          otherApex = i;
-        }
-      }
-      const oStart = Math.max(0, otherApex - Math.floor(other.points.length / 30));
-      const oEnd = Math.min(
-        other.points.length - 1,
-        otherApex + Math.floor(other.points.length / 30),
-      );
-      const otherMs = Math.round((other.points[oEnd].t - other.points[oStart].t) * 1000);
+    if (other) {
+      // Match other lap at the same along-track distance (snapped when present).
+      const startDist = distances[start];
+      const endDist = distances[end];
+      const otherStartT = timeAtDistance(other.points, startDist);
+      const otherEndT = timeAtDistance(other.points, endDist);
+      const otherMs = Math.round((otherEndT - otherStartT) * 1000);
       deltaMs = otherMs - timeMs;
     }
 
