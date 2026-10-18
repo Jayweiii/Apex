@@ -1,7 +1,7 @@
 "use client";
 
 import { GpsModeToggle } from "@/components/GpsModeToggle";
-import { formatG } from "@/lib/format";
+import { formatG, formatGap } from "@/lib/format";
 import type { GpsDisplayMode } from "@/lib/map-match";
 import {
   progressNearPoint,
@@ -89,13 +89,88 @@ function tracesKey(traces: Array<TrackTrace & { points: GpsPoint[] }>) {
     .join("|");
 }
 
-/** Visible HTML car marker — avoids SVG custom-pane renderer issues. */
-function carMarkerIcon(color: string) {
+type CarMarkerStyle = "filled" | "ring";
+
+/** Compact HTML car marker — avoids SVG custom-pane renderer issues. */
+function carMarkerIcon(color: string, style: CarMarkerStyle = "filled") {
+  const size = style === "ring" ? 11 : 9;
+  const cls =
+    style === "ring"
+      ? "apex-car-marker__dot apex-car-marker__dot--ring"
+      : "apex-car-marker__dot";
   return L.divIcon({
     className: "apex-car-marker",
-    html: `<div class="apex-car-marker__dot" style="--apex-car:${color}"></div>`,
-    iconSize: [22, 22],
-    iconAnchor: [11, 11],
+    html: `<div class="${cls}" style="--apex-car:${color}"></div>`,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+  });
+}
+
+function gapLabelIcon(label: string) {
+  return L.divIcon({
+    className: "apex-car-marker",
+    html: `<span class="apex-car-marker__gap">${label}</span>`,
+    iconSize: [1, 1],
+    iconAnchor: [-8, 10],
+  });
+}
+
+/** Move lat/lon by `meters` along compass bearing (degrees). */
+function offsetByBearing(
+  lat: number,
+  lon: number,
+  bearingDeg: number,
+  meters: number,
+): { lat: number; lon: number } {
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const toDeg = (rad: number) => (rad * 180) / Math.PI;
+  const brng = toRad(bearingDeg);
+  const R = 6371000;
+  const lat1 = toRad(lat);
+  const lon1 = toRad(lon);
+  const lat2 = Math.asin(
+    Math.sin(lat1) * Math.cos(meters / R) +
+      Math.cos(lat1) * Math.sin(meters / R) * Math.cos(brng),
+  );
+  const lon2 =
+    lon1 +
+    Math.atan2(
+      Math.sin(brng) * Math.sin(meters / R) * Math.cos(lat1),
+      Math.cos(meters / R) - Math.sin(lat1) * Math.sin(lat2),
+    );
+  return { lat: toDeg(lat2), lon: toDeg(lon2) };
+}
+
+/** Approximate along-track bearing (deg) near `progress` for a perpendicular nudge. */
+function trackBearing(points: GpsPoint[], progress: number): number {
+  if (points.length < 2) return 0;
+  const here = sampleAtProgress(points, progress);
+  const ahead = sampleAtProgress(points, Math.min(1, progress + 0.01));
+  const dLat = ahead.lat - here.lat;
+  const dLon = ahead.lon - here.lon;
+  return (Math.atan2(dLon, dLat) * 180) / Math.PI;
+}
+
+/**
+ * Fan multi-lap scrub markers perpendicular to the racing line so ring +
+ * filled dots stay readable even when GPS positions coincide.
+ */
+function separateScrubPositions(
+  samples: Array<{ lat: number; lon: number; bearing: number }>,
+  baseOffsetM = 5,
+): Array<{ lat: number; lon: number }> {
+  if (samples.length < 2) {
+    return samples.map((s) => ({ lat: s.lat, lon: s.lon }));
+  }
+  return samples.map((sample, index) => {
+    const sign = index === 0 ? -1 : index === 1 ? 1 : index % 2 === 0 ? -1 : 1;
+    const meters = baseOffsetM * (1 + Math.floor(index / 2) * 0.6);
+    return offsetByBearing(
+      sample.lat,
+      sample.lon,
+      sample.bearing + 90 * sign,
+      meters,
+    );
   });
 }
 
@@ -376,18 +451,60 @@ export function LeafletTrackMap({
     markers.clearLayers();
     if (activeProgress == null || !drawable.length) return;
 
-    for (const trace of drawable) {
+    const multi = drawable.length > 1;
+    const samples = drawable.map((trace) => {
       const point = sampleAtProgress(trace.points, activeProgress);
-      if (point.lat == null || point.lon == null) continue;
-      const color = trace.colorBySpeed ? "#f97316" : trace.color;
+      return {
+        trace,
+        point,
+        lat: point.lat,
+        lon: point.lon,
+        bearing: trackBearing(trace.points, activeProgress),
+        color: trace.colorBySpeed ? "#f97316" : trace.color,
+      };
+    }).filter((s) => s.lat != null && s.lon != null);
+
+    const positions = separateScrubPositions(
+      samples.map((s) => ({
+        lat: s.lat,
+        lon: s.lon,
+        bearing: s.bearing,
+      })),
+      6,
+    );
+
+    samples.forEach((sample, index) => {
+      // Reference (first) = hollow ring; others = filled — readable when stacked.
+      const style: CarMarkerStyle = multi && index === 0 ? "ring" : "filled";
+      const pos = positions[index] ?? sample;
       markers.addLayer(
-        L.marker([point.lat, point.lon], {
-          icon: carMarkerIcon(color),
+        L.marker([pos.lat, pos.lon], {
+          icon: carMarkerIcon(sample.color, style),
           interactive: false,
           keyboard: false,
-          zIndexOffset: 1000,
+          zIndexOffset: 1000 + index,
         }),
       );
+    });
+
+    // Tiny gap label when comparing two laps (skip absurd outliers).
+    if (samples.length === 2) {
+      const [ref, other] = samples;
+      const gapSec = other.point.t - ref.point.t;
+      if (Number.isFinite(gapSec) && Math.abs(gapSec) < 30) {
+        const mid = {
+          lat: (positions[0].lat + positions[1].lat) / 2,
+          lon: (positions[0].lon + positions[1].lon) / 2,
+        };
+        markers.addLayer(
+          L.marker([mid.lat, mid.lon], {
+            icon: gapLabelIcon(formatGap(gapSec)),
+            interactive: false,
+            keyboard: false,
+            zIndexOffset: 1100,
+          }),
+        );
+      }
     }
   }, [activeProgress, drawable]);
 

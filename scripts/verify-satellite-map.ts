@@ -34,6 +34,9 @@ assert(leaflet.includes("doubleClickZoom: false"), "dblclick zoom disabled");
 assert(leaflet.includes("zoomControl: false"), "zoom control hidden");
 assert(leaflet.includes("65vh") || leaflet.includes("h-[65vh]"), "tall hero map");
 assert(leaflet.includes("divIcon") || leaflet.includes("apex-car-marker"), "HTML car markers");
+assert(leaflet.includes("apex-car-marker__dot--ring") || leaflet.includes('"ring"'), "ring vs filled markers");
+assert(leaflet.includes("separateScrubPositions"), "overlap separation");
+assert(leaflet.includes("gapLabelIcon") || leaflet.includes("apex-car-marker__gap"), "gap label");
 assert(leaflet.includes("mousemove"), "map scrub on move");
 
 const globals = readFileSync(resolve(root, "src/app/globals.css"), "utf8");
@@ -41,6 +44,8 @@ assert(
   globals.includes(".leaflet-container") && globals.includes("max-width: none"),
   "leaflet svg/img max-width override",
 );
+assert(globals.includes("apex-car-marker__dot--ring"), "ring marker CSS");
+assert(/width:\s*9px/.test(globals), "compact filled marker ~9px");
 
 const directory = readFileSync(
   resolve(root, "src/components/TrackDirectory.tsx"),
@@ -55,6 +60,6 @@ console.log(
     basemaps: ["satellite:esri-world-imagery", "street:osm"],
     ssr: false,
     fixedMap: true,
-    carMarkers: "divIcon",
+    carMarkers: "divIcon-compact-ring-filled",
   }),
 );

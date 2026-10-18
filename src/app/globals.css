@@ -51,13 +51,34 @@ video {
 }
 
 .apex-car-marker__dot {
-  width: 22px;
-  height: 22px;
+  width: 9px;
+  height: 9px;
   border-radius: 9999px;
   background: var(--apex-car, #f97316);
-  border: 3px solid #fafafa;
-  box-shadow:
-    0 0 0 2px rgba(0, 0, 0, 0.55),
-    0 2px 8px rgba(0, 0, 0, 0.45);
+  border: 1.5px solid #fafafa;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55);
   box-sizing: border-box;
+}
+
+/* Reference lap: hollow ring so overlapping compare markers stay distinct. */
+.apex-car-marker__dot--ring {
+  width: 11px;
+  height: 11px;
+  background: transparent;
+  border: 2px solid var(--apex-car, #f97316);
+  box-shadow: 0 0 0 1px #fafafa;
+}
+
+.apex-car-marker__gap {
+  display: inline-block;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(9, 9, 11, 0.88);
+  border: 1px solid rgba(63, 63, 70, 0.9);
+  color: #fafafa;
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  line-height: 1.2;
+  white-space: nowrap;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
 }
