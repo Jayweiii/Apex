@@ -18,7 +18,9 @@ import { useAnalysisMode } from "@/lib/analysis-mode";
 import { getLocalBlob } from "@/lib/blob-store";
 import { catalogSessionsForTrack, loadCatalogSession } from "@/lib/catalog";
 import { resolveTrackCenterline } from "@/lib/cloud-tracks";
+import { GpsQualityBadge } from "@/components/GpsQualityBadge";
 import { compareHref } from "@/lib/compare";
+import { preferGpsSession } from "@/lib/gps-quality";
 import { formatLapTime } from "@/lib/format";
 import { analysisPoints, mapMatchLap } from "@/lib/map-match";
 import {
@@ -185,6 +187,8 @@ export function LocalCompare({
       car: item.car,
       kind: item.kind,
       trackId: item.trackId,
+      sourceKind: item.sourceKind ?? null,
+      gpsQuality: item.gpsQuality ?? null,
       laps: toRows(item),
     })),
     ...catalogPeers
@@ -195,9 +199,11 @@ export function LocalCompare({
         car: item.car,
         kind: item.kind,
         trackId: item.trackId,
+        sourceKind: item.sourceKind ?? null,
+        gpsQuality: item.gpsQuality ?? null,
         laps: toRows(item),
       })),
-  ];
+  ].sort((a, b) => preferGpsSession(a, b));
 
   const laps = toRows(session);
   const shareParams = new URLSearchParams();
@@ -440,12 +446,17 @@ export function LocalSession({ id }: { id: string }) {
             {session.name}
           </h1>
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-zinc-500">
-              {session.car ? `${session.car} · ` : ""}
-              {session.laps.length} laps
-              {Number.isFinite(best) ? ` · best ${formatLapTime(best)}` : ""}
-              {session.sourceKind === "gopro" ? " · GoPro" : ""}
-            </p>
+            <div className="flex flex-wrap items-center gap-2 text-sm text-zinc-500">
+              <span>
+                {session.car ? `${session.car} · ` : ""}
+                {session.laps.length} laps
+                {Number.isFinite(best) ? ` · best ${formatLapTime(best)}` : ""}
+              </span>
+              <GpsQualityBadge
+                quality={session.gpsQuality}
+                sourceKind={session.sourceKind}
+              />
+            </div>
             <div className="flex flex-wrap items-center gap-2">
               <ShareLinkButton path={`/sessions/${session.id}`} />
               {comparePath ? (

@@ -1,3 +1,4 @@
+import { preferGpsSession, type GpsQuality } from "@/lib/gps-quality";
 import type { LapRow } from "@/lib/types";
 import { getTrack } from "@/lib/tracks";
 
@@ -7,6 +8,8 @@ export type CompareSessionOption = {
   car?: string;
   kind?: string;
   trackId?: string;
+  sourceKind?: "csv" | "gopro" | null;
+  gpsQuality?: GpsQuality | null;
   laps: LapRow[];
 };
 
@@ -18,6 +21,8 @@ export type AccessibleSessionMeta = {
   driver_name?: string | null;
   user_id?: string | null;
   visibility?: string | null;
+  source_kind?: string | null;
+  gps_quality?: GpsQuality | null;
 };
 
 export function labelForAccessibleSession(
@@ -56,16 +61,23 @@ export function groupLapsBySession(
     );
     if (!sessionLaps.length) continue;
     const labeled = labelForAccessibleSession(meta, currentUserId);
+    const sourceKind =
+      meta.source_kind === "gopro" || meta.source_kind === "csv"
+        ? meta.source_kind
+        : null;
     options.push({
       id: meta.id,
       name: labeled.name,
       car: meta.car ?? undefined,
       kind: labeled.kind,
       trackId: meta.track_id ?? undefined,
+      sourceKind,
+      gpsQuality: meta.gps_quality ?? null,
       laps: sessionLaps,
     });
   }
-  return options;
+  // Prefer GoPro GPS sessions over phone CSV when listing compare peers.
+  return options.sort((a, b) => preferGpsSession(a, b));
 }
 
 /** Unique track ids present in a session meta list (stable order). */

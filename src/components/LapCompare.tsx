@@ -2,6 +2,7 @@
 
 import { hoverIndex } from "@/components/chart-hover";
 import { bindChartScrub } from "@/components/chart-scrub";
+import { GpsQualityBadge } from "@/components/GpsQualityBadge";
 import { MissingGps, TrackMap } from "@/components/TrackMap";
 import { useAnalysisMode } from "@/lib/analysis-mode";
 import { resolveTrackCenterline } from "@/lib/cloud-tracks";
@@ -376,7 +377,7 @@ export function LapCompare({
               </p>
             </div>
             <div className="text-sm text-zinc-400">
-              <p>
+              <p className="flex flex-wrap items-center gap-2">
                 <span className="mr-2 inline-block h-2 w-2 rounded-full bg-orange-500" />
                 {refSession && refSession.name !== "This session"
                   ? `${refSession.name} · `
@@ -385,8 +386,12 @@ export function LapCompare({
                 <span className="font-mono text-zinc-200">
                   {formatLapTime(reference?.lap_time_ms ?? 0)}
                 </span>
+                <GpsQualityBadge
+                  quality={refSession?.gpsQuality}
+                  sourceKind={refSession?.sourceKind}
+                />
               </p>
-              <p className="mt-1">
+              <p className="mt-1 flex flex-wrap items-center gap-2">
                 <span className="mr-2 inline-block h-2 w-2 rounded-full bg-sky-400" />
                 {otherSession && otherSession.name !== "This session"
                   ? `${otherSession.name} · `
@@ -395,6 +400,10 @@ export function LapCompare({
                 <span className="font-mono text-zinc-200">
                   {formatLapTime(other?.lap_time_ms ?? 0)}
                 </span>
+                <GpsQualityBadge
+                  quality={otherSession?.gpsQuality}
+                  sourceKind={otherSession?.sourceKind}
+                />
               </p>
             </div>
           </div>
@@ -609,6 +618,11 @@ function SessionSelect({
         {sessions.map((session) => (
           <option key={session.id} value={session.id}>
             {session.name}
+            {session.sourceKind === "gopro" || session.gpsQuality?.rank
+              ? session.gpsQuality?.stream
+                ? ` · ${session.gpsQuality.stream}`
+                : " · GoPro"
+              : ""}
             {session.kind === "upload" ? " · you" : ""}
             {session.kind === "friends" ? " · friends" : ""}
             {session.kind === "demo" ? " · demo" : ""}

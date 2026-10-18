@@ -1,4 +1,5 @@
 import type { DataKind, DatasetAttribution } from "./attribution";
+import type { GpsQuality } from "./gps-quality";
 import type { ParsedLap, SessionVideo, TelemetryPoint } from "./types";
 
 const STORAGE_KEY = "apex.local-sessions";
@@ -32,6 +33,7 @@ export type StoredSession = {
   kind?: DataKind;
   attribution?: DatasetAttribution;
   sourceKind?: SessionSourceKind;
+  gpsQuality?: GpsQuality | null;
   rawObjectKey?: string | null;
   /** @deprecated Prefer videos[]. Migrated on read. */
   videoObjectKey?: string | null;
@@ -156,6 +158,7 @@ export type SessionMetaInput = {
   tires?: string;
   notes?: string;
   sourceKind?: SessionSourceKind;
+  gpsQuality?: GpsQuality | null;
   rawObjectKey?: string | null;
   videoObjectKey?: string | null;
   videoLocalKey?: string | null;
@@ -205,6 +208,7 @@ export function saveLocalSession(
     notes: meta?.notes,
     kind: "upload",
     sourceKind: meta?.sourceKind ?? "csv",
+    gpsQuality: meta?.gpsQuality ?? null,
     rawObjectKey: meta?.rawObjectKey ?? null,
     videoObjectKey: meta?.videoObjectKey ?? null,
     videoLocalKey: meta?.videoLocalKey ?? null,

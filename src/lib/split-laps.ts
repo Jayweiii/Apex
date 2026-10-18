@@ -28,8 +28,10 @@ function downsample(points: TelemetryPoint[], max = 400): TelemetryPoint[] {
 }
 
 /**
- * Split a continuous GPS trace into laps by returning near the start
- * after traveling a meaningful distance (start/finish approx).
+ * Split a continuous GPS trace into laps by returning near the start/finish
+ * after traveling a meaningful distance.
+ * Prefers an explicit track start/finish when provided; otherwise uses the
+ * first moving sample as a proxy.
  * Preserves each lap's startOffsetSec relative to the first sample's t.
  */
 export function splitLapsByStartFinish(
@@ -38,6 +40,8 @@ export function splitLapsByStartFinish(
     minLapMeters?: number;
     closeMeters?: number;
     sessionStartedAtMs?: number;
+    /** Official track start/finish (preferred over first GPS sample). */
+    startFinish?: { lat: number; lon: number } | null;
   },
 ): ParsedLap[] {
   if (points.length < 20) {
@@ -52,7 +56,11 @@ export function splitLapsByStartFinish(
   }
 
   const sessionStartT = points[0]?.t ?? moving[0].t;
-  const start = moving[0];
+  const sf = options?.startFinish;
+  const start =
+    sf && Number.isFinite(sf.lat) && Number.isFinite(sf.lon)
+      ? ({ lat: sf.lat, lon: sf.lon, t: moving[0].t, speed: 0 } as TelemetryPoint)
+      : moving[0];
   const minLapMeters = options?.minLapMeters ?? 400;
   const closeMeters = options?.closeMeters ?? 35;
 

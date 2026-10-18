@@ -1,10 +1,12 @@
 "use client";
 
 import { AppHeader } from "@/components/AppHeader";
+import { GpsQualityBadge } from "@/components/GpsQualityBadge";
 import { LapList } from "@/components/LapList";
 import { SessionVisibilityControl } from "@/components/SessionVisibilityControl";
 import { compareHref } from "@/lib/compare";
 import { formatLapTime } from "@/lib/format";
+import type { GpsQuality } from "@/lib/gps-quality";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
 import type { LapRow } from "@/lib/types";
 import {
@@ -23,6 +25,8 @@ type CloudSession = {
   driver_name?: string | null;
   track_id?: string | null;
   visibility?: string | null;
+  source_kind?: string | null;
+  gps_quality?: GpsQuality | null;
   created_at: string;
 };
 
@@ -239,14 +243,24 @@ export function CloudSessionView({ id }: { id: string }) {
             {session.name}
           </h1>
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-zinc-500">
-              {session.car ? `${session.car} · ` : ""}
-              {laps.length} laps
-              {Number.isFinite(best) ? ` · best ${formatLapTime(best)}` : ""}
-              {session.driver_name ? ` · ${session.driver_name}` : ""}
-              {mine ? " · saved to your account" : ""}
-              {!mine ? ` · ${visibility}` : ""}
-            </p>
+            <div className="flex flex-wrap items-center gap-2 text-sm text-zinc-500">
+              <span>
+                {session.car ? `${session.car} · ` : ""}
+                {laps.length} laps
+                {Number.isFinite(best) ? ` · best ${formatLapTime(best)}` : ""}
+                {session.driver_name ? ` · ${session.driver_name}` : ""}
+                {mine ? " · saved to your account" : ""}
+                {!mine ? ` · ${visibility}` : ""}
+              </span>
+              <GpsQualityBadge
+                quality={session.gps_quality}
+                sourceKind={
+                  session.source_kind === "gopro" || session.source_kind === "csv"
+                    ? session.source_kind
+                    : null
+                }
+              />
+            </div>
             {href ? (
               <Link
                 href={href}

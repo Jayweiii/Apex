@@ -51,37 +51,39 @@ async function fetchAccessibleSessions(
   trackId: string | null | undefined,
   limit: number,
 ): Promise<{ rows: AccessibleSessionMeta[]; error: string | null }> {
+  const selectCols =
+    "id, name, track_id, car, driver_name, user_id, visibility, created_at, source_kind, gps_quality";
   const withVisibility = trackId
     ? await supabase
         .from("sessions")
-        .select(
-          "id, name, track_id, car, driver_name, user_id, visibility, created_at",
-        )
+        .select(selectCols)
         .eq("track_id", trackId)
         .order("created_at", { ascending: false })
         .limit(limit)
     : await supabase
         .from("sessions")
-        .select(
-          "id, name, track_id, car, driver_name, user_id, visibility, created_at",
-        )
+        .select(selectCols)
         .order("created_at", { ascending: false })
         .limit(limit);
 
   if (
     withVisibility.error &&
-    /visibility/i.test(String(withVisibility.error.message ?? ""))
+    /visibility|gps_quality/i.test(String(withVisibility.error.message ?? ""))
   ) {
     const without = trackId
       ? await supabase
           .from("sessions")
-          .select("id, name, track_id, car, driver_name, user_id, created_at")
+          .select(
+            "id, name, track_id, car, driver_name, user_id, created_at, source_kind",
+          )
           .eq("track_id", trackId)
           .order("created_at", { ascending: false })
           .limit(limit)
       : await supabase
           .from("sessions")
-          .select("id, name, track_id, car, driver_name, user_id, created_at")
+          .select(
+            "id, name, track_id, car, driver_name, user_id, created_at, source_kind",
+          )
           .order("created_at", { ascending: false })
           .limit(limit);
     if (without.error) {

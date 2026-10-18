@@ -1,6 +1,7 @@
 "use client";
 
 import { DataKindBadge } from "@/components/Attribution";
+import { GpsQualityBadge } from "@/components/GpsQualityBadge";
 import { putLocalBlob } from "@/lib/blob-store";
 import {
   listDrivers,
@@ -8,16 +9,22 @@ import {
   saveLocalSession,
 } from "@/lib/local-store";
 import { parseGoProChapters } from "@/lib/parse-gopro";
+import {
+  detectGoProExportKind,
+  parseGoProExportFile,
+} from "@/lib/parse-gopro-export";
 import { parseTelemetryCsv } from "@/lib/parse-telemetry";
 import { SessionVisibilityControl } from "@/components/SessionVisibilityControl";
 import { assertFileWithinLimits } from "@/lib/abuse-limits";
 import { ensureSharedTrack, fetchSharedTracks } from "@/lib/cloud-tracks";
+import type { GpsQuality } from "@/lib/gps-quality";
 import {
   ensureAuthenticatedUser,
   isAnonymousUser,
 } from "@/lib/guest-auth";
 import { saveSessionToCloud } from "@/lib/save-session-cloud";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
+import { resolveTrackStartFinish } from "@/lib/track-start-finish";
 import {
   listCustomTracks,
   listSharedTracksCache,
@@ -27,12 +34,13 @@ import {
   type Track,
 } from "@/lib/tracks";
 import { presignUpload, uploadToTarget } from "@/lib/storage/upload-client";
-import type { ParsedLap } from "@/lib/types";
+import type { ParsedLap, SessionVideo } from "@/lib/types";
 import {
   DEFAULT_VISIBILITY,
   defaultVisibilityForUser,
   type SessionVisibility,
 } from "@/lib/visibility";
+import { parseYouTubeId } from "@/lib/youtube";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
@@ -42,6 +50,11 @@ const NEW_TRACK = "__new_track__";
 const NEW_CAR = "__new_car__";
 
 type Destination = "checking" | "cloud" | "local" | "unavailable";
+
+function isGoProTelemetryFile(name: string): boolean {
+  const kind = detectGoProExportKind(name);
+  return kind === "mp4" || kind === "gpx" || kind === "json";
+}
 
 export function SessionUpload({
   storage = "auto",
@@ -70,6 +83,9 @@ export function SessionUpload({
   const [notes, setNotes] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [keepVideo, setKeepVideo] = useState(false);
+  const [youtubeUrl, setYoutubeUrl] = useState("");
+  const [csvAsGoProExport, setCsvAsGoProExport] = useState(false);
+  const [previewQuality, setPreviewQuality] = useState<GpsQuality | null>(null);
   const [visibility, setVisibility] =
     useState<SessionVisibility>(DEFAULT_VISIBILITY);
   const [visibilityTouched, setVisibilityTouched] = useState(false);
@@ -157,14 +173,19 @@ export function SessionUpload({
     () => popularTracks("", extraTracks),
     [extraTracks],
   );
-  const chosenTrack = trackId ?? (pickedTrack === NEW_TRACK ? "" : pickedTrack);
   const drivers = useMemo(
     () => (typeof window === "undefined" ? [] : listDrivers()),
     [busy],
   );
 
   const primary = files[0] ?? null;
-  const isGoPro = Boolean(primary && /\.mp4$/i.test(primary.name));
+  const primaryKind = primary ? detectGoProExportKind(primary.name) : "unknown";
+  const isMp4 = primaryKind === "mp4";
+  const isGoProExport =
+    primaryKind === "gpx" ||
+    primaryKind === "json" ||
+    (primaryKind === "csv" && csvAsGoProExport);
+  const isGoPro = isMp4 || isGoProExport;
   const creatingTrack = !trackId && pickedTrack === NEW_TRACK;
   const creatingCar = carChoice === NEW_CAR;
   const useCloud = destination === "cloud";
@@ -174,8 +195,17 @@ export function SessionUpload({
     setFiles(next);
     setError(null);
     setSavedBanner(null);
-    if (next[0] && !name) {
-      setName(next[0].name.replace(/\.(csv|mp4)$/i, "").replace(/[_-]+/g, " "));
+    setPreviewQuality(null);
+    const first = next[0];
+    if (first && !name) {
+      setName(
+        first.name
+          .replace(/\.(csv|mp4|gpx|json)$/i, "")
+          .replace(/[_-]+/g, " "),
+      );
+    }
+    if (first && isGoProTelemetryFile(first.name)) {
+      setCsvAsGoProExport(false);
     }
   }
 
@@ -195,11 +225,20 @@ export function SessionUpload({
     let videoLocalKey: string | null = null;
     let storageBackend: "r2" | "local" | "idb" = "local";
 
-    if (/\.csv$/i.test(mainFile.name)) {
+    const kind = detectGoProExportKind(mainFile.name);
+    // Never upload large MP4s as "raw" — telemetry is parsed client-side.
+    // Small exports (GPX/JSON/CSV) can be stored for re-process.
+    if (kind === "csv" || kind === "gpx" || kind === "json") {
       try {
+        const contentType =
+          kind === "json"
+            ? "application/json"
+            : kind === "gpx"
+              ? "application/gpx+xml"
+              : mainFile.type || "text/csv";
         const target = await presignUpload({
           filename: mainFile.name,
-          contentType: mainFile.type || "text/csv",
+          contentType,
           kind: "raw",
           sessionId,
           bytes: mainFile.size,
@@ -215,7 +254,7 @@ export function SessionUpload({
       }
     }
 
-    if (keepVideo && isGoPro) {
+    if (keepVideo && isMp4) {
       try {
         const target = await presignUpload({
           filename: mainFile.name,
@@ -292,7 +331,7 @@ export function SessionUpload({
       return;
     }
     if (!files.length) {
-      setError("Choose a CSV or GoPro MP4 file");
+      setError("Choose a CSV, GoPro MP4, or Quik/Telemetry Overlay GPX/JSON/CSV");
       return;
     }
     if (creatingTrack && !newTrackName.trim()) {
@@ -304,33 +343,59 @@ export function SessionUpload({
     setProgress("Parsing…");
     try {
       for (const file of files) {
-        assertFileWithinLimits(file, /\.mp4$/i.test(file.name) ? "video" : "csv");
+        const kind = detectGoProExportKind(file.name);
+        assertFileWithinLimits(file, kind === "mp4" ? "video" : "csv");
       }
 
-      let laps;
+      const trackForSf =
+        trackId ||
+        (pickedTrack && pickedTrack !== NEW_TRACK ? pickedTrack : null);
+      const startFinish = resolveTrackStartFinish(trackForSf);
+
+      let laps: ParsedLap[];
       let startedAtMs: number | undefined;
       let sessionDate: string | undefined;
       let sourceKind: "csv" | "gopro" = "csv";
-      if (isGoPro) {
-        setProgress("Extracting GoPro GPMF…");
-        const parsed = await parseGoProChapters(files, (percent) => {
-          setProgress(`Extracting GoPro GPMF… ${Math.round(percent)}%`);
+      let gpsQuality: GpsQuality | null = null;
+
+      if (isMp4) {
+        setProgress("Extracting GoPro GPMF locally (video stays on device)…");
+        const parsed = await parseGoProChapters(files, {
+          onProgress: (percent) => {
+            setProgress(
+              `Extracting GoPro GPMF… ${Math.round(percent)}% (not uploading video unless checked)`,
+            );
+          },
+          startFinish,
         });
         laps = parsed.laps;
         startedAtMs = parsed.startedAtMs;
         sessionDate = parsed.sessionDate;
         sourceKind = "gopro";
+        gpsQuality = parsed.gpsQuality;
+      } else if (isGoProExport) {
+        setProgress("Parsing GoPro export…");
+        const parsed = await parseGoProExportFile(files[0], files[0].name, {
+          startFinish,
+        });
+        laps = parsed.laps;
+        startedAtMs = parsed.startedAtMs;
+        sessionDate = parsed.sessionDate;
+        sourceKind = "gopro";
+        gpsQuality = parsed.gpsQuality;
       } else {
         const csv = await files[0].text();
         const parsed = parseTelemetryCsv(csv);
         laps = parsed.laps;
         startedAtMs = parsed.startedAtMs;
         sessionDate = parsed.sessionDate;
+        sourceKind = "csv";
       }
+      setPreviewQuality(gpsQuality);
 
       const sessionId = crypto.randomUUID();
       setProgress(
-        useCloud ? "Saving session…" : "Saving in this browser…",
+        useCloud ? "Saving telemetry to cloud…" : "Saving in this browser…",
       );
       const stored = await storeRawAndMaybeVideo(sessionId, files);
       const resolvedTrack = await resolveTrackId(laps);
@@ -340,6 +405,30 @@ export function SessionUpload({
         .filter(Boolean);
       const carName = car.trim();
       if (!carName) throw new Error("Enter the car");
+
+      const ytId = parseYouTubeId(youtubeUrl);
+      const videos: SessionVideo[] = [];
+      if (ytId) {
+        videos.push({
+          id: crypto.randomUUID(),
+          provider: "youtube",
+          youtubeId: ytId,
+          offsetSec: 0,
+          rate: 1,
+          syncSource: sourceKind === "gopro" ? "auto" : "unsynced",
+        });
+      }
+      if (stored.videoObjectKey || stored.videoLocalKey) {
+        videos.push({
+          id: crypto.randomUUID(),
+          provider: "mp4",
+          objectKey: stored.videoObjectKey ?? undefined,
+          localKey: stored.videoLocalKey ?? undefined,
+          offsetSec: 0,
+          rate: 1,
+          syncSource: sourceKind === "gopro" ? "auto" : "unsynced",
+        });
+      }
 
       if (useCloud) {
         const supabase = createClient();
@@ -351,14 +440,19 @@ export function SessionUpload({
           ? visibility
           : defaultVisibilityForUser(guest);
 
-        const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+        const uploadBytes = isMp4 && !keepVideo
+          ? 0
+          : files.reduce((sum, file) => sum + file.size, 0);
         const check = await fetch("/api/uploads/check", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "same-origin",
           body: JSON.stringify({
-            bytes: totalBytes,
-            kind: isGoPro ? "video" : "session",
+            bytes: uploadBytes || Math.min(
+              files.reduce((sum, file) => sum + file.size, 0),
+              1024 * 1024,
+            ),
+            kind: keepVideo && isMp4 ? "video" : "session",
           }),
         });
         if (!check.ok) {
@@ -384,12 +478,14 @@ export function SessionUpload({
           tires: tires.trim() || undefined,
           notes: notes.trim() || undefined,
           sourceKind,
+          gpsQuality,
           rawObjectKey: stored.rawObjectKey,
           videoObjectKey: stored.videoObjectKey,
           storageBackend: stored.storageBackend,
           startedAtMs,
           sessionDate,
           visibility: effectiveVisibility,
+          videos: videos.length ? videos : undefined,
         });
         setProgress("Saved");
         setSavedBanner(
@@ -417,12 +513,14 @@ export function SessionUpload({
           tires: tires.trim() || undefined,
           notes: notes.trim() || undefined,
           sourceKind,
+          gpsQuality,
           rawObjectKey: stored.rawObjectKey,
           videoObjectKey: stored.videoObjectKey,
           videoLocalKey: stored.videoLocalKey,
           storageBackend: stored.storageBackend,
           startedAtMs,
           sessionDate,
+          videos: videos.length ? videos : undefined,
         },
       );
       setSavedBanner("Saved in this browser (local only)");
@@ -445,8 +543,16 @@ export function SessionUpload({
         <div>
           <h2 className="text-sm font-medium text-zinc-200">Upload telemetry</h2>
           <p className="mt-1 max-w-xl text-sm text-zinc-500">
-            CSV (TrackAddict / RaceRender) or GoPro MP4 with GPMF GPS. Pick an
-            existing track/car or create a new one.
+            Prefer GoPro GPS (MP4 GPMF or Quik/Telemetry Overlay GPX/JSON/CSV) —
+            parsed in-browser so large videos stay off the server. Phone CSV
+            still works. See{" "}
+            <Link
+              href="/docs/gopro-import"
+              className="text-sky-300 underline underline-offset-2"
+            >
+              GoPro import guide
+            </Link>
+            .
           </p>
         </div>
         <DataKindBadge kind="upload" />
@@ -642,7 +748,7 @@ export function SessionUpload({
             />
           </label>
           <label className="flex cursor-pointer flex-col gap-1.5 text-sm">
-            <span className="text-zinc-400">CSV or GoPro MP4</span>
+            <span className="text-zinc-400">CSV · GoPro MP4 · GPX · JSON</span>
             <span className="flex min-h-12 items-center rounded-lg border border-dashed border-zinc-700 px-3 py-3 text-zinc-300 hover:border-orange-500/60 sm:min-h-10 sm:py-2">
               {files.length
                 ? files.map((file) => file.name).join(", ")
@@ -650,14 +756,29 @@ export function SessionUpload({
             </span>
             <input
               type="file"
-              accept=".csv,text/csv,video/mp4,.mp4"
+              accept=".csv,text/csv,video/mp4,.mp4,.gpx,application/gpx+xml,.json,application/json"
               multiple
               onChange={onFile}
               className="sr-only"
             />
           </label>
         </div>
-        {isGoPro ? (
+        {primaryKind === "csv" ? (
+          <label className="flex items-start gap-3 rounded-xl border border-zinc-800/80 px-3 py-3 text-sm text-zinc-400">
+            <input
+              type="checkbox"
+              checked={csvAsGoProExport}
+              onChange={(event) => setCsvAsGoProExport(event.target.checked)}
+              className="mt-1"
+            />
+            <span>
+              This CSV is a GoPro Quik / Telemetry Overlay export (auto-detect
+              laps from track start/finish). Leave unchecked for TrackAddict /
+              RaceRender phone CSV.
+            </span>
+          </label>
+        ) : null}
+        {isMp4 ? (
           <label className="flex items-start gap-3 rounded-xl border border-zinc-800/80 px-3 py-3 text-sm text-zinc-400">
             <input
               type="checkbox"
@@ -666,10 +787,38 @@ export function SessionUpload({
               className="mt-1"
             />
             <span>
-              Upload video for onboard sync (optional). Telemetry is extracted
-              locally either way. Multi-chapter: select several MP4s together.
+              Also upload the MP4 for onboard sync (optional; uses R2 when
+              configured, otherwise IndexedDB). Telemetry is always extracted
+              locally — large clips are not uploaded wholesale. Multi-chapter:
+              select several MP4s together.
             </span>
           </label>
+        ) : null}
+        {isGoPro || isMp4 ? (
+          <label className="flex flex-col gap-1.5 text-sm">
+            <span className="text-zinc-400">
+              YouTube URL for sync (optional)
+            </span>
+            <input
+              value={youtubeUrl}
+              onChange={(e) => setYoutubeUrl(e.target.value)}
+              placeholder="https://youtu.be/… or paste video id"
+              className="min-h-12 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
+            />
+            <span className="text-xs text-zinc-500">
+              Prefer linking YouTube instead of uploading a large MP4 when the
+              onboard is already online.
+            </span>
+          </label>
+        ) : null}
+        {previewQuality || isGoPro ? (
+          <div className="flex flex-wrap items-center gap-2 text-sm text-zinc-400">
+            <span>GPS source:</span>
+            <GpsQualityBadge
+              quality={previewQuality}
+              sourceKind={isGoPro ? "gopro" : "csv"}
+            />
+          </div>
         ) : null}
         {useCloud ? (
           <SessionVisibilityControl
