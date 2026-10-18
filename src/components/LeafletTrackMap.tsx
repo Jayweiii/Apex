@@ -89,6 +89,16 @@ function tracesKey(traces: Array<TrackTrace & { points: GpsPoint[] }>) {
     .join("|");
 }
 
+/** Visible HTML car marker — avoids SVG custom-pane renderer issues. */
+function carMarkerIcon(color: string) {
+  return L.divIcon({
+    className: "apex-car-marker",
+    html: `<div class="apex-car-marker__dot" style="--apex-car:${color}"></div>`,
+    iconSize: [22, 22],
+    iconAnchor: [11, 11],
+  });
+}
+
 export function LeafletTrackMap({
   traces,
   activeProgress = null,
@@ -158,31 +168,39 @@ export function LeafletTrackMap({
     drawable.length > 1 || drawable.some((trace) => trace.colorBySpeed);
   const drawKey = tracesKey(drawable);
 
-  // Create map once.
+  // Create map once — fixed framing, scrub-only interaction.
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
     const map = L.map(containerRef.current, {
-      zoomControl: true,
+      zoomControl: false,
       attributionControl: true,
-      // Keep drag for pan; scrub via mousemove / touch without breaking pan much.
+      dragging: false,
+      touchZoom: false,
+      doubleClickZoom: false,
+      scrollWheelZoom: false,
+      boxZoom: false,
+      keyboard: false,
+      // Scrub via pointer events; map stays locked after fitBounds.
     });
     mapRef.current = map;
 
-    if (!map.getPane("scrub")) {
-      map.createPane("scrub");
-      const pane = map.getPane("scrub");
-      if (pane) pane.style.zIndex = "650";
-    }
+    // Marker pane above overlays so car dots stay visible on satellite tiles.
+    const markerPane = map.getPane("markerPane");
+    if (markerPane) markerPane.style.zIndex = "650";
 
     layersRef.current = L.layerGroup().addTo(map);
-    markersRef.current = L.layerGroup([], { pane: "scrub" }).addTo(map);
+    markersRef.current = L.layerGroup().addTo(map);
 
     tileRef.current = L.tileLayer(ESRI_IMAGERY.url, {
       attribution: ESRI_IMAGERY.attribution,
       maxZoom: 19,
     }).addTo(map);
 
-    const emitProgress = (latlng: L.LatLng, clientX?: number, clientY?: number) => {
+    const emitProgress = (
+      latlng: L.LatLng,
+      clientX?: number,
+      clientY?: number,
+    ) => {
       const current = drawableRef.current;
       if (!current.length) return;
       const progress = nearestProgress(latlng, current);
@@ -221,7 +239,6 @@ export function LeafletTrackMap({
     };
     const onTouchMove = (event: TouchEvent) => {
       if (event.touches.length !== 1) return;
-      // One-finger scrub; let two-finger / drag pan remain Leaflet's job.
       event.preventDefault();
       scrubFromTouch(event);
     };
@@ -234,7 +251,13 @@ export function LeafletTrackMap({
     container.addEventListener("touchstart", onTouchStart, { passive: true });
     container.addEventListener("touchmove", onTouchMove, { passive: false });
 
+    const onResize = () => {
+      map.invalidateSize();
+    };
+    window.addEventListener("resize", onResize);
+
     return () => {
+      window.removeEventListener("resize", onResize);
       container.removeEventListener("mouseleave", onLeave);
       container.removeEventListener("touchstart", onTouchStart);
       container.removeEventListener("touchmove", onTouchMove);
@@ -340,7 +363,8 @@ export function LeafletTrackMap({
     }
 
     if (bounds.isValid() && fittedKeyRef.current !== drawKey) {
-      map.fitBounds(bounds.pad(0.12));
+      map.invalidateSize();
+      map.fitBounds(bounds.pad(0.08), { animate: false });
       fittedKeyRef.current = drawKey;
     }
   }, [drawable, centerlineGps, minSpeed, maxSpeed, drawKey]);
@@ -354,28 +378,14 @@ export function LeafletTrackMap({
 
     for (const trace of drawable) {
       const point = sampleAtProgress(trace.points, activeProgress);
+      if (point.lat == null || point.lon == null) continue;
       const color = trace.colorBySpeed ? "#f97316" : trace.color;
       markers.addLayer(
-        L.circleMarker([point.lat, point.lon], {
-          radius: 9,
-          color: "#fafafa",
-          fillColor: color,
-          fillOpacity: 1,
-          weight: 3,
-          pane: "scrub",
+        L.marker([point.lat, point.lon], {
+          icon: carMarkerIcon(color),
           interactive: false,
-        }),
-      );
-      // Inner highlight for dual-lap readability.
-      markers.addLayer(
-        L.circleMarker([point.lat, point.lon], {
-          radius: 3,
-          color: "#fafafa",
-          fillColor: "#fafafa",
-          fillOpacity: 1,
-          weight: 0,
-          pane: "scrub",
-          interactive: false,
+          keyboard: false,
+          zIndexOffset: 1000,
         }),
       );
     }
@@ -470,15 +480,22 @@ export function LeafletTrackMap({
       </div>
       <div
         ref={containerRef}
-        className="h-[260px] w-full touch-none overflow-hidden rounded-xl sm:h-[380px] [&_.leaflet-control-attribution]:bg-zinc-950/80 [&_.leaflet-control-attribution]:text-[10px] [&_.leaflet-control-attribution]:text-zinc-400"
+        className="h-[65vh] min-h-[320px] w-full touch-none overflow-hidden rounded-xl sm:min-h-[420px] [&_.leaflet-control-attribution]:bg-zinc-950/80 [&_.leaflet-control-attribution]:text-[10px] [&_.leaflet-control-attribution]:text-zinc-400 [&_.leaflet-container]:cursor-crosshair"
+        data-apex-map="fixed-scrub"
       />
       {tooltipMarkers.length ? (
         <div
           className="pointer-events-none absolute z-[500] min-w-36 rounded-xl border border-zinc-800 bg-zinc-950/95 px-3 py-2 text-xs text-zinc-100 shadow-lg"
           style={{
-            left: `clamp(12px, ${(hoverPos?.x ?? 24) + 12}px, calc(100% - 160px))`,
-            top: `clamp(56px, ${(hoverPos?.y ?? 56) + 48}px, calc(100% - 120px))`,
+            left: hoverPos
+              ? `clamp(12px, ${hoverPos.x + 12}px, calc(100% - 160px))`
+              : "auto",
+            right: hoverPos ? "auto" : "20px",
+            top: hoverPos
+              ? `clamp(56px, ${hoverPos.y + 48}px, calc(100% - 120px))`
+              : "64px",
           }}
+          data-apex-scrub-tooltip="1"
         >
           {tooltipMarkers.map((marker) => (
             <div key={marker.trace.id} className="mt-1 first:mt-0">
