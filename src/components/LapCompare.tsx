@@ -4,12 +4,14 @@ import { hoverIndex } from "@/components/chart-hover";
 import { bindChartScrub } from "@/components/chart-scrub";
 import { GpsQualityBadge } from "@/components/GpsQualityBadge";
 import { MissingGps, TrackMap } from "@/components/TrackMap";
+import { DualSessionVideos } from "@/components/video/DualSessionVideos";
 import { useAnalysisMode } from "@/lib/analysis-mode";
 import { resolveTrackCenterline } from "@/lib/cloud-tracks";
 import { compareLaps, defaultLapPair, hasGps } from "@/lib/compare";
 import {
   type CompareSessionOption,
 } from "@/lib/compare-sessions";
+import { lapAsSyncLap } from "@/lib/dual-video-sync";
 import { formatG, formatGap, formatLapTime } from "@/lib/format";
 import { enrichTelemetry } from "@/lib/gforce";
 import {
@@ -20,8 +22,23 @@ import {
 } from "@/lib/map-match";
 import { progressFromIndex } from "@/lib/scrub";
 import { getTrack } from "@/lib/tracks";
-import type { LapRow } from "@/lib/types";
+import type { LapRow, SessionVideo } from "@/lib/types";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+
+function pickVideoForLap(
+  session: CompareSessionOption | null | undefined,
+  lapId: string | undefined,
+): SessionVideo | null {
+  const videos = session?.videos ?? [];
+  if (!videos.length) return null;
+  return (
+    videos.find((video) => video.lapId === lapId) ??
+    videos.find((video) => video.provider === "youtube") ??
+    videos.find((video) => video.provider === "mp4") ??
+    videos[0] ??
+    null
+  );
+}
 import {
   CartesianGrid,
   Legend,
@@ -407,6 +424,49 @@ export function LapCompare({
               </p>
             </div>
           </div>
+
+          {reference && other && !sameLap ? (
+            <DualSessionVideos
+              refSide={{
+                lap: lapAsSyncLap(reference),
+                video: pickVideoForLap(refSession, reference.id),
+                mp4Src: (() => {
+                  const video = pickVideoForLap(refSession, reference.id);
+                  if (!video || video.provider !== "mp4") return null;
+                  return (
+                    refSession?.videoSrcById?.[video.id] ??
+                    (video.objectKey
+                      ? `/api/storage/download?key=${encodeURIComponent(video.objectKey)}`
+                      : null)
+                  );
+                })(),
+                label:
+                  refSession && refSession.name !== "This session"
+                    ? refSession.name
+                    : `Lap ${reference.lap_number}`,
+              }}
+              otherSide={{
+                lap: lapAsSyncLap(other),
+                video: pickVideoForLap(otherSession, other.id),
+                mp4Src: (() => {
+                  const video = pickVideoForLap(otherSession, other.id);
+                  if (!video || video.provider !== "mp4") return null;
+                  return (
+                    otherSession?.videoSrcById?.[video.id] ??
+                    (video.objectKey
+                      ? `/api/storage/download?key=${encodeURIComponent(video.objectKey)}`
+                      : null)
+                  );
+                })(),
+                label:
+                  otherSession && otherSession.name !== "This session"
+                    ? otherSession.name
+                    : `Lap ${other.lap_number}`,
+              }}
+              progress={progress}
+              onProgress={setProgress}
+            />
+          ) : null}
 
           {showMap && reference && other ? (
             <TrackMap

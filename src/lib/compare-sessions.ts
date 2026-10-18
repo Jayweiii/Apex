@@ -1,5 +1,5 @@
 import { preferGpsSession, type GpsQuality } from "@/lib/gps-quality";
-import type { LapRow } from "@/lib/types";
+import type { LapRow, SessionVideo } from "@/lib/types";
 import { getTrack } from "@/lib/tracks";
 
 export type CompareSessionOption = {
@@ -10,6 +10,10 @@ export type CompareSessionOption = {
   trackId?: string;
   sourceKind?: "csv" | "gopro" | null;
   gpsQuality?: GpsQuality | null;
+  /** Onboard clips for dual-session video compare. */
+  videos?: SessionVideo[];
+  /** Resolved MP4 download/object URLs keyed by video id. */
+  videoSrcById?: Record<string, string>;
   laps: LapRow[];
 };
 

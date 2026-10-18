@@ -189,6 +189,15 @@ export function LocalCompare({
       trackId: item.trackId,
       sourceKind: item.sourceKind ?? null,
       gpsQuality: item.gpsQuality ?? null,
+      videos: item.videos ?? [],
+      videoSrcById: Object.fromEntries(
+        (item.videos ?? [])
+          .filter((video) => video.objectKey)
+          .map((video) => [
+            video.id,
+            `/api/storage/download?key=${encodeURIComponent(video.objectKey!)}`,
+          ]),
+      ),
       laps: toRows(item),
     })),
     ...catalogPeers
@@ -201,6 +210,7 @@ export function LocalCompare({
         trackId: item.trackId,
         sourceKind: item.sourceKind ?? null,
         gpsQuality: item.gpsQuality ?? null,
+        videos: item.videos ?? [],
         laps: toRows(item),
       })),
   ].sort((a, b) => preferGpsSession(a, b));

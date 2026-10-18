@@ -14,9 +14,44 @@ import {
 } from "@/lib/compare-sessions";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
 import { setSharedTracksCache } from "@/lib/tracks";
-import type { LapRow, SessionRow } from "@/lib/types";
+import type { LapRow, SessionRow, SessionVideo } from "@/lib/types";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+
+type VideoRow = {
+  id: string;
+  session_id: string;
+  provider: string;
+  youtube_id?: string | null;
+  object_key?: string | null;
+  title?: string | null;
+  lap_id?: string | null;
+  offset_sec?: number | null;
+  rate?: number | null;
+  sync_source?: string | null;
+};
+
+function videosBySession(rows: VideoRow[]): Map<string, SessionVideo[]> {
+  const map = new Map<string, SessionVideo[]>();
+  for (const row of rows) {
+    const video: SessionVideo = {
+      id: row.id,
+      provider: row.provider === "youtube" ? "youtube" : "mp4",
+      youtubeId: row.youtube_id ?? undefined,
+      objectKey: row.object_key ?? undefined,
+      title: row.title ?? undefined,
+      lapId: row.lap_id ?? null,
+      offsetSec: row.offset_sec ?? 0,
+      rate: row.rate ?? 1,
+      syncSource:
+        (row.sync_source as SessionVideo["syncSource"] | null) ?? "unsynced",
+    };
+    const list = map.get(row.session_id) ?? [];
+    list.push(video);
+    map.set(row.session_id, list);
+  }
+  return map;
+}
 
 async function catalogAsCompareOptions(
   trackId: string | null | undefined,
@@ -221,11 +256,22 @@ export function CloudCompareView({
           return;
         }
 
+        const { data: videoRows } = await supabase
+          .from("session_videos")
+          .select(
+            "id, session_id, provider, youtube_id, object_key, title, lap_id, offset_sec, rate, sync_source",
+          )
+          .in("session_id", ids);
+
+        const videosMap = videosBySession((videoRows ?? []) as VideoRow[]);
         const cloudOptions = groupLapsBySession(
           metas,
           (lapRows ?? []) as LapRow[],
           user?.id ?? null,
-        );
+        ).map((option) => ({
+          ...option,
+          videos: videosMap.get(option.id) ?? [],
+        }));
         const catalogOptions = (
           await catalogAsCompareOptions(current.track_id)
         ).filter(
