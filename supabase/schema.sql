@@ -24,6 +24,7 @@ create table if not exists public.sessions (
   tires text,
   notes text,
   source_kind text not null default 'csv',
+  gps_quality jsonb,
   raw_object_key text,
   video_object_key text,
   storage_backend text,
@@ -131,6 +132,7 @@ alter table public.sessions add column if not exists weather text;
 alter table public.sessions add column if not exists tires text;
 alter table public.sessions add column if not exists notes text;
 alter table public.sessions add column if not exists source_kind text not null default 'csv';
+alter table public.sessions add column if not exists gps_quality jsonb;
 alter table public.sessions add column if not exists raw_object_key text;
 alter table public.sessions add column if not exists video_object_key text;
 alter table public.sessions add column if not exists storage_backend text;

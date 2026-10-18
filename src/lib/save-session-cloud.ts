@@ -1,4 +1,5 @@
 import { assertUserUploadRateLimit } from "@/lib/abuse-limits";
+import type { GpsQuality } from "@/lib/gps-quality";
 import type { ParsedLap, SessionVideo } from "@/lib/types";
 import {
   DEFAULT_VISIBILITY,
@@ -18,6 +19,7 @@ export type CloudSessionMeta = {
   tires?: string;
   notes?: string;
   sourceKind: "csv" | "gopro";
+  gpsQuality?: GpsQuality | null;
   rawObjectKey?: string | null;
   videoObjectKey?: string | null;
   storageBackend?: string | null;
@@ -59,6 +61,7 @@ export function buildCloudSessionPayload(
     tires: meta.tires?.trim() || null,
     notes: meta.notes?.trim() || null,
     source_kind: meta.sourceKind,
+    gps_quality: meta.gpsQuality ?? null,
     raw_object_key: meta.rawObjectKey ?? null,
     video_object_key: meta.videoObjectKey ?? null,
     storage_backend: meta.storageBackend ?? null,
@@ -148,6 +151,19 @@ export async function saveSessionToCloud(
     .insert(payload.session)
     .select("id")
     .single();
+  // Drop optional columns gracefully when migrations are not yet applied.
+  if (
+    sessionInsert.error &&
+    /gps_quality/i.test(String(sessionInsert.error.message ?? ""))
+  ) {
+    const { gps_quality: _omitGps, ...withoutGps } = payload.session;
+    void _omitGps;
+    sessionInsert = await client
+      .from("sessions")
+      .insert(withoutGps)
+      .select("id")
+      .single();
+  }
   // Before visibility migration is applied: only silently drop the column when
   // the chosen visibility is the default (friends). Explicit private/public
   // must fail loudly so the user knows to run the migration.

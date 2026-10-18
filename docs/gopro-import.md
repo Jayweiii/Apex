@@ -1,0 +1,51 @@
+# GoPro import guide
+
+Apex prefers **GoPro GPS** over phone CSV for speed, laps, and the track map (Dragy-style). Telemetry is parsed **in the browser** so large MP4s are not uploaded wholesale.
+
+## Supported inputs
+
+| Source | Format | Notes |
+|--------|--------|--------|
+| GoPro Hero5+ MP4 | `.mp4` | GPMF extracted client-side (`gpmf-extract` + `gopro-telemetry`). Uses **GPS9** when present, else **GPS5**. Filters by GPS precision (DOP×100) and fix type. ACCL/GYRO read when present. |
+| Quik / Telemetry Overlay | `.gpx`, `.json`, `.csv` | Export GPS track separately; no MP4 required. |
+| Phone / TrackAddict | `.csv` | Still supported; ranked below GoPro in compare. |
+
+## How to export from Quik
+
+1. Open the clip in **GoPro Quik**.
+2. Export or share the **GPS / telemetry track** (GPX when available).
+3. In Apex → Upload, choose the `.gpx` (or `.json` / `.csv` if that is what Quik gives you).
+4. Pick the **track** so start/finish can auto-split laps.
+5. Optionally paste a **YouTube URL** for onboard sync instead of uploading the MP4.
+
+## How to export with Telemetry Overlay
+
+1. Load the GoPro MP4 in [Telemetry Overlay](https://goprotelemetryextractor.com/) (or similar).
+2. Export **GPX**, **JSON**, or **CSV** with latitude, longitude, time, and speed.
+3. Upload that file in Apex (check “GoPro Quik / Telemetry Overlay export” if the file is `.csv`).
+
+## MP4 upload behavior
+
+- Default: **parse GPMF locally**, save laps + GPS quality to Supabase (or local storage). The video file stays on your device.
+- Optional: check **Also upload the MP4** to store video on R2 (when configured) or IndexedDB for onboard sync.
+- Prefer linking a **YouTube URL** when the onboard is already online.
+- Multi-chapter: select several chapter MP4s together; Apex concatenates by cts.
+
+## Laps
+
+Laps are auto-detected from the GPS trace using the track’s **start/finish** (centerline first point or track lat/lon). Drive a full lap past S/F outdoors with a 3D lock.
+
+## GPS quality badge
+
+Each GoPro session stores a quality summary (stream, DOP, fix). Compare lists **prefer GoPro** sessions over phone CSV.
+
+## Troubleshooting
+
+| Message | What to do |
+|---------|------------|
+| No GPMF metadata track | Use the **original** GoPro MP4 (YouTube strips GPMF). Or export GPX/JSON. |
+| No GPS samples after quality filtering | Enable GPS on the camera, wait for a 3D lock outdoors before recording. |
+| Laps could not be detected | Drive a full lap past start/finish, or select the correct track. |
+| Could not parse GPMF | Confirm Hero5+ with GPS; try Quik/Telemetry Overlay export instead. |
+
+Real Hero5+ clips are not required for CI — synthetic GPMF fixtures exercise the parse path (`npm run test:gopro`).
