@@ -471,6 +471,7 @@ export function LeafletTrackMap({
         lon: s.lon,
         bearing: s.bearing,
       })),
+      10,
     );
 
     samples.forEach((sample, index) => {
