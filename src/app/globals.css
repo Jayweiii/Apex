@@ -38,3 +38,26 @@ canvas,
 video {
   max-width: 100%;
 }
+
+/* Leaflet overlays/markers break if svg/img are capped at 100% width. */
+.leaflet-container img,
+.leaflet-container svg {
+  max-width: none !important;
+}
+
+.apex-car-marker {
+  background: transparent !important;
+  border: none !important;
+}
+
+.apex-car-marker__dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 9999px;
+  background: var(--apex-car, #f97316);
+  border: 3px solid #fafafa;
+  box-shadow:
+    0 0 0 2px rgba(0, 0, 0, 0.55),
+    0 2px 8px rgba(0, 0, 0, 0.45);
+  box-sizing: border-box;
+}

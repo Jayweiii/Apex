@@ -27,6 +27,20 @@ assert(leaflet.includes("openstreetmap.org"), "OSM street basemap");
 assert(/Esri/i.test(leaflet), "Esri attribution");
 assert(leaflet.includes("satellite") && leaflet.includes("street"), "basemap toggle");
 assert(leaflet.includes("colorBySpeed") || leaflet.includes("speedColor"), "speed coloring");
+assert(leaflet.includes("dragging: false"), "map pan disabled");
+assert(leaflet.includes("scrollWheelZoom: false"), "scroll zoom disabled");
+assert(leaflet.includes("touchZoom: false"), "touch zoom disabled");
+assert(leaflet.includes("doubleClickZoom: false"), "dblclick zoom disabled");
+assert(leaflet.includes("zoomControl: false"), "zoom control hidden");
+assert(leaflet.includes("65vh") || leaflet.includes("h-[65vh]"), "tall hero map");
+assert(leaflet.includes("divIcon") || leaflet.includes("apex-car-marker"), "HTML car markers");
+assert(leaflet.includes("mousemove"), "map scrub on move");
+
+const globals = readFileSync(resolve(root, "src/app/globals.css"), "utf8");
+assert(
+  globals.includes(".leaflet-container") && globals.includes("max-width: none"),
+  "leaflet svg/img max-width override",
+);
 
 const directory = readFileSync(
   resolve(root, "src/components/TrackDirectory.tsx"),
@@ -40,5 +54,7 @@ console.log(
     leaflet: pkg.dependencies?.leaflet,
     basemaps: ["satellite:esri-world-imagery", "street:osm"],
     ssr: false,
+    fixedMap: true,
+    carMarkers: "divIcon",
   }),
 );

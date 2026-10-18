@@ -37,7 +37,7 @@ const LeafletTrackMap = dynamic(
         <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-zinc-500">
           Map
         </p>
-        <div className="flex h-[260px] items-center justify-center rounded-xl border border-dashed border-zinc-800 text-sm text-zinc-500 sm:h-[380px]">
+        <div className="flex h-[65vh] min-h-[320px] items-center justify-center rounded-xl border border-dashed border-zinc-800 text-sm text-zinc-500 sm:min-h-[420px]">
           Loading satellite map…
         </div>
       </div>

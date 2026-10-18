@@ -17,33 +17,28 @@ export function indexFromClientX(
   return Math.round(fraction * (length - 1));
 }
 
+/**
+ * Bind pointer scrub so chart hover updates shared cursor even when Recharts
+ * onMouseMove / activeTooltipIndex is missing (common with number axes).
+ */
 export function bindChartScrub(
   length: number,
   onHoverIndex?: (index: number | null) => void,
 ) {
+  const scrubAt = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const index = indexFromClientX(
+      event.clientX,
+      event.currentTarget,
+      length,
+    );
+    if (index != null) onHoverIndex?.(index);
+  };
+
   return {
     onMouseLeave: () => onHoverIndex?.(null),
     onTouchEnd: () => onHoverIndex?.(null),
     onTouchCancel: () => onHoverIndex?.(null),
-    onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => {
-      if (event.pointerType === "touch") {
-        const index = indexFromClientX(
-          event.clientX,
-          event.currentTarget,
-          length,
-        );
-        if (index != null) onHoverIndex?.(index);
-      }
-    },
-    onPointerMove: (event: ReactPointerEvent<HTMLDivElement>) => {
-      if (event.pointerType !== "touch") return;
-      // Allow move after touchstart even if buttons reporting is flaky.
-      const index = indexFromClientX(
-        event.clientX,
-        event.currentTarget,
-        length,
-      );
-      if (index != null) onHoverIndex?.(index);
-    },
+    onPointerDown: scrubAt,
+    onPointerMove: scrubAt,
   };
 }

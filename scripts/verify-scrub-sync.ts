@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   clampProgress,
   indexFromProgress,
@@ -55,12 +57,25 @@ function main() {
   const end = sampleAtProgress(raw, 1);
   assert(end.lat === 3 && end.lon === 3, "sample end without trackDist");
 
+  const leaflet = readFileSync(
+    resolve(import.meta.dirname, "../src/components/LeafletTrackMap.tsx"),
+    "utf8",
+  );
+  if (!leaflet.includes("apex-car-marker") || !leaflet.includes("sampleAtProgress")) {
+    throw new Error("LeafletTrackMap must render car markers from shared progress");
+  }
+  if (!leaflet.includes("dragging: false")) {
+    throw new Error("map must stay fixed (no pan) while scrubbing");
+  }
+
   console.log(
     JSON.stringify({
       ok: true,
       chartToMap: "progress 0..1 shared",
       mapToChart: "indexFromProgress",
       distanceAware: true,
+      carMarkers: "divIcon on shared progress",
+      mapInteraction: "scrub-only",
     }),
   );
 }
