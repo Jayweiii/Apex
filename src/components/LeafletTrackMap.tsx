@@ -151,28 +151,27 @@ function trackBearing(points: GpsPoint[], progress: number): number {
   return (Math.atan2(dLon, dLat) * 180) / Math.PI;
 }
 
-/** Separate nearly-coincident scrub markers so both stay readable. */
+/**
+ * Fan multi-lap scrub markers perpendicular to the racing line so ring +
+ * filled dots stay readable even when GPS positions coincide.
+ */
 function separateScrubPositions(
   samples: Array<{ lat: number; lon: number; bearing: number }>,
-  minSeparationM = 6,
+  baseOffsetM = 5,
 ): Array<{ lat: number; lon: number }> {
   if (samples.length < 2) {
     return samples.map((s) => ({ lat: s.lat, lon: s.lon }));
   }
-  const out = samples.map((s) => ({ lat: s.lat, lon: s.lon }));
-  for (let i = 0; i < samples.length; i += 1) {
-    for (let j = i + 1; j < samples.length; j += 1) {
-      const dist = haversine(out[i].lat, out[i].lon, out[j].lat, out[j].lon);
-      if (dist >= minSeparationM) continue;
-      const bearing = samples[i].bearing;
-      const nudge = Math.max(minSeparationM / 2, (minSeparationM - dist) / 2 + 2);
-      const left = offsetByBearing(out[i].lat, out[i].lon, bearing - 90, nudge);
-      const right = offsetByBearing(out[j].lat, out[j].lon, bearing + 90, nudge);
-      out[i] = left;
-      out[j] = right;
-    }
-  }
-  return out;
+  return samples.map((sample, index) => {
+    const sign = index === 0 ? -1 : index === 1 ? 1 : index % 2 === 0 ? -1 : 1;
+    const meters = baseOffsetM * (1 + Math.floor(index / 2) * 0.6);
+    return offsetByBearing(
+      sample.lat,
+      sample.lon,
+      sample.bearing + 90 * sign,
+      meters,
+    );
+  });
 }
 
 export function LeafletTrackMap({
@@ -471,7 +470,7 @@ export function LeafletTrackMap({
         lon: s.lon,
         bearing: s.bearing,
       })),
-      10,
+      6,
     );
 
     samples.forEach((sample, index) => {
