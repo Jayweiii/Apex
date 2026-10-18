@@ -488,11 +488,11 @@ export function LeafletTrackMap({
       );
     });
 
-    // Tiny gap label when comparing two laps at the same progress.
+    // Tiny gap label when comparing two laps (skip absurd outliers).
     if (samples.length === 2) {
       const [ref, other] = samples;
       const gapSec = other.point.t - ref.point.t;
-      if (Number.isFinite(gapSec)) {
+      if (Number.isFinite(gapSec) && Math.abs(gapSec) < 30) {
         const mid = {
           lat: (positions[0].lat + positions[1].lat) / 2,
           lon: (positions[0].lon + positions[1].lon) / 2,
