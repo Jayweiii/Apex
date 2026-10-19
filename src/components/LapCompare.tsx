@@ -18,6 +18,10 @@ import {
   type MultiComparedPoint,
 } from "@/lib/compare";
 import { type CompareSessionOption } from "@/lib/compare-sessions";
+import {
+  comparisonItemsFromSlots,
+  type ComparisonDraftSnapshot,
+} from "@/lib/comparisons";
 import { lapAsSyncLap } from "@/lib/dual-video-sync";
 import { formatG, formatGap, formatLapTime } from "@/lib/format";
 import { enrichTelemetry } from "@/lib/gforce";
@@ -180,6 +184,10 @@ export function LapCompare({
   initialOtherSession,
   initialLaps,
   initialTrackId,
+  initialRefIndex,
+  initialAnalysisMode,
+  readOnly,
+  onDraftChange,
 }: {
   laps: LapRow[];
   /** Sessions available for cross-session compare (own / friends / public / local). */
@@ -191,6 +199,12 @@ export function LapCompare({
   initialLaps?: string;
   /** Prefer filtering pickers to this track when multiple tracks are present. */
   initialTrackId?: string;
+  /** Override which seeded slot is the reference (saved comparisons). */
+  initialRefIndex?: number;
+  initialAnalysisMode?: GpsDisplayMode;
+  /** Hide add/remove / set-ref when viewing a shared comparison read-only. */
+  readOnly?: boolean;
+  onDraftChange?: (draft: ComparisonDraftSnapshot) => void;
 }) {
   const allSessions = useMemo<CompareSessionOption[]>(() => {
     if (sessions?.length) return sessions;
@@ -255,7 +269,16 @@ export function LapCompare({
     }),
   );
   /** Index into `slots` that is the reference (delta baseline). */
-  const [refIndex, setRefIndex] = useState(0);
+  const [refIndex, setRefIndex] = useState(() => {
+    if (
+      initialRefIndex != null &&
+      Number.isFinite(initialRefIndex) &&
+      initialRefIndex >= 0
+    ) {
+      return Math.floor(initialRefIndex);
+    }
+    return 0;
+  });
 
   // Keep slots valid when session list / filter changes.
   useEffect(() => {
@@ -360,6 +383,12 @@ export function LapCompare({
     hasSnap: hasAnalysisSnap,
   } = useAnalysisMode(Boolean(centerline));
 
+  useEffect(() => {
+    if (initialAnalysisMode === "raw" || initialAnalysisMode === "snapped") {
+      setAnalysisMode(initialAnalysisMode);
+    }
+  }, [initialAnalysisMode, setAnalysisMode]);
+
   const series: MultiComparedPoint[] = useMemo(() => {
     if (ordered.length < 2 || sameLap) return [];
     const ref = ordered[0];
@@ -396,6 +425,29 @@ export function LapCompare({
   }, [ordered, matchedByLapId, gpsMode, centerline]);
 
   const [progress, setProgress] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!onDraftChange) return;
+    const items = comparisonItemsFromSlots(
+      resolved.map((item) => ({
+        sessionId: item.session.id,
+        lapId: item.lap.id,
+        lapNumber: item.lap.lap_number,
+        color: item.color,
+      })),
+    );
+    const refInItems = Math.max(
+      0,
+      resolved.findIndex((item) => item.isRef),
+    );
+    onDraftChange({
+      items,
+      referenceIndex: refInItems >= 0 ? refInItems : 0,
+      analysisMode,
+      progress,
+    });
+  }, [onDraftChange, resolved, analysisMode, progress]);
+
   const hoverAt =
     progress == null || series.length < 2
       ? null
@@ -496,15 +548,18 @@ export function LapCompare({
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
             Laps ({slots.length}/{MAX_COMPARE_LAPS})
+            {readOnly ? " · read-only" : ""}
           </p>
-          <button
-            type="button"
-            disabled={slots.length >= MAX_COMPARE_LAPS}
-            onClick={addSlot}
-            className="min-h-10 rounded-lg border border-zinc-800 px-3 text-sm text-zinc-300 hover:border-zinc-600 disabled:opacity-40"
-          >
-            Add lap
-          </button>
+          {!readOnly ? (
+            <button
+              type="button"
+              disabled={slots.length >= MAX_COMPARE_LAPS}
+              onClick={addSlot}
+              className="min-h-10 rounded-lg border border-zinc-800 px-3 text-sm text-zinc-300 hover:border-zinc-600 disabled:opacity-40"
+            >
+              Add lap
+            </button>
+          ) : null}
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           {slots.map((slot, index) => {
@@ -526,28 +581,34 @@ export function LapCompare({
                   <span className="text-xs uppercase tracking-[0.16em] text-zinc-500">
                     {isRef ? "Reference" : `Lap ${index + 1}`}
                   </span>
-                  <div className="ml-auto flex gap-1">
-                    {!isRef ? (
-                      <button
-                        type="button"
-                        onClick={() => setRefIndex(index)}
-                        className="rounded-md px-2 py-1 text-[11px] uppercase tracking-[0.14em] text-orange-400 hover:bg-zinc-900"
-                      >
-                        Set ref
-                      </button>
-                    ) : null}
-                    {slots.length > 2 ? (
-                      <button
-                        type="button"
-                        onClick={() => removeSlot(slot.key)}
-                        className="rounded-md px-2 py-1 text-[11px] uppercase tracking-[0.14em] text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300"
-                      >
-                        Remove
-                      </button>
-                    ) : null}
-                  </div>
+                  {!readOnly ? (
+                    <div className="ml-auto flex gap-1">
+                      {!isRef ? (
+                        <button
+                          type="button"
+                          onClick={() => setRefIndex(index)}
+                          className="rounded-md px-2 py-1 text-[11px] uppercase tracking-[0.14em] text-orange-400 hover:bg-zinc-900"
+                        >
+                          Set ref
+                        </button>
+                      ) : null}
+                      {slots.length > 2 ? (
+                        <button
+                          type="button"
+                          onClick={() => removeSlot(slot.key)}
+                          className="rounded-md px-2 py-1 text-[11px] uppercase tracking-[0.14em] text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300"
+                        >
+                          Remove
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <span className="ml-auto text-[10px] uppercase tracking-[0.14em] text-zinc-600">
+                      {session?.name ?? ""}
+                    </span>
+                  )}
                 </div>
-                {multiSession ? (
+                {multiSession && !readOnly ? (
                   <SessionSelect
                     label="Session"
                     value={session?.id ?? ""}
@@ -562,12 +623,26 @@ export function LapCompare({
                     }}
                   />
                 ) : null}
-                <LapSelect
-                  label="Lap"
-                  value={slot.lapId}
-                  laps={session?.laps ?? []}
-                  onChange={(lapId) => updateSlot(slot.key, { lapId })}
-                />
+                {!readOnly ? (
+                  <LapSelect
+                    label="Lap"
+                    value={slot.lapId}
+                    laps={session?.laps ?? []}
+                    onChange={(lapId) => updateSlot(slot.key, { lapId })}
+                  />
+                ) : (
+                  <p className="text-sm text-zinc-300">
+                    Lap{" "}
+                    {session?.laps.find((l) => l.id === slot.lapId)?.lap_number ??
+                      "—"}{" "}
+                    <span className="font-mono text-zinc-500">
+                      {formatLapTime(
+                        session?.laps.find((l) => l.id === slot.lapId)
+                          ?.lap_time_ms ?? 0,
+                      )}
+                    </span>
+                  </p>
+                )}
               </div>
             );
           })}

@@ -1,6 +1,7 @@
 import { AccountSessions } from "@/components/AccountSessions";
 import { AppHeader } from "@/components/AppHeader";
 import { ImportLocalSessions } from "@/components/ImportLocalSessions";
+import { SavedComparisonsList } from "@/components/SavedComparisonsList";
 import { SessionUpload } from "@/components/SessionUpload";
 import { hasSupabaseConfig } from "@/lib/supabase/env";
 import { createClient } from "@/lib/supabase/server";
@@ -39,6 +40,7 @@ export default async function AccountPage() {
         </div>
         <ImportLocalSessions />
         <SessionUpload />
+        <SavedComparisonsList />
         <AccountSessions />
       </main>
     </>

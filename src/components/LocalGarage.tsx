@@ -7,6 +7,8 @@ import {
 import { AttributionCard } from "@/components/Attribution";
 import { AppHeader } from "@/components/AppHeader";
 import { LapCompare } from "@/components/LapCompare";
+import { SaveComparisonControls } from "@/components/SaveComparisonControls";
+import type { ComparisonDraftSnapshot } from "@/lib/comparisons";
 import { LapList } from "@/components/LapList";
 import { LapCharts } from "@/components/LapCharts";
 import { SessionVideosCard } from "@/components/SessionVideosCard";
@@ -34,7 +36,7 @@ import { parseTelemetryCsv } from "@/lib/parse-telemetry";
 import type { SessionVideo } from "@/lib/types";
 import { getTrack } from "@/lib/tracks";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 function CompareLink({
@@ -116,6 +118,10 @@ export function LocalCompare({
   const session = useLocalSession(id);
   const [peerSessions, setPeerSessions] = useState<StoredSession[]>([]);
   const [catalogPeers, setCatalogPeers] = useState<StoredSession[]>([]);
+  const [draft, setDraft] = useState<ComparisonDraftSnapshot | null>(null);
+  const onDraftChange = useCallback((next: ComparisonDraftSnapshot) => {
+    setDraft(next);
+  }, []);
 
   useEffect(() => {
     if (!session) return;
@@ -288,6 +294,7 @@ export function LocalCompare({
           />
           <SessionNotes session={session} />
         </div>
+        <SaveComparisonControls draft={draft} />
         <LapCompare
           laps={laps}
           sessions={compareSessions}
@@ -296,6 +303,7 @@ export function LocalCompare({
           initialOtherSession={initialOtherSession}
           initialLaps={initialLaps}
           initialTrackId={session.trackId}
+          onDraftChange={onDraftChange}
         />
         {corners.length ? (
           <CornerBreakdownTable
