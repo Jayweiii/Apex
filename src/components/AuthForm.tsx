@@ -68,7 +68,7 @@ export function AuthForm() {
           return;
         }
         if (outcome.kind === "signed_in") {
-          router.replace("/");
+          router.replace("/account");
           router.refresh();
           return;
         }
@@ -80,7 +80,7 @@ export function AuthForm() {
           password,
         });
         if (signInError) throw signInError;
-        router.replace("/");
+        router.replace("/account");
         router.refresh();
       }
     } catch (err) {

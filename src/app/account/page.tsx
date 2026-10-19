@@ -1,8 +1,6 @@
-import { AccountSessions } from "@/components/AccountSessions";
+import { AccountWorkbench } from "@/components/AccountWorkbench";
 import { AppHeader } from "@/components/AppHeader";
-import { ImportLocalSessions } from "@/components/ImportLocalSessions";
-import { SavedComparisonsList } from "@/components/SavedComparisonsList";
-import { SessionUpload } from "@/components/SessionUpload";
+import { SiteFooter } from "@/components/SiteFooter";
 import { hasSupabaseConfig } from "@/lib/supabase/env";
 import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
@@ -22,7 +20,7 @@ export default async function AccountPage() {
   return (
     <>
       <AppHeader email={user.email} />
-      <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-8 px-6 py-8">
+      <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-5 px-4 py-6 sm:px-6 sm:py-8">
         <div>
           <Link
             href="/"
@@ -30,19 +28,16 @@ export default async function AccountPage() {
           >
             Home
           </Link>
-          <h1 className="mt-3 text-2xl font-semibold tracking-tight text-zinc-50">
-            Account sessions
+          <h1 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-50">
+            Your sessions
           </h1>
           <p className="mt-1 text-sm text-zinc-500">
-            Your uploads. Default visibility is Friends (signed-in Apex drivers).
-            Change it on each session page.
+            Uploads and saved comparisons. Default visibility is Friends.
           </p>
         </div>
-        <ImportLocalSessions />
-        <SessionUpload />
-        <SavedComparisonsList />
-        <AccountSessions />
+        <AccountWorkbench />
       </main>
+      <SiteFooter signedIn />
     </>
   );
 }

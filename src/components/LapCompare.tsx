@@ -444,6 +444,9 @@ export function LapCompare({
   }, [ordered, matchedByLapId, gpsMode, centerline]);
 
   const [progress, setProgress] = useState<number | null>(null);
+  const [chartPanel, setChartPanel] = useState<"delta" | "speed" | "g">(
+    "delta",
+  );
 
   const draftKey = resolved
     .map((item) => `${item.session.id}:${item.lap.id}:${item.isRef ? "r" : ""}`)
@@ -730,174 +733,209 @@ export function LapCompare({
             </div>
           </div>
 
-          <DualSessionVideos
-            sides={videoSides}
-            progress={progress}
-            onProgress={setProgress}
-          />
+          <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
+            <div className="space-y-4 lg:sticky lg:top-20">
+              <DualSessionVideos
+                sides={videoSides}
+                progress={progress}
+                onProgress={setProgress}
+              />
 
-          {showMap ? (
-            <TrackMap
-              traces={mapTraces}
-              activeProgress={progress}
-              onProgress={setProgress}
-              centerline={centerline}
-              gpsMode={centerline ? gpsMode : undefined}
-              onGpsModeChange={centerline ? setGpsMode : undefined}
-              analysisMode={centerline ? analysisMode : undefined}
-              onAnalysisModeChange={centerline ? setAnalysisMode : undefined}
-              analysisDisabled={!hasAnalysisSnap}
-              defaultFollowId={ordered[0]?.lap.id}
-            />
-          ) : (
-            <MissingGps />
-          )}
-
-          <ChartCard
-            title="Speed"
-            hint={
-              analysisMode === "snapped"
-                ? "Aligned on snapped track distance"
-                : "Aligned on raw GPS path"
-            }
-            scrub={chartScrub}
-          >
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart
-                data={series}
-                syncId="compare"
-                margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
-                onMouseMove={(state) => hoverFromChart(hoverIndex(state))}
-                onMouseLeave={() => setProgress(null)}
-              >
-                <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
-                <XAxis
-                  dataKey="dist"
-                  type="number"
-                  tickFormatter={(value) => formatDistance(Number(value))}
-                  stroke="#71717a"
-                  fontSize={11}
+              {showMap ? (
+                <TrackMap
+                  traces={mapTraces}
+                  activeProgress={progress}
+                  onProgress={setProgress}
+                  centerline={centerline}
+                  gpsMode={centerline ? gpsMode : undefined}
+                  onGpsModeChange={centerline ? setGpsMode : undefined}
+                  analysisMode={centerline ? analysisMode : undefined}
+                  onAnalysisModeChange={centerline ? setAnalysisMode : undefined}
+                  analysisDisabled={!hasAnalysisSnap}
+                  defaultFollowId={ordered[0]?.lap.id}
                 />
-                <YAxis stroke="#71717a" fontSize={11} unit=" km/h" width={48} />
-                <Tooltip content={<CompareTooltip />} />
-                <Legend />
-                {hoverAt != null ? (
-                  <ReferenceLine
-                    x={series[hoverAt]?.dist}
-                    stroke="#a1a1aa"
-                    strokeDasharray="4 4"
-                  />
-                ) : null}
-                {ordered.map((item, index) => (
-                  <Line
-                    key={item.lap.id}
-                    type="monotone"
-                    dataKey={`speed${index}`}
-                    name={`Lap ${item.lap.lap_number}`}
-                    stroke={item.color}
-                    strokeWidth={2}
-                    dot={false}
-                    isAnimationActive={false}
-                  />
-                ))}
-              </LineChart>
-            </ResponsiveContainer>
-          </ChartCard>
+              ) : (
+                <MissingGps />
+              )}
+            </div>
 
-          <ChartCard
-            title="Delta"
-            hint={
-              analysisMode === "snapped"
-                ? "Snapped · positive means behind reference"
-                : "Raw · positive means behind reference"
-            }
-            scrub={chartScrub}
-          >
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart
-                data={series}
-                syncId="compare"
-                margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
-                onMouseMove={(state) => hoverFromChart(hoverIndex(state))}
-                onMouseLeave={() => setProgress(null)}
-              >
-                <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
-                <XAxis
-                  dataKey="dist"
-                  type="number"
-                  tickFormatter={(value) => formatDistance(Number(value))}
-                  stroke="#71717a"
-                  fontSize={11}
-                />
-                <YAxis stroke="#71717a" fontSize={11} unit=" s" width={48} />
-                <Tooltip content={<CompareTooltip mode="delta" />} />
-                <Legend />
-                {hoverAt != null ? (
-                  <ReferenceLine
-                    x={series[hoverAt]?.dist}
-                    stroke="#a1a1aa"
-                    strokeDasharray="4 4"
-                  />
-                ) : null}
-                <ReferenceLine y={0} stroke="#52525b" />
-                {ordered.slice(1).map((item, index) => (
-                  <Line
-                    key={item.lap.id}
-                    type="monotone"
-                    dataKey={`delta${index + 1}`}
-                    name={`Δ Lap ${item.lap.lap_number}`}
-                    stroke={item.color}
-                    strokeWidth={2}
-                    dot={false}
-                    isAnimationActive={false}
-                  />
+            <div className="space-y-3">
+              <div className="flex flex-wrap gap-2">
+                {(
+                  [
+                    { id: "delta" as const, label: "Delta" },
+                    { id: "speed" as const, label: "Speed" },
+                    { id: "g" as const, label: "G" },
+                  ] as const
+                ).map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setChartPanel(item.id)}
+                    className={`min-h-9 rounded-lg px-3 text-xs uppercase tracking-[0.14em] ${
+                      chartPanel === item.id
+                        ? "bg-zinc-100 text-zinc-900"
+                        : "border border-zinc-800 text-zinc-400 hover:text-zinc-200"
+                    }`}
+                  >
+                    {item.label}
+                  </button>
                 ))}
-              </LineChart>
-            </ResponsiveContainer>
-          </ChartCard>
+              </div>
 
-          <ChartCard title="G" hint="Combined acceleration" scrub={chartScrub}>
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart
-                data={series}
-                syncId="compare"
-                margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
-                onMouseMove={(state) => hoverFromChart(hoverIndex(state))}
-                onMouseLeave={() => setProgress(null)}
-              >
-                <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
-                <XAxis
-                  dataKey="dist"
-                  type="number"
-                  tickFormatter={(value) => formatDistance(Number(value))}
-                  stroke="#71717a"
-                  fontSize={11}
-                />
-                <YAxis stroke="#71717a" fontSize={11} width={40} />
-                <Tooltip content={<CompareTooltip mode="g" />} />
-                <Legend />
-                {hoverAt != null ? (
-                  <ReferenceLine
-                    x={series[hoverAt]?.dist}
-                    stroke="#a1a1aa"
-                    strokeDasharray="4 4"
-                  />
-                ) : null}
-                {ordered.map((item, index) => (
-                  <Line
-                    key={item.lap.id}
-                    type="monotone"
-                    dataKey={`g${index}`}
-                    name={`Lap ${item.lap.lap_number}`}
-                    stroke={item.color}
-                    strokeWidth={2}
-                    dot={false}
-                    isAnimationActive={false}
-                  />
-                ))}
-              </LineChart>
-            </ResponsiveContainer>
-          </ChartCard>
+              {chartPanel === "speed" ? (
+                <ChartCard
+                  title="Speed"
+                  hint={
+                    analysisMode === "snapped"
+                      ? "Aligned on snapped track distance"
+                      : "Aligned on raw GPS path"
+                  }
+                  scrub={chartScrub}
+                >
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart
+                      data={series}
+                      syncId="compare"
+                      margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
+                      onMouseMove={(state) => hoverFromChart(hoverIndex(state))}
+                      onMouseLeave={() => setProgress(null)}
+                    >
+                      <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
+                      <XAxis
+                        dataKey="dist"
+                        type="number"
+                        tickFormatter={(value) => formatDistance(Number(value))}
+                        stroke="#71717a"
+                        fontSize={11}
+                      />
+                      <YAxis stroke="#71717a" fontSize={11} unit=" km/h" width={48} />
+                      <Tooltip content={<CompareTooltip />} />
+                      <Legend />
+                      {hoverAt != null ? (
+                        <ReferenceLine
+                          x={series[hoverAt]?.dist}
+                          stroke="#a1a1aa"
+                          strokeDasharray="4 4"
+                        />
+                      ) : null}
+                      {ordered.map((item, index) => (
+                        <Line
+                          key={item.lap.id}
+                          type="monotone"
+                          dataKey={`speed${index}`}
+                          name={`Lap ${item.lap.lap_number}`}
+                          stroke={item.color}
+                          strokeWidth={2}
+                          dot={false}
+                          isAnimationActive={false}
+                        />
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer>
+                </ChartCard>
+              ) : null}
+
+              {chartPanel === "delta" ? (
+                <ChartCard
+                  title="Delta"
+                  hint={
+                    analysisMode === "snapped"
+                      ? "Snapped · positive means behind reference"
+                      : "Raw · positive means behind reference"
+                  }
+                  scrub={chartScrub}
+                >
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart
+                      data={series}
+                      syncId="compare"
+                      margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
+                      onMouseMove={(state) => hoverFromChart(hoverIndex(state))}
+                      onMouseLeave={() => setProgress(null)}
+                    >
+                      <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
+                      <XAxis
+                        dataKey="dist"
+                        type="number"
+                        tickFormatter={(value) => formatDistance(Number(value))}
+                        stroke="#71717a"
+                        fontSize={11}
+                      />
+                      <YAxis stroke="#71717a" fontSize={11} unit=" s" width={48} />
+                      <Tooltip content={<CompareTooltip mode="delta" />} />
+                      <Legend />
+                      {hoverAt != null ? (
+                        <ReferenceLine
+                          x={series[hoverAt]?.dist}
+                          stroke="#a1a1aa"
+                          strokeDasharray="4 4"
+                        />
+                      ) : null}
+                      <ReferenceLine y={0} stroke="#52525b" />
+                      {ordered.slice(1).map((item, index) => (
+                        <Line
+                          key={item.lap.id}
+                          type="monotone"
+                          dataKey={`delta${index + 1}`}
+                          name={`Δ Lap ${item.lap.lap_number}`}
+                          stroke={item.color}
+                          strokeWidth={2}
+                          dot={false}
+                          isAnimationActive={false}
+                        />
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer>
+                </ChartCard>
+              ) : null}
+
+              {chartPanel === "g" ? (
+                <ChartCard title="G" hint="Combined acceleration" scrub={chartScrub}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart
+                      data={series}
+                      syncId="compare"
+                      margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
+                      onMouseMove={(state) => hoverFromChart(hoverIndex(state))}
+                      onMouseLeave={() => setProgress(null)}
+                    >
+                      <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
+                      <XAxis
+                        dataKey="dist"
+                        type="number"
+                        tickFormatter={(value) => formatDistance(Number(value))}
+                        stroke="#71717a"
+                        fontSize={11}
+                      />
+                      <YAxis stroke="#71717a" fontSize={11} width={40} />
+                      <Tooltip content={<CompareTooltip mode="g" />} />
+                      <Legend />
+                      {hoverAt != null ? (
+                        <ReferenceLine
+                          x={series[hoverAt]?.dist}
+                          stroke="#a1a1aa"
+                          strokeDasharray="4 4"
+                        />
+                      ) : null}
+                      {ordered.map((item, index) => (
+                        <Line
+                          key={item.lap.id}
+                          type="monotone"
+                          dataKey={`g${index}`}
+                          name={`Lap ${item.lap.lap_number}`}
+                          stroke={item.color}
+                          strokeWidth={2}
+                          dot={false}
+                          isAnimationActive={false}
+                        />
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer>
+                </ChartCard>
+              ) : null}
+            </div>
+          </div>
         </>
       )}
     </div>

@@ -271,18 +271,22 @@ export function CloudSessionView({ id }: { id: string }) {
   return (
     <>
       <AppHeader email={email} />
-      <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8">
-        <div className="space-y-3">
-          <Link
-            href={mine ? "/account" : "/lap-comparisons?tab=sessions"}
-            className="text-[11px] uppercase tracking-[0.2em] text-zinc-500 hover:text-zinc-300"
-          >
-            {mine ? "Your account sessions" : userId ? "Friends" : "Public feed"}
-          </Link>
-          <h1 className="text-2xl font-semibold tracking-tight text-zinc-50 sm:text-3xl">
-            {session.name}
-          </h1>
-          <div className="flex flex-wrap items-center justify-between gap-3">
+      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-5 px-4 py-5 sm:px-6 sm:py-6">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 space-y-2">
+            <Link
+              href={mine ? "/account" : "/lap-comparisons?tab=sessions"}
+              className="text-[11px] uppercase tracking-[0.2em] text-zinc-500 hover:text-zinc-300"
+            >
+              {mine
+                ? "Your account sessions"
+                : userId
+                  ? "Friends"
+                  : "Public feed"}
+            </Link>
+            <h1 className="text-2xl font-semibold tracking-tight text-zinc-50 sm:text-3xl">
+              {session.name}
+            </h1>
             <div className="flex flex-wrap items-center gap-2 text-sm text-zinc-500">
               <span>
                 {session.car ? `${session.car} · ` : ""}
@@ -303,68 +307,87 @@ export function CloudSessionView({ id }: { id: string }) {
                 }
               />
             </div>
-            {href ? (
-              <Link
-                href={href}
-                className="text-xs uppercase tracking-[0.18em] text-orange-400 hover:text-orange-300"
-              >
-                Compare laps
-              </Link>
-            ) : null}
           </div>
-          {mine ? (
-            <div className="space-y-2">
-              <SessionVisibilityControl
-                value={visibility}
-                onChange={onVisibility}
-                disabled={visibilityBusy}
-              />
-              {visibilityBusy ? (
-                <p className="text-xs text-zinc-500">Saving visibility…</p>
-              ) : null}
-              {visibilityError ? (
-                <p
-                  role="alert"
-                  className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100"
-                >
-                  {visibilityError}
-                </p>
-              ) : null}
-            </div>
-          ) : (
-            <p className="text-xs uppercase tracking-[0.16em] text-zinc-600">
-              Visibility · {visibility}
-            </p>
-          )}
+          {href ? (
+            <Link
+              href={href}
+              className="inline-flex min-h-10 items-center text-xs uppercase tracking-[0.18em] text-orange-400 hover:text-orange-300"
+            >
+              Compare laps
+            </Link>
+          ) : null}
         </div>
 
-        {(mine || videos.length > 0) && (
-          <SessionVideosCard
-            session={{
-              id: session.id,
-              trackId: session.track_id ?? undefined,
-              sessionDate: session.session_date ?? undefined,
-              startedAtMs: Number.isFinite(startedAtMs) ? startedAtMs : undefined,
-              created_at: session.created_at,
-              laps: laps.map((lap) => ({
-                id: lap.id,
-                lap_number: lap.lap_number,
-                lap_time_ms: lap.lap_time_ms,
-              })),
-            }}
-            videos={videos}
-            onChange={mine ? onVideosChange : () => {}}
-            readOnly={!mine}
-          />
-        )}
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)] lg:items-start">
+          <div className="space-y-4 lg:sticky lg:top-20">
+            {mine ? (
+              <div className="space-y-2">
+                <SessionVisibilityControl
+                  value={visibility}
+                  onChange={onVisibility}
+                  disabled={visibilityBusy}
+                />
+                {visibilityBusy ? (
+                  <p className="text-xs text-zinc-500">Saving visibility…</p>
+                ) : null}
+                {visibilityError ? (
+                  <p
+                    role="alert"
+                    className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100"
+                  >
+                    {visibilityError}
+                  </p>
+                ) : null}
+              </div>
+            ) : (
+              <p className="text-xs uppercase tracking-[0.16em] text-zinc-600">
+                Visibility · {visibility}
+              </p>
+            )}
 
-        {laps.length ? (
-          <LapList sessionId={session.id} laps={laps} />
-        ) : (
-          <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-8 text-center text-sm text-zinc-500">
-            No laps in this session.
-          </p>
-        )}
+            {(mine || videos.length > 0) && (
+              <details open className="group rounded-xl border border-zinc-800/80 bg-zinc-950/40">
+                <summary className="cursor-pointer list-none px-4 py-3 text-xs uppercase tracking-[0.16em] text-zinc-400 marker:content-none [&::-webkit-details-marker]:hidden">
+                  YouTube onboard
+                  <span className="ml-2 text-zinc-600 group-open:hidden">
+                    show
+                  </span>
+                </summary>
+                <div className="border-t border-zinc-900 px-3 pb-3 pt-2">
+                  <SessionVideosCard
+                    session={{
+                      id: session.id,
+                      trackId: session.track_id ?? undefined,
+                      sessionDate: session.session_date ?? undefined,
+                      startedAtMs: Number.isFinite(startedAtMs)
+                        ? startedAtMs
+                        : undefined,
+                      created_at: session.created_at,
+                      laps: laps.map((lap) => ({
+                        id: lap.id,
+                        lap_number: lap.lap_number,
+                        lap_time_ms: lap.lap_time_ms,
+                      })),
+                    }}
+                    videos={videos}
+                    onChange={mine ? onVideosChange : () => {}}
+                    readOnly={!mine}
+                  />
+                </div>
+              </details>
+            )}
+          </div>
+
+          <div className="max-h-[min(70vh,720px)] overflow-y-auto pr-1">
+            {laps.length ? (
+              <LapList sessionId={session.id} laps={laps} />
+            ) : (
+              <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-8 text-center text-sm text-zinc-500">
+                No laps in this session.
+              </p>
+            )}
+          </div>
+        </div>
       </main>
     </>
   );

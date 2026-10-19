@@ -266,6 +266,8 @@ function TrackOverviewMap({
 
   return (
     <TrackMap
+      compact
+      hideCameraControls
       traces={[
         {
           id: `${track.id}-overview`,
@@ -282,6 +284,9 @@ function TrackOverviewMap({
 
 export function TrackDetail({ id }: { id: string }) {
   const [track, setTrack] = useState<Track | null>(() => getTrack(id));
+  const [tab, setTab] = useState<"sessions" | "leaderboard" | "upload">(
+    "sessions",
+  );
   const local = useLocalSessions();
 
   useEffect(() => {
@@ -295,11 +300,11 @@ export function TrackDetail({ id }: { id: string }) {
     return (
       <>
         <AppHeader />
-        <main className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6">
+        <main className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6">
           <p className="text-sm text-zinc-400">
             {local === null ? "Loading track…" : "Track not found."}
           </p>
-          <Link href="/" className="mt-4 inline-block text-sm text-orange-400">
+          <Link href="/tracks" className="mt-4 inline-block text-sm text-orange-400">
             Back to tracks
           </Link>
         </main>
@@ -313,63 +318,100 @@ export function TrackDetail({ id }: { id: string }) {
   return (
     <>
       <AppHeader />
-      <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-10">
-        <div>
-          <Link
-            href="/"
-            className="text-[11px] uppercase tracking-[0.2em] text-zinc-500 hover:text-zinc-300"
-          >
-            All tracks
-          </Link>
-          <h1 className="mt-3 text-2xl font-semibold tracking-tight text-zinc-50 sm:text-3xl">
-            {track.name}
-          </h1>
-          <p className="mt-1 text-sm text-zinc-500">{track.location}</p>
+      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-5 px-4 py-5 sm:px-6 sm:py-7">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <Link
+              href="/tracks"
+              className="text-[11px] uppercase tracking-[0.2em] text-zinc-500 hover:text-zinc-300"
+            >
+              All tracks
+            </Link>
+            <h1 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-50 sm:text-3xl">
+              {track.name}
+            </h1>
+            <p className="mt-1 text-sm text-zinc-500">{track.location}</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {(
+              [
+                { id: "sessions" as const, label: "Sessions" },
+                { id: "leaderboard" as const, label: "Leaderboard" },
+                { id: "upload" as const, label: "Upload" },
+              ] as const
+            ).map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setTab(item.id)}
+                className={`min-h-10 rounded-lg px-3 text-xs uppercase tracking-[0.16em] ${
+                  tab === item.id
+                    ? "bg-zinc-100 text-zinc-900"
+                    : "border border-zinc-800 text-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
         </div>
-        <TrackOverviewMap track={track} local={local} />
-        <SessionUpload trackId={track.id} />
-        <LeaderboardPanel trackId={track.id} />
-        <PublicCloudSessions trackId={track.id} />
-        <div className="flex flex-col gap-6">
-          {loading ? (
-            <p className="text-sm text-zinc-500">Loading sessions…</p>
-          ) : groups.length === 0 ? (
-            <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-8 text-center text-sm text-zinc-500">
-              No sessions yet, upload one.
-            </p>
-          ) : (
-            groups.map((group) => (
-              <section key={group.car} className="flex flex-col gap-3">
-                <h2 className="text-sm font-medium tracking-wide text-zinc-200">
-                  {group.car}
-                </h2>
-                <ul className="grid gap-2">
-                  {group.sessions.map((session) => (
-                    <li key={session.id}>
-                      <Link
-                        href={`/sessions/${session.id}`}
-                        className="flex min-h-14 items-center justify-between gap-4 rounded-2xl border border-zinc-800/80 bg-zinc-950/50 px-4 py-4 transition hover:border-zinc-700 hover:bg-zinc-900/60 sm:px-5"
-                      >
-                        <div className="min-w-0 space-y-1.5">
-                          <p className="font-medium text-zinc-100">{session.name}</p>
-                          <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-                            <DataKindBadge kind={session.kind} />
-                            <span>{session.laps} laps</span>
-                          </div>
-                        </div>
-                        <p className="shrink-0 font-mono text-lg text-orange-400">
-                          {Number.isFinite(session.best)
-                            ? formatLapTime(session.best)
-                            : "—"}
-                        </p>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ))
-          )}
-        </div>
+
+        {tab === "sessions" ? (
+          <div className="grid gap-5 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)] lg:items-start">
+            <div className="lg:sticky lg:top-20">
+              <TrackOverviewMap track={track} local={local} />
+            </div>
+            <div className="flex max-h-[min(70vh,760px)] flex-col gap-4 overflow-y-auto">
+              <PublicCloudSessions trackId={track.id} />
+              {loading ? (
+                <p className="text-sm text-zinc-500">Loading sessions…</p>
+              ) : groups.length === 0 ? (
+                <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-8 text-center text-sm text-zinc-500">
+                  No local sessions yet — upload one.
+                </p>
+              ) : (
+                groups.map((group) => (
+                  <section key={group.car} className="flex flex-col gap-2">
+                    <h2 className="text-sm font-medium tracking-wide text-zinc-200">
+                      {group.car}
+                    </h2>
+                    <ul className="grid gap-2">
+                      {group.sessions.map((session) => (
+                        <li key={session.id}>
+                          <Link
+                            href={`/sessions/${session.id}`}
+                            className="flex min-h-12 items-center justify-between gap-4 rounded-xl border border-zinc-800/80 bg-zinc-950/50 px-4 py-3 transition hover:border-zinc-700 hover:bg-zinc-900/60"
+                          >
+                            <div className="min-w-0 space-y-1">
+                              <p className="font-medium text-zinc-100">
+                                {session.name}
+                              </p>
+                              <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+                                <DataKindBadge kind={session.kind} />
+                                <span>{session.laps} laps</span>
+                              </div>
+                            </div>
+                            <p className="shrink-0 font-mono text-base text-orange-400">
+                              {Number.isFinite(session.best)
+                                ? formatLapTime(session.best)
+                                : "—"}
+                            </p>
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ))
+              )}
+            </div>
+          </div>
+        ) : null}
+
+        {tab === "leaderboard" ? (
+          <LeaderboardPanel trackId={track.id} />
+        ) : null}
+
+        {tab === "upload" ? <SessionUpload trackId={track.id} /> : null}
       </main>
     </>
   );
