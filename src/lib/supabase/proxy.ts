@@ -34,10 +34,18 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const isAuthRoute = request.nextUrl.pathname.startsWith("/login");
+  // Only bounce fully signed-in (email) users away from /login.
+  // Anonymous guests must reach /login to claim an email account.
+  const isAnonymous =
+    Boolean(user?.is_anonymous) ||
+    (user?.app_metadata as { provider?: string } | undefined)?.provider ===
+      "anonymous";
 
-  if (user && isAuthRoute) {
+  if (user && !isAnonymous && isAuthRoute) {
     const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = "/";
+    const next = request.nextUrl.searchParams.get("next");
+    redirectUrl.pathname = next && next.startsWith("/") ? next : "/";
+    redirectUrl.search = "";
     return NextResponse.redirect(redirectUrl);
   }
 

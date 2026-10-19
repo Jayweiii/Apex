@@ -86,9 +86,9 @@ export function CloudSessionView({ id }: { id: string }) {
         }
         if (!row) {
           setSession(null);
-          if (!user) {
-            setError("sign-in");
-          }
+          // Public rows are readable without auth via RLS. A miss means the
+          // session is private/missing — offer sign-in only as an optional path.
+          setError(user ? "not-found" : "sign-in");
           return;
         }
         setSession(row as CloudSession);
@@ -232,8 +232,8 @@ export function CloudSessionView({ id }: { id: string }) {
           {error === "sign-in" ? (
             <>
               <p className="text-sm text-zinc-300">
-                This session is on your Apex account. Sign in to view it (or ask
-                the owner to set visibility to Public link).
+                This session is not public. If it is yours, sign in to view it —
+                or ask the owner to set visibility to Public link.
               </p>
               <Link
                 href={`/login?next=${encodeURIComponent(`/sessions/${id}`)}`}
@@ -245,10 +245,10 @@ export function CloudSessionView({ id }: { id: string }) {
           ) : (
             <>
               <p className="text-sm text-zinc-400">
-                {error ?? "Session not found (or you do not have access)."}
+                Session not found (or you do not have access).
               </p>
-              <Link href="/account" className="mt-4 inline-block text-sm text-orange-400">
-                Account sessions
+              <Link href="/" className="mt-4 inline-block text-sm text-orange-400">
+                Back to home
               </Link>
             </>
           )}

@@ -13,7 +13,7 @@ export default async function FriendsSessionsPage() {
           <h1 className="text-2xl font-semibold text-zinc-50">Friends</h1>
           <p className="mt-3 text-sm text-zinc-400">
             Configure Supabase env vars to browse cloud sessions shared with
-            signed-in friends.
+            friends and the public.
           </p>
         </main>
       </>
@@ -25,30 +25,18 @@ export default async function FriendsSessionsPage() {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) {
-    return (
-      <>
-        <AppHeader />
-        <main className="mx-auto w-full max-w-4xl px-4 py-10 sm:px-6">
-          <h1 className="text-2xl font-semibold text-zinc-50">Friends</h1>
-          <p className="mt-3 text-sm text-zinc-400">
-            Upload a session (guest is fine) or{" "}
-            <Link href="/login" className="text-orange-400">
-              sign in
-            </Link>{" "}
-            to browse friends&apos; and public cloud sessions.
-          </p>
-        </main>
-      </>
-    );
-  }
-
-  // RLS filters by visibility (friends + public + own). Private of others hidden.
-  const { data: sessions } = await supabase
+  // Signed-out visitors: RLS allows anon read of public rows. Signed-in:
+  // friends + public + own. Never require login just to browse public data.
+  let sessionsQuery = supabase
     .from("sessions")
     .select("id, name, track_id, car, driver_name, created_at, user_id, visibility")
     .order("created_at", { ascending: false })
     .limit(40);
+  if (!user) {
+    sessionsQuery = sessionsQuery.eq("visibility", "public");
+  }
+
+  const { data: sessions } = await sessionsQuery;
 
   const { data: videos } = await supabase
     .from("session_videos")
@@ -65,16 +53,25 @@ export default async function FriendsSessionsPage() {
 
   return (
     <>
-      <AppHeader email={user.email} />
+      <AppHeader email={user?.email} />
       <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 px-4 py-6 sm:px-6 sm:py-10">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-zinc-50">
-            Friends&apos; sessions
+            {user ? "Friends' sessions" : "Public sessions"}
           </h1>
           <p className="mt-2 text-sm text-zinc-400">
-            Sessions set to Friends or Public link. Private sessions stay with
-            their owner.
+            {user
+              ? "Sessions set to Friends or Public link. Private sessions stay with their owner."
+              : "Public cloud sessions anyone can open. Sign in to also see friends' shared sessions."}
           </p>
+          {!user ? (
+            <p className="mt-2 text-sm text-zinc-500">
+              <Link href="/login" className="text-orange-400 hover:text-orange-300">
+                Sign in
+              </Link>{" "}
+              when you want to upload, save, or change visibility.
+            </p>
+          ) : null}
         </div>
         {!sessions?.length ? (
           <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-8 text-center text-sm text-zinc-500">
@@ -86,7 +83,7 @@ export default async function FriendsSessionsPage() {
               const track = session.track_id
                 ? getTrack(session.track_id)
                 : null;
-              const mine = session.user_id === user.id;
+              const mine = Boolean(user && session.user_id === user.id);
               return (
                 <li key={session.id}>
                   <Link
