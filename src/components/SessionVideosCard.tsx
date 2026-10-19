@@ -6,7 +6,7 @@ import {
   sessionVideoFromYouTube,
   suggestVideosForSession,
 } from "@/lib/youtube-match";
-import { YOUTUBE_CATALOG, YOUTUBE_CHANNEL } from "@/lib/youtube-catalog";
+import { YOUTUBE_CATALOG } from "@/lib/youtube-catalog";
 import { parseTitleHints, parseYouTubeId } from "@/lib/youtube";
 import { useMemo, useState } from "react";
 
@@ -133,10 +133,10 @@ export function SessionVideosCard({
         <div>
           <h2 className="text-sm font-medium text-zinc-200">Videos</h2>
           <p className="mt-1 text-sm text-zinc-500">
-            Attach onboard clips by YouTube URL (or pick from{" "}
-            {YOUTUBE_CHANNEL.handle}). Sync offset is saved on the session so
-            friends see the same alignment. Local GoPro files are for GPS
-            telemetry only — upload the video to YouTube and paste the link.
+            Attach onboard clips by pasting a YouTube URL. Sync offset is saved
+            on the session so friends see the same alignment. Local GoPro files
+            are for GPS telemetry only — upload the video to YouTube and paste
+            the link.
           </p>
         </div>
       </div>

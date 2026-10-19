@@ -71,7 +71,7 @@ export function SavedComparisonsList() {
       <div>
         <h2 className="text-lg font-medium text-zinc-100">Saved comparisons</h2>
         <p className="mt-1 text-sm text-zinc-500">
-          Shareable multi-lap compares. Public ones also appear on Discover.
+          Shareable multi-lap compares. Public ones also appear under Lap Comparisons.
         </p>
       </div>
       {error ? <p className="text-sm text-amber-200">{error}</p> : null}

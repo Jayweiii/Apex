@@ -15,21 +15,32 @@ function read(rel: string) {
   return readFileSync(resolve(root, rel), "utf8");
 }
 
-// Friends feed must not early-return a login wall when !user.
+// Friends nav folded into Lap Comparisons; legacy /friends redirects there.
 const friends = read("src/app/friends/page.tsx");
 assert(
-  !/if\s*\(\s*!user\s*\)\s*\{\s*return\s*\(/m.test(friends),
-  "friends page must not early-return when !user",
+  friends.includes("lap-comparisons") && friends.includes("redirect"),
+  "friends page redirects into Lap Comparisons",
+);
+const lapComparisons = read("src/components/LapComparisonsPage.tsx");
+assert(
+  !/if\s*\(\s*!user\s*\)\s*\{\s*return\s*\(/m.test(lapComparisons),
+  "lap comparisons feed must not early-return when !user",
 );
 assert(
-  /visibility\s*=\s*['"]public['"]|eq\(\s*["']visibility["']\s*,\s*["']public["']\s*\)/.test(
-    friends,
-  ) || friends.includes('eq("visibility", "public")'),
-  "friends page filters or relies on public visibility for anon",
+  lapComparisons.includes('eq("visibility", "public")'),
+  "friends/public feed filters public for anon",
 );
 assert(
-  friends.includes("Public sessions") || friends.includes("public"),
-  "friends page should surface public sessions for anon",
+  read("src/components/AppHeader.tsx").includes("Lap Comparisons"),
+  "nav labels Lap Comparisons",
+);
+assert(
+  !read("src/components/AppHeader.tsx").includes('href="/friends"'),
+  "Friends tab removed from nav",
+);
+assert(
+  !read("src/components/AppHeader.tsx").includes('href="/youtube"'),
+  "YouTube catalog removed from nav",
 );
 
 // Leaderboard must query cloud sessions without requiring a user.

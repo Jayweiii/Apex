@@ -65,22 +65,10 @@ export function AppHeader({ email }: { email?: string }) {
       </Link>
       <div className="flex items-center gap-2 sm:gap-3">
         <Link
-          href="/youtube"
+          href="/lap-comparisons"
           className="hidden min-h-10 items-center text-xs uppercase tracking-[0.18em] text-zinc-500 hover:text-zinc-300 sm:inline-flex"
         >
-          YouTube
-        </Link>
-        <Link
-          href="/discover"
-          className="hidden min-h-10 items-center text-xs uppercase tracking-[0.18em] text-zinc-500 hover:text-zinc-300 sm:inline-flex"
-        >
-          Discover
-        </Link>
-        <Link
-          href="/friends"
-          className="hidden min-h-10 items-center text-xs uppercase tracking-[0.18em] text-zinc-500 hover:text-zinc-300 sm:inline-flex"
-        >
-          Friends
+          Lap Comparisons
         </Link>
         {signedIn ? (
           <>

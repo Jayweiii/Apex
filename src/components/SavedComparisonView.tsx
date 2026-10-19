@@ -184,8 +184,8 @@ export function SavedComparisonView({ id }: { id: string }) {
               ? "Comparison not found (or it is private)."
               : (error ?? "Comparison not found.")}
           </p>
-          <Link href="/discover" className="mt-4 inline-block text-sm text-orange-400">
-            Browse Discover
+          <Link href="/lap-comparisons" className="mt-4 inline-block text-sm text-orange-400">
+            Browse Lap Comparisons
           </Link>
         </main>
       </>
@@ -200,10 +200,10 @@ export function SavedComparisonView({ id }: { id: string }) {
       <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8">
         <div className="space-y-3">
           <Link
-            href="/discover"
+            href="/lap-comparisons"
             className="text-[11px] uppercase tracking-[0.2em] text-zinc-500 hover:text-zinc-300"
           >
-            Discover
+            Lap Comparisons
           </Link>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>

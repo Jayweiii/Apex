@@ -1,5 +1,6 @@
-import { YoutubeCatalogPage } from "@/components/YoutubeCatalogPage";
+import { redirect } from "next/navigation";
 
-export default function YoutubePage() {
-  return <YoutubeCatalogPage />;
+/** Personal YouTube catalog removed from nav; per-session paste remains. */
+export default function YoutubeRedirectPage() {
+  redirect("/");
 }
