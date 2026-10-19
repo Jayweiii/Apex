@@ -87,13 +87,7 @@ export function CloudSessionView({ id }: { id: string }) {
         if (!row) {
           // Public rows load via anon RLS. Missing ⇒ not found or private/friends.
           setSession(null);
-<<<<<<< HEAD
-          // Public rows are readable without auth via RLS. A miss means the
-          // session is private/missing — offer sign-in only as an optional path.
-          setError(user ? "not-found" : "sign-in");
-=======
           setError("not-found");
->>>>>>> 5d5e962 (Allow signed-out browsing of public sessions and feeds.)
           return;
         }
         setSession(row as CloudSession);
@@ -234,31 +228,6 @@ export function CloudSessionView({ id }: { id: string }) {
       <>
         <AppHeader email={email} />
         <main className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6">
-<<<<<<< HEAD
-          {error === "sign-in" ? (
-            <>
-              <p className="text-sm text-zinc-300">
-                This session is not public. If it is yours, sign in to view it —
-                or ask the owner to set visibility to Public link.
-              </p>
-              <Link
-                href={`/login?next=${encodeURIComponent(`/sessions/${id}`)}`}
-                className="mt-4 inline-block text-sm text-orange-400"
-              >
-                Sign in
-              </Link>
-            </>
-          ) : (
-            <>
-              <p className="text-sm text-zinc-400">
-                Session not found (or you do not have access).
-              </p>
-              <Link href="/" className="mt-4 inline-block text-sm text-orange-400">
-                Back to home
-              </Link>
-            </>
-          )}
-=======
           <p className="text-sm text-zinc-400">
             {error && error !== "not-found"
               ? error
@@ -283,7 +252,6 @@ export function CloudSessionView({ id }: { id: string }) {
           <Link href="/" className="mt-4 inline-block text-sm text-orange-400">
             Browse public sessions
           </Link>
->>>>>>> 5d5e962 (Allow signed-out browsing of public sessions and feeds.)
         </main>
       </>
     );
