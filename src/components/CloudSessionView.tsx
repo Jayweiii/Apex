@@ -5,11 +5,9 @@ import { GpsQualityBadge } from "@/components/GpsQualityBadge";
 import { LapList } from "@/components/LapList";
 import { SessionVideosCard } from "@/components/SessionVideosCard";
 import { SessionVisibilityControl } from "@/components/SessionVisibilityControl";
-import { deleteLocalBlob, getLocalBlob } from "@/lib/blob-store";
 import { compareHref } from "@/lib/compare";
 import { formatLapTime } from "@/lib/format";
 import type { GpsQuality } from "@/lib/gps-quality";
-import { localVideoBlobKey } from "@/lib/mp4-creation-time";
 import {
   deleteSessionVideo,
   fetchSessionVideos,
@@ -104,17 +102,14 @@ export function CloudSessionView({ id }: { id: string }) {
 
         try {
           const cloudVideos = await fetchSessionVideos(supabase, id);
-          // Resolve localKey for IDB blobs owned by this browser.
-          const withLocal = await Promise.all(
-            cloudVideos.map(async (video) => {
-              if (video.provider !== "mp4" || video.objectKey) return video;
-              const guess = localVideoBlobKey(id, video.id, video.title);
-              const blob = await getLocalBlob(guess);
-              if (blob) return { ...video, localKey: guess };
-              return video;
-            }),
-          );
-          if (!cancelled) setVideos(withLocal);
+          // YouTube-only UI — keep YouTube rows (legacy mp4 rows ignored in card).
+          if (!cancelled) {
+            setVideos(
+              cloudVideos.filter(
+                (v) => v.provider === "youtube" && v.youtubeId,
+              ),
+            );
+          }
         } catch {
           if (!cancelled) setVideos([]);
         }
@@ -208,19 +203,12 @@ export function CloudSessionView({ id }: { id: string }) {
     const prevIds = new Set(videos.map((v) => v.id));
     const nextIds = new Set(next.map((v) => v.id));
     for (const video of next) {
+      if (video.provider !== "youtube") continue;
       await upsertSessionVideo(supabase, session.id, userId, video);
     }
     for (const id of prevIds) {
       if (!nextIds.has(id)) {
         await deleteSessionVideo(supabase, id);
-        const removed = videos.find((v) => v.id === id);
-        if (removed?.localKey) {
-          try {
-            await deleteLocalBlob(removed.localKey);
-          } catch {
-            // ignore
-          }
-        }
       }
     }
   }
@@ -366,17 +354,9 @@ export function CloudSessionView({ id }: { id: string }) {
             }}
             videos={videos}
             onChange={mine ? onVideosChange : () => {}}
-            persistCloud={mine}
             readOnly={!mine}
           />
         )}
-
-        {!mine && videos.some((v) => v.provider === "mp4" && !v.objectKey) ? (
-          <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-3 text-sm text-zinc-500">
-            Some onboard clips are local-only. Offsets are shared; attach the
-            MP4 on your device from a lap page to watch playback.
-          </p>
-        ) : null}
 
         {laps.length ? (
           <LapList sessionId={session.id} laps={laps} />

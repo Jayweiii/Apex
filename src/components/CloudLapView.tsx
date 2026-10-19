@@ -3,13 +3,10 @@
 import { AppHeader } from "@/components/AppHeader";
 import { LapCharts } from "@/components/LapCharts";
 import { SyncedLapView } from "@/components/video/SyncedLapView";
-import { getLocalBlob, putLocalBlob } from "@/lib/blob-store";
 import { compareHref } from "@/lib/compare";
 import { formatLapTime } from "@/lib/format";
-import { localVideoBlobKey } from "@/lib/mp4-creation-time";
 import {
   fetchSessionVideos,
-  resolveMp4Playback,
   updateSessionVideoSync,
 } from "@/lib/session-videos-cloud";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
@@ -27,8 +24,7 @@ type CloudSession = {
 };
 
 /**
- * Browser-auth lap view for cloud session UUIDs — includes video sync when
- * session_videos rows exist.
+ * Browser-auth lap view for cloud session UUIDs — YouTube sync when attached.
  */
 export function CloudLapView({
   sessionId,
@@ -47,12 +43,10 @@ export function CloudLapView({
   const [lap, setLap] = useState<LapRow | null>(null);
   const [siblings, setSiblings] = useState<LapRow[]>([]);
   const [videos, setVideos] = useState<SessionVideo[]>([]);
-  const [mp4Src, setMp4Src] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    let objectUrl: string | null = null;
     async function load() {
       if (!hasSupabaseConfig()) {
         if (!cancelled) {
@@ -110,21 +104,11 @@ export function CloudLapView({
         } catch {
           cloudVideos = [];
         }
-        const withLocal = await Promise.all(
-          cloudVideos.map(async (video) => {
-            if (video.provider !== "mp4") return video;
-            if (video.objectKey && !video.objectKey.startsWith("local/")) {
-              return video;
-            }
-            const key =
-              video.localKey ??
-              localVideoBlobKey(sessionId, video.id, video.title);
-            const blob = await getLocalBlob(key);
-            if (blob) return { ...video, localKey: key };
-            return video;
-          }),
-        );
-        if (!cancelled) setVideos(withLocal);
+        if (!cancelled) {
+          setVideos(
+            cloudVideos.filter((v) => v.provider === "youtube" && v.youtubeId),
+          );
+        }
       } catch (err) {
         if (!cancelled) {
           setSession(null);
@@ -135,7 +119,6 @@ export function CloudLapView({
     void load();
     return () => {
       cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [sessionId, lapId]);
 
@@ -144,40 +127,10 @@ export function CloudLapView({
     return (
       videos.find((item) => item.id === videoParam) ??
       videos.find((item) => item.lapId === lapId) ??
-      videos.find((item) => item.provider === "youtube") ??
-      videos.find((item) => item.provider === "mp4") ??
       videos[0] ??
       null
     );
   }, [videos, videoParam, lapId]);
-
-  useEffect(() => {
-    let url: string | null = null;
-    let cancelled = false;
-    async function resolve() {
-      setMp4Src(null);
-      if (!activeVideo || activeVideo.provider !== "mp4") return;
-      const remote = resolveMp4Playback(activeVideo);
-      if (remote.src) {
-        if (!cancelled) setMp4Src(remote.src);
-        return;
-      }
-      const key =
-        activeVideo.localKey ??
-        (activeVideo.objectKey?.startsWith("local/")
-          ? activeVideo.objectKey
-          : localVideoBlobKey(sessionId, activeVideo.id, activeVideo.title));
-      const blob = await getLocalBlob(key);
-      if (!blob || cancelled) return;
-      url = URL.createObjectURL(blob);
-      setMp4Src(url);
-    }
-    void resolve();
-    return () => {
-      cancelled = true;
-      if (url) URL.revokeObjectURL(url);
-    };
-  }, [activeVideo, sessionId]);
 
   if (session === undefined) {
     return (
@@ -293,33 +246,11 @@ export function CloudLapView({
                 telemetry: (item.telemetry ?? []) as TelemetryPoint[],
               }))}
               video={activeVideo}
-              mp4Src={mp4Src}
               sessionStartedAtMs={
                 Number.isFinite(startedAtMs) ? startedAtMs : undefined
               }
               bestLapMs={bestMs}
               trackId={session.track_id}
-              onAttachLocalMp4={
-                activeVideo?.provider === "mp4"
-                  ? async (file) => {
-                      const key = localVideoBlobKey(
-                        session.id,
-                        activeVideo.id,
-                        file.name,
-                      );
-                      await putLocalBlob(key, file);
-                      setVideos((prev) =>
-                        prev.map((v) =>
-                          v.id === activeVideo.id
-                            ? { ...v, localKey: key }
-                            : v,
-                        ),
-                      );
-                      const url = URL.createObjectURL(file);
-                      setMp4Src(url);
-                    }
-                  : undefined
-              }
               onVideoChange={
                 mine && activeVideo
                   ? async (next) => {

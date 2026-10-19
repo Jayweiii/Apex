@@ -25,23 +25,12 @@ function SidePlayer({
   if (!sideHasPlayableVideo(side)) {
     return (
       <div className="flex aspect-video flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-zinc-800 bg-zinc-950/80 px-3 text-center text-sm text-zinc-500">
-        {side.needsLocalFile || side.video?.provider === "mp4" ? (
-          <>
-            <span className="text-zinc-300">
-              Local-only video for {side.label}
-            </span>
-            <span className="text-xs text-zinc-600">
-              Offset{" "}
-              {side.video != null
-                ? `${side.video.offsetSec.toFixed(1)}s`
-                : "—"}{" "}
-              is saved — attach the MP4 on this device (or open a session with
-              R2) to play in lockstep.
-            </span>
-          </>
-        ) : (
-          <span>No video for {side.label}</span>
-        )}
+        <span className="text-zinc-300">No YouTube for {side.label}</span>
+        <span className="text-xs text-zinc-600">
+          {side.video != null
+            ? `Offset ${side.video.offsetSec.toFixed(1)}s is saved — attach a YouTube URL on that session.`
+            : "Attach a YouTube onboard on the session page."}
+        </span>
       </div>
     );
   }

@@ -1,39 +1,36 @@
-# Video ↔ GPS sync (self-serve)
+# Video ↔ GPS sync (YouTube-only)
 
-Attach GoPro / iPhone MP4s (or YouTube) to an existing session and align them to UTC GPS without help from the uploader.
+Attach onboard clips to a session by **YouTube URL** (or the channel catalog) and align them to UTC GPS. Local GoPro MP4/LRV files are **telemetry sources only** — never stored as video; upload the clip to YouTube and paste the link.
 
 ## Attach
 
 On the session page **Videos** card:
 
-1. **Attach MP4** — one or more local files. Stored in IndexedDB unless R2/object storage is configured.
-2. **Add YouTube** — paste a URL as before.
+1. Paste a YouTube URL (or attach a catalog suggestion).
+2. Optionally bind to a lap.
 
-On attach, the browser reads:
+Offset is saved in `session_videos.offset_sec` so public/friends share the same sync.
 
-- `moov/mvhd` `creation_time` (UTC via Mac epoch)
-- QuickTime `com.apple.quicktime.creationdate` (often local offset on iPhone re-encodes)
+## Auto-suggest
 
-When the session has a UTC `started_at` (e.g. Dragy VBO), offset is auto-suggested:
+When the video and session both have absolute clocks (session `started_at` from GPS / logger UTC; optional video metadata), offset is suggested:
 
 `offsetSec ≈ (videoStartedAtMs − sessionStartedAtMs) / 1000`
 
-For GoPro sessions, `sessionStartedAtMs` prefers **GPS-derived** wall-clock (`sample.date − cts`) when plausible (≥2015 and not far in the future), then MP4 `creation_time`, then manual Sync-panel override. Same-file GPMF still uses video time ≡ GPS `cts` (offset 0).
+For GoPro sessions, `sessionStartedAtMs` prefers **GPS-derived** wall-clock when plausible (≥2015, not far-future), then MP4 `creation_time`, then Sync-panel override. Same-file GPMF GPS still uses video time ≡ GPS `cts` for the telemetry timeline; the YouTube onboard is aligned via `offsetSec`.
 
 ## Manual sync (lap page)
 
-Open a lap with the video attached. Uncheck **Follow scrub** so video and chart move independently:
+Open a lap with the YouTube video attached. Uncheck **Follow scrub** so video and chart move independently:
 
-1. Scrub video to a visual cue (SF, start of straight, first brake light).
+1. Scrub video to a visual cue (SF, start of straight, first brake).
 2. Scrub map/speed chart to the matching GPS moment (or **Snap** to a detected telemetry event).
 3. Click **Set lap start / start of straight / first brake**.
 4. Fine nudge: ±0.1 s, ±1 frame (`,` / `.` keys).
 
-`offsetSec` is written to `session_videos` (Supabase) so public/friends viewers share the same alignment. Local-only blobs stay in that browser — other viewers see an attach prompt but still get the saved offset once they attach their copy.
-
 ## Dual-session compare
 
-Side-by-side compare locksteps two sessions by **shared lap-relative progress**. Each side’s `offsetSec` maps progress `0` (lap start) to the correct video time, so onboard clips stay aligned with map + speed charts.
+Side-by-side compare locksteps **two YouTube IFrame players** by shared lap-relative progress (0..1). Each side’s `offsetSec` maps progress `0` (lap start) to the correct video time. Shared play/pause/scrub drives both; map + speed charts follow. (YouTube iframe playback-rate APIs are limited — lockstep uses seek.)
 
 ## Audio sync
 

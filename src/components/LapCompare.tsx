@@ -29,12 +29,12 @@ function pickVideoForLap(
   session: CompareSessionOption | null | undefined,
   lapId: string | undefined,
 ): SessionVideo | null {
-  const videos = session?.videos ?? [];
+  const videos = (session?.videos ?? []).filter(
+    (video) => video.provider === "youtube" && video.youtubeId,
+  );
   if (!videos.length) return null;
   return (
     videos.find((video) => video.lapId === lapId) ??
-    videos.find((video) => video.provider === "youtube") ??
-    videos.find((video) => video.provider === "mp4") ??
     videos[0] ??
     null
   );
@@ -427,52 +427,22 @@ export function LapCompare({
 
           {reference && other && !sameLap ? (
             <DualSessionVideos
-              refSide={(() => {
-                const video = pickVideoForLap(refSession, reference.id);
-                const mp4Src =
-                  video?.provider === "mp4"
-                    ? (refSession?.videoSrcById?.[video.id] ??
-                      (video.objectKey &&
-                      !video.objectKey.startsWith("local/")
-                        ? `/api/storage/download?key=${encodeURIComponent(video.objectKey)}`
-                        : null))
-                    : null;
-                return {
-                  lap: lapAsSyncLap(reference),
-                  video,
-                  mp4Src,
-                  needsLocalFile: Boolean(
-                    video?.provider === "mp4" && !mp4Src,
-                  ),
-                  label:
-                    refSession && refSession.name !== "This session"
-                      ? refSession.name
-                      : `Lap ${reference.lap_number}`,
-                };
-              })()}
-              otherSide={(() => {
-                const video = pickVideoForLap(otherSession, other.id);
-                const mp4Src =
-                  video?.provider === "mp4"
-                    ? (otherSession?.videoSrcById?.[video.id] ??
-                      (video.objectKey &&
-                      !video.objectKey.startsWith("local/")
-                        ? `/api/storage/download?key=${encodeURIComponent(video.objectKey)}`
-                        : null))
-                    : null;
-                return {
-                  lap: lapAsSyncLap(other),
-                  video,
-                  mp4Src,
-                  needsLocalFile: Boolean(
-                    video?.provider === "mp4" && !mp4Src,
-                  ),
-                  label:
-                    otherSession && otherSession.name !== "This session"
-                      ? otherSession.name
-                      : `Lap ${other.lap_number}`,
-                };
-              })()}
+              refSide={{
+                lap: lapAsSyncLap(reference),
+                video: pickVideoForLap(refSession, reference.id),
+                label:
+                  refSession && refSession.name !== "This session"
+                    ? refSession.name
+                    : `Lap ${reference.lap_number}`,
+              }}
+              otherSide={{
+                lap: lapAsSyncLap(other),
+                video: pickVideoForLap(otherSession, other.id),
+                label:
+                  otherSession && otherSession.name !== "This session"
+                    ? otherSession.name
+                    : `Lap ${other.lap_number}`,
+              }}
               progress={progress}
               onProgress={setProgress}
             />

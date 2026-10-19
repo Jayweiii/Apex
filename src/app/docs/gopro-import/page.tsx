@@ -31,11 +31,10 @@ export default function GoProImportDocsPage() {
           <ul className="list-disc space-y-2 pl-5 text-sm text-zinc-400">
             <li>
               <strong className="text-zinc-200">GoPro Hero5+ MP4 / LRV / MOV</strong>{" "}
-              — GPMF extracted client-side (block File.slice, up to ~2GB, not
-              uploaded wholesale). Uses GPS9 when present, else GPS5; drops
-              unlocked (fix=0) samples. Session clock prefers GPS date/time,
-              falling back to MP4 creation_time when GPS is missing/implausible.
-              ACCL/GYRO when present.
+              — GPMF extracted client-side for GPS only (block File.slice, up
+              to ~2GB, never uploaded). Onboard playback is YouTube — upload
+              the clip and paste the link. Uses GPS9/GPS5; drops unlocked
+              samples. Session clock prefers GPS date/time.
             </li>
             <li>
               <strong className="text-zinc-200">Quik / Telemetry Overlay</strong>{" "}
@@ -109,16 +108,15 @@ export default function GoProImportDocsPage() {
           <h2 className="text-lg font-medium text-zinc-100">MP4 behavior</h2>
           <ul className="list-disc space-y-2 pl-5 text-sm text-zinc-400">
             <li>
-              Default: parse GPMF locally; save laps + GPS quality. Video stays on
-              your device.
+              Parse GPMF locally; save laps + GPS quality. The MP4/LRV is{" "}
+              <strong className="text-zinc-200">never uploaded</strong> — telemetry
+              only.
             </li>
             <li>
-              Optional: upload MP4 to R2 (or IndexedDB) for onboard sync.
+              Onboards are <strong className="text-zinc-200">YouTube-only</strong>:
+              upload the clip to YouTube and paste the link on the session.
             </li>
-            <li>
-              Prefer linking YouTube when the onboard is already online.
-            </li>
-            <li>Multi-chapter: select several chapter MP4s together.</li>
+            <li>Multi-chapter: select several chapter MP4s/LRVs together.</li>
           </ul>
         </section>
 

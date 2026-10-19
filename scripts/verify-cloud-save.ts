@@ -38,10 +38,21 @@ const payload = buildCloudSessionPayload("user-1", laps, {
   driver: "Jason",
   sourceKind: "csv",
   rawObjectKey: "r2/sess-1/raw/morning.csv",
-  videoObjectKey: "r2/sess-1/video/clip.mp4",
   storageBackend: "r2",
   startedAtMs: 1_700_000_000_000,
   sessionDate: "2026-09-20",
+  videos: [
+    {
+      id: "11111111-1111-1111-1111-111111111111",
+      provider: "youtube",
+      youtubeId: "BI0ZwJiqYk8",
+      title: "Onboard",
+      offsetSec: 12.5,
+      rate: 1,
+      syncSource: "manual",
+      lapId: null,
+    },
+  ],
 });
 
 assert(payload.session.id === "sess-1", "session id preserved for R2 key match");
@@ -54,9 +65,22 @@ assert(payload.session.started_at === new Date(1_700_000_000_000).toISOString(),
 assert(payload.laps.length === 2, "two laps");
 assert(payload.laps[0].start_offset_sec === 5, "lap start offset");
 assert(payload.laps[0].telemetry != null, "telemetry kept");
-assert(payload.videos.length === 1, "mp4 video row from videoObjectKey");
-assert(payload.videos[0].provider === "mp4", "video provider");
-assert(payload.videos[0].object_key === "r2/sess-1/video/clip.mp4", "video key");
+assert(payload.videos.length === 1, "youtube video row");
+assert(payload.videos[0].provider === "youtube", "video provider");
+assert(payload.videos[0].youtube_id === "BI0ZwJiqYk8", "youtube id");
+assert(payload.videos[0].offset_sec === 12.5, "offset persists");
+
+const noYt = buildCloudSessionPayload("user-1", laps, {
+  name: "No video",
+  filename: null,
+  trackId: "thunderhill-east",
+  car: "ND",
+  carClass: "Open",
+  carTags: [],
+  sourceKind: "gopro",
+  videoObjectKey: "r2/ignored-mp4.mp4",
+});
+assert(noYt.videos.length === 0, "legacy videoObjectKey does not invent mp4 row");
 
 const privatePayload = buildCloudSessionPayload("user-1", laps, {
   name: "Private run",

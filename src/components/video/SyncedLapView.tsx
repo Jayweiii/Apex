@@ -34,51 +34,24 @@ import {
   type SyncLap,
 } from "@/lib/video-sync";
 import { progressFromIndex } from "@/lib/scrub";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-function LocalMp4Missing({
-  sessionId,
-  onAttachLocalMp4,
-}: {
-  sessionId?: string;
-  onAttachLocalMp4?: (file: File) => void | Promise<void>;
-}) {
-  const inputRef = useRef<HTMLInputElement>(null);
+function MissingYouTube({ sessionId }: { sessionId?: string }) {
   return (
     <div className="flex aspect-video flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-zinc-800 bg-zinc-950/80 px-4 text-center">
       <p className="text-sm text-zinc-300">
-        Local-only video — attach the MP4 on this device to play.
+        No YouTube video for this lap.
       </p>
       <p className="text-xs text-zinc-500">
-        Sync offset is already saved on the session for everyone; the file
-        itself stays in IndexedDB unless object storage (R2) is configured.
+        Onboards are YouTube-only. Upload the clip to YouTube and paste the
+        link on the session page, then sync offset here.
       </p>
-      {onAttachLocalMp4 ? (
-        <>
-          <input
-            ref={inputRef}
-            type="file"
-            accept="video/mp4,.mp4"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) void onAttachLocalMp4(file);
-            }}
-          />
-          <button
-            type="button"
-            onClick={() => inputRef.current?.click()}
-            className="min-h-10 rounded-lg bg-orange-500 px-4 text-sm font-semibold text-black hover:bg-orange-400"
-          >
-            Attach MP4 here
-          </button>
-        </>
-      ) : sessionId ? (
+      {sessionId ? (
         <a
           href={`/sessions/${sessionId}`}
           className="text-xs uppercase tracking-[0.16em] text-orange-400"
         >
-          Open session to attach
+          Open session to attach YouTube
         </a>
       ) : null}
     </div>
@@ -96,7 +69,6 @@ export function SyncedLapView({
   followCharts = true,
   onVideoChange,
   trackId,
-  onAttachLocalMp4,
 }: {
   sessionId?: string;
   lap: {
@@ -114,14 +86,13 @@ export function SyncedLapView({
     telemetry: TelemetryPoint[];
   }>;
   video?: SessionVideo | null;
+  /** @deprecated Local MP4 playback removed — YouTube-only. */
   mp4Src?: string | null;
   sessionStartedAtMs?: number;
   bestLapMs?: number;
   followCharts?: boolean;
   onVideoChange?: (next: SessionVideo) => void;
   trackId?: string | null;
-  /** When local-only MP4 is missing in this browser. */
-  onAttachLocalMp4?: (file: File) => void | Promise<void>;
 }) {
   const centerline = useMemo(
     () =>
@@ -182,8 +153,16 @@ export function SyncedLapView({
   const [videoTime, setVideoTime] = useState(0);
   const [progress, setProgress] = useState<number | null>(null);
   const [follow, setFollow] = useState(followCharts);
+  // Optimistic copy so SyncPanel nudges update UI before parent re-fetches.
+  const [draftVideo, setDraftVideo] = useState<SessionVideo | null>(
+    video ?? null,
+  );
+  useEffect(() => {
+    setDraftVideo(video ?? null);
+  }, [video]);
 
   const activeVideo: SessionVideo | null =
+    draftVideo ??
     video ??
     (mp4Src
       ? {
@@ -194,6 +173,14 @@ export function SyncedLapView({
           syncSource: "unsynced",
         }
       : null);
+
+  const handleVideoChange = useCallback(
+    (next: SessionVideo) => {
+      setDraftVideo(next);
+      onVideoChange?.(next);
+    },
+    [onVideoChange],
+  );
 
   const { seek } = useVideoSync({
     player,
@@ -274,11 +261,12 @@ export function SyncedLapView({
     analysisDisabled: !hasAnalysisSnap,
   } as const;
 
-  function bindPlayer(handle: VideoPlayerHandle | null) {
+  // Stable callback ref — an inline `ref={(h) => …}` is a new function each
+  // render and React 19 re-invokes it (null then instance) → update loops.
+  const bindPlayer = useCallback((handle: VideoPlayerHandle | null) => {
     playerRef.current = handle;
-    // Avoid re-render loops when the player ref callback fires every commit.
     setPlayer((prev) => (prev === handle ? prev : handle));
-  }
+  }, []);
 
   return (
     <div className="flex flex-col gap-6">
@@ -289,18 +277,12 @@ export function SyncedLapView({
               <YouTubePlayer
                 key={activeVideo.youtubeId}
                 videoId={activeVideo.youtubeId}
-                ref={(instance) => bindPlayer(instance)}
+                ref={bindPlayer}
               />
             ) : mp4Src ? (
-              <Mp4Player
-                src={mp4Src}
-                ref={(instance) => bindPlayer(instance)}
-              />
+              <Mp4Player src={mp4Src} ref={bindPlayer} />
             ) : (
-              <LocalMp4Missing
-                sessionId={sessionId}
-                onAttachLocalMp4={onAttachLocalMp4}
-              />
+              <MissingYouTube sessionId={sessionId} />
             )}
             <div className="flex flex-wrap items-center gap-3 text-sm text-zinc-400">
               <span className="font-mono text-zinc-200">
@@ -377,7 +359,7 @@ export function SyncedLapView({
           }))}
           chartLapTimeSec={chartLapTimeSec}
           lapPoints={chartData}
-          onChange={onVideoChange}
+          onChange={handleVideoChange}
           onSeek={seek}
           onSeekChartLapTime={seekChartLapTime}
         />

@@ -275,7 +275,9 @@ export function CloudCompareView({
           user?.id ?? null,
         ).map((option) => ({
           ...option,
-          videos: videosMap.get(option.id) ?? [],
+          videos: (videosMap.get(option.id) ?? []).filter(
+            (v) => v.provider === "youtube" && v.youtubeId,
+          ),
         }));
         const catalogOptions = (
           await catalogAsCompareOptions(current.track_id)

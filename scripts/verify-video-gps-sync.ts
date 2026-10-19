@@ -138,24 +138,26 @@ async function main() {
   const straightT = findSyncEventLapTime(points, "straight_start");
   assert(straightT != null && straightT > brakeT!, `straight ${straightT}`);
 
-  // --- cloud row mapping preserves offsetSec ---
+  // --- cloud row mapping preserves offsetSec (YouTube-only onboards) ---
   const video: SessionVideo = {
     id: "11111111-1111-1111-1111-111111111111",
-    provider: "mp4",
-    title: "GX010071.MP4",
+    provider: "youtube",
+    youtubeId: "BI0ZwJiqYk8",
+    title: "Thunderhill onboard",
     offsetSec: 12.34,
     rate: 1,
     syncSource: "time_of_day",
     videoStartedAtMs: meta.creationTimeMs!,
-    localKey: "local/sess/video/clip.mp4",
   };
   const insert = sessionVideoToInsert(video, "sess", "user");
   assert(insert.offset_sec === 12.34, "insert offset");
+  assert(insert.provider === "youtube", "youtube provider");
   assert(insert.video_started_at != null, "insert started");
   const roundTrip = rowToSessionVideo({
     id: video.id,
     session_id: "sess",
-    provider: "mp4",
+    provider: "youtube",
+    youtube_id: "BI0ZwJiqYk8",
     offset_sec: insert.offset_sec,
     rate: 1,
     sync_source: "time_of_day",
@@ -163,28 +165,23 @@ async function main() {
     title: video.title,
   });
   assert(Math.abs(roundTrip.offsetSec - 12.34) < 1e-9, "roundtrip offset");
+  assert(roundTrip.youtubeId === "BI0ZwJiqYk8", "roundtrip youtube id");
   assert(
     roundTrip.videoStartedAtMs === meta.creationTimeMs,
     "roundtrip started",
   );
 
-  const localOnly = resolveMp4Playback({
-    ...video,
-    objectKey: undefined,
-  });
-  assert(localOnly.needsLocalFile && !localOnly.src, "local-only needs attach");
-
-  const cloudMp4 = resolveMp4Playback({
-    ...video,
-    localKey: undefined,
+  // Legacy mp4 rows are not playable in the YouTube-only UI.
+  const legacyMp4 = resolveMp4Playback({
+    id: "legacy",
+    provider: "mp4",
+    offsetSec: 0,
+    syncSource: "unsynced",
     objectKey: "sessions/x/video.mp4",
   });
-  assert(
-    cloudMp4.src?.includes("sessions%2Fx%2Fvideo.mp4"),
-    `cloud src ${cloudMp4.src}`,
-  );
+  assert(legacyMp4.src != null, "legacy download url still resolvable");
 
-  // --- dual compare uses each side's offset at lap start ---
+  // --- dual compare uses each side's YouTube offset at lap start ---
   const lap = lapAsSyncLap({
     id: "l1",
     lap_number: 1,
@@ -197,15 +194,18 @@ async function main() {
     video: {
       ...video,
       offsetSec: 10,
-      provider: "youtube",
       youtubeId: "abcdefghijk",
     },
     label: "A",
   };
   const sideB: DualVideoSide = {
     lap,
-    video: { ...video, id: "v2", offsetSec: 3.5, objectKey: "k" },
-    mp4Src: "/x.mp4",
+    video: {
+      ...video,
+      id: "v2",
+      offsetSec: 3.5,
+      youtubeId: "BI0ZwJiqYk8",
+    },
     label: "B",
   };
   const aligned = dualCompareAlignedAtLapStart(sideA, sideB);

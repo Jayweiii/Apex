@@ -28,13 +28,13 @@ Apex prefers **GoPro GPS** over phone CSV for speed, laps, and the track map (Dr
 2. Export **GPX**, **JSON**, or **CSV** with latitude, longitude, time, and speed.
 3. Upload that file in Apex (check “GoPro Quik / Telemetry Overlay export” if the file is `.csv`).
 
-## MP4 / LRV upload behavior
+## MP4 / LRV as telemetry (not video storage)
 
-- Default: **parse GPMF locally** (metadata track only via File.slice / ~2MB blocks), save laps + GPS quality. The video is **not** uploaded unless you opt in (upload cap 400MB; local parse cap ~2GB).
-- Optional: check **Also upload the video** to store on R2 (when configured) or IndexedDB for onboard sync.
-- Prefer linking a **YouTube URL** when the onboard is already online.
+- **Parse GPMF locally** (metadata track only via File.slice / ~2MB blocks), save laps + GPS quality. The media file is **never uploaded**.
+- Onboards are **YouTube-only**: upload the clip to YouTube and paste the link on the session (or at upload time).
 - Multi-chapter: select several chapter files together; Apex concatenates by cts.
 - Wall-clock for session date / time-of-day sync: **GPS sample.date − cts** when plausible; else MP4 `creation_time` (mvhd / QuickTime); Sync panel can still override manually.
+- Local parse cap ~2GB.
 
 ## Laps
 

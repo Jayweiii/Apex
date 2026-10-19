@@ -83,24 +83,10 @@ export function buildCloudSessionPayload(
     started_at_ms: lap.startedAtMs ?? null,
   }));
 
-  const videosMeta =
-    meta.videos ??
-    (meta.videoObjectKey
-      ? [
-          {
-            id: crypto.randomUUID(),
-            provider: "mp4" as const,
-            objectKey: meta.videoObjectKey,
-            offsetSec: 0,
-            rate: 1,
-            syncSource:
-              meta.sourceKind === "gopro"
-                ? ("auto" as const)
-                : ("unsynced" as const),
-            lapId: null as string | null,
-          },
-        ]
-      : []);
+  // Onboards are YouTube-only — ignore legacy videoObjectKey as a playable row.
+  const videosMeta = (meta.videos ?? []).filter(
+    (video) => video.provider === "youtube",
+  );
 
   const videos = videosMeta.map((video) => ({
     id: video.id,
