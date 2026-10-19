@@ -52,7 +52,9 @@ export function splitLapsByStartFinish(
     (p) => (p.speed ?? 0) > 15 && p.lat != null && p.lon != null,
   );
   if (moving.length < 20) {
-    throw new Error("No GPS motion found — is location enabled on the GoPro?");
+    throw new Error(
+      "No GPS motion found — file may be pit/idle only, or location was not locked.",
+    );
   }
 
   const sessionStartT = points[0]?.t ?? moving[0].t;

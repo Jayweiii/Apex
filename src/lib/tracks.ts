@@ -30,6 +30,16 @@ export const TRACKS: Track[] = [
     search: "thunderhill east willows california",
   },
   {
+    id: "thunderhill-west",
+    name: "Thunderhill Raceway — West",
+    location: "Willows, California",
+    popularity: 12800,
+    // Dragy DRG71 sample near West course (PNG ThunderhillRacewayParkWest_*)
+    lat: 39.53905,
+    lon: -122.3387,
+    search: "thunderhill west willows california",
+  },
+  {
     id: "buttonwillow-13cw",
     name: "Buttonwillow Raceway — 13CW",
     location: "Buttonwillow, California",

@@ -9,7 +9,7 @@ Apex prefers **GoPro GPS** over phone CSV for speed, laps, and the track map (Dr
 | GoPro Hero5+ MP4 | `.mp4` | GPMF extracted client-side (`gpmf-extract` + `gopro-telemetry`). Uses **GPS9** when present, else **GPS5**. Filters by GPS precision (DOP×100) and fix type. ACCL/GYRO read when present. |
 | Quik / Telemetry Overlay | `.gpx`, `.json`, `.csv` | Export GPS track separately; no MP4 required. |
 | GPX (any logger) | `.gpx` | Track points with time + speed/extensions. |
-| VBO (RaceLogic / Dragy) | `.vbo` | `[column names]` + `[data]`; lat/lon in minutes converted to degrees. |
+| VBO (RaceLogic / Dragy) | `.vbo` | Dragy DRG71: `sats time lat long velocity heading height`; time = UTC `hhmmss.sss` + `UTC Date Started`; lat/lon = signed minutes; **positive lon = west**; velocity km/h; sats → GPS quality. |
 | Dragy CSV | `.csv` | Autodetects time, lat, lon, speed, heading, altitude columns. |
 | Phone / TrackAddict | `.csv` | Still supported; ranked below GoPro / dedicated loggers in compare. |
 | Dragy `.dlap` | `.dlap` | **Not supported** — zip with PNG map + encrypted `.group`. Export CSV/GPX/VBO from Dragy instead. |
