@@ -34,7 +34,14 @@ import {
 import { progressFromIndex } from "@/lib/scrub";
 import { getTrack } from "@/lib/tracks";
 import type { LapRow, SessionVideo } from "@/lib/types";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   CartesianGrid,
   Legend,
@@ -280,7 +287,7 @@ export function LapCompare({
     return 0;
   });
 
-  // Keep slots valid when session list / filter changes.
+  // Keep slots valid when session list / filter changes (bail if unchanged).
   useEffect(() => {
     setSlots((prev) => {
       if (!filteredSessions.length) return prev;
@@ -298,15 +305,27 @@ export function LapCompare({
         })
         .filter((slot): slot is SlotState => slot != null);
 
-      if (next.length >= 2) return next.slice(0, MAX_COMPARE_LAPS);
-      return seedSlots({
-        sessions: filteredSessions,
-        initialRef,
-        initialOther,
-        initialOtherSession,
-        initialLaps,
-        baseSessionId: filteredSessions[0]?.id ?? baseSessionId,
-      });
+      const resolvedSlots =
+        next.length >= 2
+          ? next.slice(0, MAX_COMPARE_LAPS)
+          : seedSlots({
+              sessions: filteredSessions,
+              initialRef,
+              initialOther,
+              initialOtherSession,
+              initialLaps,
+              baseSessionId: filteredSessions[0]?.id ?? baseSessionId,
+            });
+
+      const same =
+        resolvedSlots.length === prev.length &&
+        resolvedSlots.every(
+          (slot, i) =>
+            slot.sessionId === prev[i]?.sessionId &&
+            slot.lapId === prev[i]?.lapId &&
+            slot.key === prev[i]?.key,
+        );
+      return same ? prev : resolvedSlots;
     });
   }, [
     filteredSessions,
@@ -426,6 +445,12 @@ export function LapCompare({
 
   const [progress, setProgress] = useState<number | null>(null);
 
+  const draftKey = resolved
+    .map((item) => `${item.session.id}:${item.lap.id}:${item.isRef ? "r" : ""}`)
+    .join("|");
+  const progressRef = useRef(progress);
+  progressRef.current = progress;
+
   useEffect(() => {
     if (!onDraftChange) return;
     const items = comparisonItemsFromSlots(
@@ -444,9 +469,11 @@ export function LapCompare({
       items,
       referenceIndex: refInItems >= 0 ? refInItems : 0,
       analysisMode,
-      progress,
+      progress: progressRef.current,
     });
-  }, [onDraftChange, resolved, analysisMode, progress]);
+    // Intentionally omit progress — scrubbing must not re-emit draft / re-render parents.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onDraftChange, draftKey, analysisMode]);
 
   const hoverAt =
     progress == null || series.length < 2
@@ -720,6 +747,7 @@ export function LapCompare({
               analysisMode={centerline ? analysisMode : undefined}
               onAnalysisModeChange={centerline ? setAnalysisMode : undefined}
               analysisDisabled={!hasAnalysisSnap}
+              defaultFollowId={ordered[0]?.lap.id}
             />
           ) : (
             <MissingGps />

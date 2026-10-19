@@ -78,6 +78,17 @@ video {
   transform: rotate(45deg);
 }
 
+/* Chase map: slightly smaller markers stay readable when zoomed in. */
+.apex-car-marker__dot--chase {
+  width: 8px;
+  height: 8px;
+}
+
+.apex-car-marker__dot--ring.apex-car-marker__dot--chase {
+  width: 10px;
+  height: 10px;
+}
+
 .apex-car-marker__gap {
   display: inline-block;
   padding: 1px 4px;
