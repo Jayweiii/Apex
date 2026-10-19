@@ -25,6 +25,7 @@ export function StackedLapTelemetry({
   trimMarkers,
   onTrimBoundaryDrag,
   fallback,
+  className,
 }: {
   points: TelemetryPoint[];
   activeIndex?: number | null;
@@ -34,6 +35,7 @@ export function StackedLapTelemetry({
   onTrimBoundaryDrag?: (which: "start" | "end", lapLocalT: number) => void;
   /** Used only if channel detection yields nothing (should not happen). */
   fallback?: ReactNode;
+  className?: string;
 }) {
   const channels = detectLapChannels(points);
   if (!channels.length) return fallback ?? null;
@@ -44,7 +46,7 @@ export function StackedLapTelemetry({
       : null;
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className={`flex flex-col gap-4 ${className ?? ""}`}>
       {channels.map((id) => (
         <LapChannel
           key={id}

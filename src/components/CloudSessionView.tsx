@@ -564,6 +564,22 @@ export function CloudSessionView({ id }: { id: string }) {
     laps.map((lap) => lap.id),
   );
   const dedicatedVideoLapIds = [...coverage.byLapId.keys()];
+  const syncedLapIds = videos
+    .filter(
+      (v) =>
+        v.syncSource === "manual" ||
+        v.syncSource === "auto" ||
+        v.syncSource === "time_of_day",
+    )
+    .flatMap((v) =>
+      v.lapId
+        ? [v.lapId]
+        : v.syncSource === "manual" ||
+            v.syncSource === "auto" ||
+            v.syncSource === "time_of_day"
+          ? ["__session__"]
+          : [],
+    );
   const href = compareHref(session.id, laps);
   const mine = Boolean(userId && session.user_id === userId);
   const visibility = normalizeVisibility(session.visibility ?? DEFAULT_VISIBILITY);
@@ -627,6 +643,7 @@ export function CloudSessionView({ id }: { id: string }) {
             selectedId={selected?.id}
             onSelect={(lap) => selectLap(lap)}
             videoLapIds={dedicatedVideoLapIds}
+            syncedLapIds={syncedLapIds}
             sessionVideo={Boolean(coverage.sessionLevel)}
           />
         ) : null}
@@ -680,6 +697,7 @@ export function CloudSessionView({ id }: { id: string }) {
                 selectedId={selected?.id}
                 onSelect={(lap) => selectLap(lap)}
                 videoLapIds={dedicatedVideoLapIds}
+                syncedLapIds={syncedLapIds}
                 sessionVideo={Boolean(coverage.sessionLevel)}
                 canEdit={mine}
                 onExcludeChange={mine ? onExcludeChange : undefined}
@@ -692,11 +710,14 @@ export function CloudSessionView({ id }: { id: string }) {
             )}
 
             {(mine || videos.length > 0) && (
-              <details className="group rounded-xl border border-zinc-800/80 bg-zinc-950/40">
+              <details
+                open={videos.length === 0}
+                className="group rounded-xl border border-zinc-800/80 bg-zinc-950/40"
+              >
                 <summary className="cursor-pointer list-none px-4 py-3 text-xs uppercase tracking-[0.16em] text-zinc-400 marker:content-none [&::-webkit-details-marker]:hidden">
-                  YouTube onboard
-                  <span className="ml-2 text-zinc-600 group-open:hidden">
-                    show
+                  Bulk YouTube / catalog
+                  <span className="ml-2 font-normal normal-case tracking-normal text-zinc-600">
+                    per-lap sync on selected lap →
                   </span>
                 </summary>
                 <div className="border-t border-zinc-900 px-3 pb-3 pt-2">
