@@ -1,5 +1,6 @@
 /**
- * Guided start-line sync helpers + leftover point-match offset math.
+ * Point-matching sync: offset = videoTime − telemetrySessionTime,
+ * guide steps, and synced badge gating for two-way playback.
  */
 import {
   formatOffsetReadout,
@@ -10,7 +11,6 @@ import {
   syncGuideStepForVideo,
   SYNC_GUIDE_STEPS,
 } from "../src/lib/video-sync-guide";
-import { offsetForLapStart } from "../src/lib/video-sync";
 import { offsetForSessionMoment } from "../src/lib/sync-events";
 import type { SessionVideo } from "../src/lib/types";
 
@@ -27,12 +27,9 @@ assert(
   Math.abs(offsetForSessionMoment(42.5, 10.0) - 32.5) < 1e-9,
   "session moment alias",
 );
-assert(
-  Math.abs(offsetForLapStart(12.4, 2) - 10.4) < 1e-9,
-  "mark start line offset",
-);
 
-const sessionOffset = offsetFromPointMatch(15, 120);
+// Session-level: same offset applies at each lap start via start_offset_sec.
+const sessionOffset = offsetFromPointMatch(15, 120); // pin at lap2 start
 assert(Math.abs(sessionOffset - (15 - 120)) < 1e-9, "session-level pin");
 
 // --- badge / synced gate ---
@@ -45,10 +42,6 @@ const unsynced: SessionVideo = {
 };
 assert(!isVideoSynced(unsynced), "unsynced not locked");
 assert(syncBadgeForVideo(unsynced).label === "Not synced", "badge not synced");
-assert(
-  !isVideoSynced({ ...unsynced, syncSource: "lap_match" }),
-  "lap_match attach-only",
-);
 
 const synced: SessionVideo = {
   ...unsynced,
@@ -63,21 +56,35 @@ assert(
   "tod synced",
 );
 
-// --- guide steps (Mark start line flow) ---
+// --- guide steps ---
 assert(SYNC_GUIDE_STEPS.length === 4, "four steps");
-assert(SYNC_GUIDE_STEPS[0].label.includes("Paste"), "step1 copy");
-assert(SYNC_GUIDE_STEPS[1].label.includes("Mark start"), "step2 copy");
-assert(SYNC_GUIDE_STEPS[2].label.includes("Check"), "step3 copy");
-assert(SYNC_GUIDE_STEPS[3].label === "Saved", "step4 copy");
+assert(
+  SYNC_GUIDE_STEPS[0].label.includes("Pick lap"),
+  "step1 copy",
+);
+assert(
+  SYNC_GUIDE_STEPS[1].label.includes("speed chart"),
+  "step2 copy",
+);
+assert(
+  SYNC_GUIDE_STEPS[2].label.includes("Pause video"),
+  "step3 copy",
+);
+assert(SYNC_GUIDE_STEPS[3].label === "Sync here", "step4 copy");
 
 assert(syncGuideStepForVideo(null) === 1, "no clip → step 1");
-assert(syncGuideStepForVideo(unsynced) === 2, "clip → step 2 mark");
-assert(syncGuideStepForVideo(synced) === 3, "synced → step 3 check");
+assert(syncGuideStepForVideo(unsynced) === 2, "clip → step 2");
+assert(
+  syncGuideStepForVideo(unsynced, { telemetryPinned: true }) === 3,
+  "pin → step 3",
+);
+assert(syncGuideStepForVideo(synced) === 4, "synced → step 4");
 assert(
   syncGuideStepForVideo(unsynced, { justSaved: true }) === 4,
   "saved flash → step 4",
 );
 
+// --- auto-guess still works ---
 const guessed = guessOffsetFromClipLength(150, 120_000, 0);
 assert(guessed != null && Math.abs(guessed - 15) < 1e-9, `guess ${guessed}`);
 

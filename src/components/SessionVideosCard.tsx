@@ -140,14 +140,14 @@ export function SessionVideosCard({
         lapIndex: lap?.lap_number ?? null,
         durationSec: catalog?.durationSec,
         lapMs: hints.lapMs ?? catalog?.lapMs,
-        syncSource: "unsynced",
+        syncSource: "lap_match",
       });
       await upsertVideo(video);
       setUrl("");
       setStatus(
         chosenLap
-          ? `Attached to lap ${lap?.lap_number ?? ""} — mark start line in the lap sync guide`
-          : "Session-level YouTube attached — open a lap and mark start line",
+          ? `Attached to lap ${lap?.lap_number ?? ""} — nudge offset or open synced`
+          : "Session-level YouTube attached — offset applies at each lap start",
       );
     } finally {
       setBusy(false);
@@ -182,7 +182,7 @@ export function SessionVideosCard({
           title,
           lapId: lap.id,
           lapIndex: lap.lap_number,
-          syncSource: "unsynced",
+          syncSource: "lap_match",
           offsetSec: 0,
         });
         next = next.filter((v) => v.lapId !== lap.id);
@@ -450,7 +450,7 @@ export function SessionVideosCard({
                       +0.1s
                     </button>
                     <span className="text-xs text-zinc-500">
-                      Mark start line on the selected lap panel
+                      Point-match on the lap panel (chart ↔ pause ↔ Sync here)
                     </span>
                   </div>
                 ) : null}
