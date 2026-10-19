@@ -52,6 +52,32 @@ const LON_G_KEYS = [
   "accel_x",
   "ax",
 ];
+const THROTTLE_KEYS = [
+  "throttle",
+  "throttle_pos",
+  "throttle_position",
+  "tps",
+  "accelerator",
+  "accel_pedal",
+];
+const BRAKE_KEYS = [
+  "brake",
+  "brake_pos",
+  "brake_position",
+  "brake_calculated",
+  "brake_press",
+  "brake_pressure",
+];
+const STEERING_KEYS = [
+  "steering",
+  "steer",
+  "steering_angle",
+  "wheel_angle",
+  "swa",
+];
+const RPM_KEYS = ["rpm", "engine_rpm", "eng_rpm", "motor_rpm"];
+const GEAR_KEYS = ["gear", "gear_pos", "gear_position", "current_gear"];
+const HEADING_KEYS = ["heading", "course", "bearing", "gps_heading", "direction"];
 
 const MAX_POINTS = 400;
 
@@ -170,6 +196,12 @@ type Sample = {
   lon: number | null;
   latG: number | null;
   lonG: number | null;
+  throttle: number | null;
+  brake: number | null;
+  steering: number | null;
+  rpm: number | null;
+  gear: number | null;
+  heading: number | null;
 };
 
 type LapSample = {
@@ -180,6 +212,12 @@ type LapSample = {
   lon: number | null;
   latG: number | null;
   lonG: number | null;
+  throttle: number | null;
+  brake: number | null;
+  steering: number | null;
+  rpm: number | null;
+  gear: number | null;
+  heading: number | null;
 };
 
 export type ParseTelemetryResult = {
@@ -217,6 +255,12 @@ export function parseTelemetryCsv(csv: string): ParseTelemetryResult {
   const distanceCol = findColumn(headers, DISTANCE_KEYS);
   const latGCol = findColumn(headers, LAT_G_KEYS);
   const lonGCol = findColumn(headers, LON_G_KEYS);
+  const throttleCol = findColumn(headers, THROTTLE_KEYS);
+  const brakeCol = findColumn(headers, BRAKE_KEYS);
+  const steeringCol = findColumn(headers, STEERING_KEYS);
+  const rpmCol = findColumn(headers, RPM_KEYS);
+  const gearCol = findColumn(headers, GEAR_KEYS);
+  const headingCol = findColumn(headers, HEADING_KEYS);
   const positionHeaders = headers.filter(
     (header) => header !== latGCol && header !== lonGCol,
   );
@@ -260,6 +304,12 @@ export function parseTelemetryCsv(csv: string): ParseTelemetryResult {
       lon: lon != null && lon >= -180 && lon <= 180 ? lon : null,
       latG: latGCol ? toG(parseNumber(row[latGCol]), latGCol) : null,
       lonG: lonGCol ? toG(parseNumber(row[lonGCol]), lonGCol) : null,
+      throttle: throttleCol ? parseNumber(row[throttleCol]) : null,
+      brake: brakeCol ? parseNumber(row[brakeCol]) : null,
+      steering: steeringCol ? parseNumber(row[steeringCol]) : null,
+      rpm: rpmCol ? parseNumber(row[rpmCol]) : null,
+      gear: gearCol ? parseNumber(row[gearCol]) : null,
+      heading: headingCol ? parseNumber(row[headingCol]) : null,
     });
   }
 
@@ -310,6 +360,12 @@ export function parseTelemetryCsv(csv: string): ParseTelemetryResult {
         }
         if (p.latG != null) point.latG = Number(p.latG.toFixed(3));
         if (p.lonG != null) point.lonG = Number(p.lonG.toFixed(3));
+        if (p.throttle != null) point.throttle = Number(p.throttle.toFixed(1));
+        if (p.brake != null) point.brake = Number(p.brake.toFixed(1));
+        if (p.steering != null) point.steering = Number(p.steering.toFixed(2));
+        if (p.rpm != null) point.rpm = Number(p.rpm.toFixed(0));
+        if (p.gear != null) point.gear = Math.round(p.gear);
+        if (p.heading != null) point.heading = Number(p.heading.toFixed(1));
         return point;
       }),
     );
@@ -381,6 +437,12 @@ function push(groups: Map<number, LapSample[]>, lapNumber: number, sample: Sampl
     lon: sample.lon,
     latG: sample.latG,
     lonG: sample.lonG,
+    throttle: sample.throttle,
+    brake: sample.brake,
+    steering: sample.steering,
+    rpm: sample.rpm,
+    gear: sample.gear,
+    heading: sample.heading,
   });
   groups.set(lapNumber, list);
 }

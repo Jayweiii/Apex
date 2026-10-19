@@ -1,8 +1,7 @@
 "use client";
 
-import { hoverIndex } from "@/components/chart-hover";
-import { bindChartScrub } from "@/components/chart-scrub";
 import { GpsQualityBadge } from "@/components/GpsQualityBadge";
+import { StackedCompareTelemetry } from "@/components/StackedTelemetry";
 import { MissingGps, TrackMap } from "@/components/TrackMap";
 import { DualSessionVideos } from "@/components/video/DualSessionVideos";
 import { useAnalysisMode } from "@/lib/analysis-mode";
@@ -23,7 +22,7 @@ import {
   type ComparisonDraftSnapshot,
 } from "@/lib/comparisons";
 import { lapAsSyncLap } from "@/lib/dual-video-sync";
-import { formatG, formatGap, formatLapTime } from "@/lib/format";
+import { formatGap, formatLapTime } from "@/lib/format";
 import { enrichTelemetry } from "@/lib/gforce";
 import {
   analysisPoints,
@@ -40,20 +39,8 @@ import {
   useEffect,
   useMemo,
   useRef,
-  useState,
-  type ReactNode,
+  useState
 } from "react";
-import {
-  CartesianGrid,
-  Legend,
-  Line,
-  LineChart,
-  ReferenceLine,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 
 export type { CompareSessionOption };
 
@@ -70,10 +57,6 @@ function pickVideoForLap(
   return pickSessionVideoForLap(session?.videos, lapId, { youtubeOnly: true });
 }
 
-function formatDistance(meters: number) {
-  if (meters >= 1000) return `${(meters / 1000).toFixed(1)} km`;
-  return `${Math.round(meters)} m`;
-}
 
 function findSessionForLap(
   sessions: CompareSessionOption[],
@@ -439,9 +422,6 @@ export function LapCompare({
   }, [ordered, matchedByLapId, gpsMode, centerline]);
 
   const [progress, setProgress] = useState<number | null>(null);
-  const [chartPanel, setChartPanel] = useState<"delta" | "speed" | "g">(
-    "delta",
-  );
 
   const draftKey = resolved
     .map((item) => `${item.session.id}:${item.lap.id}:${item.isRef ? "r" : ""}`)
@@ -484,7 +464,6 @@ export function LapCompare({
     },
     [series.length],
   );
-  const chartScrub = bindChartScrub(series.length, hoverFromChart);
 
   const showMap = ordered.some((item) => hasGps(item.lap.telemetry));
   const multiSession = filteredSessions.length > 1;
@@ -741,214 +720,54 @@ export function LapCompare({
               onProgress={setProgress}
             />
 
-            <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
-            <div className="space-y-4 lg:sticky lg:top-20">
-              {showMap ? (
-                <TrackMap
-                  traces={mapTraces}
-                  activeProgress={progress}
-                  onProgress={setProgress}
-                  centerline={centerline}
-                  gpsMode={centerline ? gpsMode : undefined}
-                  onGpsModeChange={centerline ? setGpsMode : undefined}
-                  analysisMode={centerline ? analysisMode : undefined}
-                  onAnalysisModeChange={centerline ? setAnalysisMode : undefined}
-                  analysisDisabled={!hasAnalysisSnap}
-                  defaultFollowId={ordered[0]?.lap.id}
-                />
-              ) : (
-                <MissingGps />
-              )}
-            </div>
-
-            <div className="space-y-3">
-              <div className="flex flex-wrap gap-2">
-                {(
-                  [
-                    { id: "delta" as const, label: "Delta" },
-                    { id: "speed" as const, label: "Speed" },
-                    { id: "g" as const, label: "G" },
-                  ] as const
-                ).map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setChartPanel(item.id)}
-                    className={`min-h-9 rounded-lg px-3 text-xs uppercase tracking-[0.14em] ${
-                      chartPanel === item.id
-                        ? "bg-zinc-100 text-zinc-900"
-                        : "border border-zinc-800 text-zinc-400 hover:text-zinc-200"
-                    }`}
-                  >
-                    {item.label}
-                  </button>
-                ))}
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,1fr)] lg:items-start">
+              <div className="space-y-4 lg:sticky lg:top-20">
+                {showMap ? (
+                  <TrackMap
+                    traces={mapTraces}
+                    activeProgress={progress}
+                    onProgress={setProgress}
+                    centerline={centerline}
+                    gpsMode={centerline ? gpsMode : undefined}
+                    onGpsModeChange={centerline ? setGpsMode : undefined}
+                    analysisMode={centerline ? analysisMode : undefined}
+                    onAnalysisModeChange={
+                      centerline ? setAnalysisMode : undefined
+                    }
+                    analysisDisabled={!hasAnalysisSnap}
+                    defaultFollowId={ordered[0]?.lap.id}
+                  />
+                ) : (
+                  <MissingGps />
+                )}
               </div>
 
-              {chartPanel === "speed" ? (
-                <ChartCard
-                  title="Speed"
-                  hint={
-                    analysisMode === "snapped"
-                      ? "Aligned on snapped track distance"
-                      : "Aligned on raw GPS path"
-                  }
-                  scrub={chartScrub}
-                >
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart
-                      data={series}
-                      syncId="compare"
-                      margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
-                      onMouseMove={(state) => {
-                        const native = (state as { event?: MouseEvent }).event;
-                        if (native && native.buttons === 0) return;
-                        hoverFromChart(hoverIndex(state));
-                      }}
-                      onMouseLeave={() => setProgress(null)}
-                    >
-                      <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
-                      <XAxis
-                        dataKey="dist"
-                        type="number"
-                        tickFormatter={(value) => formatDistance(Number(value))}
-                        stroke="#71717a"
-                        fontSize={11}
-                      />
-                      <YAxis stroke="#71717a" fontSize={11} unit=" km/h" width={48} />
-                      <Tooltip content={<CompareTooltip />} />
-                      <Legend />
-                      {hoverAt != null ? (
-                        <ReferenceLine
-                          x={series[hoverAt]?.dist}
-                          stroke="#a1a1aa"
-                          strokeDasharray="4 4"
-                        />
-                      ) : null}
-                      {ordered.map((item, index) => (
-                        <Line
-                          key={item.lap.id}
-                          type="monotone"
-                          dataKey={`speed${index}`}
-                          name={`Lap ${item.lap.lap_number}`}
-                          stroke={item.color}
-                          strokeWidth={2}
-                          dot={false}
-                          isAnimationActive={false}
-                        />
-                      ))}
-                    </LineChart>
-                  </ResponsiveContainer>
-                </ChartCard>
-              ) : null}
-
-              {chartPanel === "delta" ? (
-                <ChartCard
-                  title="Delta"
-                  hint={
-                    analysisMode === "snapped"
-                      ? "Snapped · positive means behind reference"
-                      : "Raw · positive means behind reference"
-                  }
-                  scrub={chartScrub}
-                >
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart
-                      data={series}
-                      syncId="compare"
-                      margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
-                      onMouseMove={(state) => {
-                        const native = (state as { event?: MouseEvent }).event;
-                        if (native && native.buttons === 0) return;
-                        hoverFromChart(hoverIndex(state));
-                      }}
-                      onMouseLeave={() => setProgress(null)}
-                    >
-                      <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
-                      <XAxis
-                        dataKey="dist"
-                        type="number"
-                        tickFormatter={(value) => formatDistance(Number(value))}
-                        stroke="#71717a"
-                        fontSize={11}
-                      />
-                      <YAxis stroke="#71717a" fontSize={11} unit=" s" width={48} />
-                      <Tooltip content={<CompareTooltip mode="delta" />} />
-                      <Legend />
-                      {hoverAt != null ? (
-                        <ReferenceLine
-                          x={series[hoverAt]?.dist}
-                          stroke="#a1a1aa"
-                          strokeDasharray="4 4"
-                        />
-                      ) : null}
-                      <ReferenceLine y={0} stroke="#52525b" />
-                      {ordered.slice(1).map((item, index) => (
-                        <Line
-                          key={item.lap.id}
-                          type="monotone"
-                          dataKey={`delta${index + 1}`}
-                          name={`Δ Lap ${item.lap.lap_number}`}
-                          stroke={item.color}
-                          strokeWidth={2}
-                          dot={false}
-                          isAnimationActive={false}
-                        />
-                      ))}
-                    </LineChart>
-                  </ResponsiveContainer>
-                </ChartCard>
-              ) : null}
-
-              {chartPanel === "g" ? (
-                <ChartCard title="G" hint="Combined acceleration" scrub={chartScrub}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart
-                      data={series}
-                      syncId="compare"
-                      margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
-                      onMouseMove={(state) => {
-                        const native = (state as { event?: MouseEvent }).event;
-                        if (native && native.buttons === 0) return;
-                        hoverFromChart(hoverIndex(state));
-                      }}
-                      onMouseLeave={() => setProgress(null)}
-                    >
-                      <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
-                      <XAxis
-                        dataKey="dist"
-                        type="number"
-                        tickFormatter={(value) => formatDistance(Number(value))}
-                        stroke="#71717a"
-                        fontSize={11}
-                      />
-                      <YAxis stroke="#71717a" fontSize={11} width={40} />
-                      <Tooltip content={<CompareTooltip mode="g" />} />
-                      <Legend />
-                      {hoverAt != null ? (
-                        <ReferenceLine
-                          x={series[hoverAt]?.dist}
-                          stroke="#a1a1aa"
-                          strokeDasharray="4 4"
-                        />
-                      ) : null}
-                      {ordered.map((item, index) => (
-                        <Line
-                          key={item.lap.id}
-                          type="monotone"
-                          dataKey={`g${index}`}
-                          name={`Lap ${item.lap.lap_number}`}
-                          stroke={item.color}
-                          strokeWidth={2}
-                          dot={false}
-                          isAnimationActive={false}
-                        />
-                      ))}
-                    </LineChart>
-                  </ResponsiveContainer>
-                </ChartCard>
-              ) : null}
-            </div>
+              <StackedCompareTelemetry
+                series={series}
+                laps={ordered.map((item) => ({
+                  id: item.lap.id,
+                  lapNumber: item.lap.lap_number,
+                  color: item.color,
+                }))}
+                rawLaps={ordered.map((item) =>
+                  enrichTelemetry(
+                    analysisPoints(
+                      matchedByLapId.get(item.lap.id) ?? null,
+                      item.lap.telemetry,
+                      analysisMode,
+                    ),
+                  ),
+                )}
+                activeIndex={hoverAt}
+                onHoverIndex={hoverFromChart}
+                syncId="compare"
+                analysisHint={
+                  analysisMode === "snapped"
+                    ? "Snapped · + behind ref"
+                    : "Raw · + behind ref"
+                }
+                className="max-h-[min(70vh,720px)]"
+              />
             </div>
           </div>
         </>
@@ -1024,57 +843,3 @@ function LapSelect({
   );
 }
 
-function ChartCard({
-  title,
-  hint,
-  children,
-  scrub,
-}: {
-  title: string;
-  hint: string;
-  children: ReactNode;
-  scrub?: ReturnType<typeof bindChartScrub>;
-}) {
-  return (
-    <div className="h-[260px] max-w-full overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950/40 p-3 sm:h-[340px] sm:p-4">
-      <div className="mb-2 flex items-baseline justify-between gap-3">
-        <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
-          {title}
-        </p>
-        <p className="hidden text-xs text-zinc-600 sm:block">{hint}</p>
-      </div>
-      <div className="h-[200px] touch-none sm:h-[280px]" {...scrub}>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function CompareTooltip({
-  active,
-  payload,
-  label,
-  mode = "speed",
-}: {
-  active?: boolean;
-  payload?: { name?: string; value?: number; color?: string }[];
-  label?: number;
-  mode?: "speed" | "delta" | "g";
-}) {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-zinc-100">
-      <p className="mb-1 text-zinc-500">{formatDistance(Number(label))}</p>
-      {payload.map((item) => (
-        <p key={item.name} style={{ color: item.color }}>
-          {item.name}:{" "}
-          {mode === "delta"
-            ? formatGap(Number(item.value))
-            : mode === "g"
-              ? formatG(Number(item.value))
-              : `${Number(item.value).toFixed(0)} km/h`}
-        </p>
-      ))}
-    </div>
-  );
-}

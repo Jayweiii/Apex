@@ -246,16 +246,29 @@ export function withDistance(points: TelemetryPoint[]): DistSample[] {
   return out;
 }
 
-function readValue(sample: DistSample | undefined, key: "t" | "speed" | "latG" | "lonG" | "g") {
+type InterpolateKey =
+  | "t"
+  | "speed"
+  | "latG"
+  | "lonG"
+  | "g"
+  | "throttle"
+  | "brake"
+  | "steering"
+  | "rpm"
+  | "gear"
+  | "heading";
+
+function readValue(sample: DistSample | undefined, key: InterpolateKey) {
   const value = sample?.[key];
-  return typeof value === "number" ? value : 0;
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
 /** Linear interpolate a telemetry channel at an absolute along-track distance. */
 export function valueAt(
   samples: DistSample[],
   dist: number,
-  key: "t" | "speed" | "latG" | "lonG" | "g",
+  key: InterpolateKey,
 ) {
   const first = samples[0];
   const last = samples[samples.length - 1];
@@ -269,6 +282,21 @@ export function valueAt(
   const span = right.dist - left.dist;
   const mix = span === 0 ? 0 : (dist - left.dist) / span;
   return readValue(left, key) + (readValue(right, key) - readValue(left, key)) * mix;
+}
+
+const OPTIONAL_COMPARE_KEYS: InterpolateKey[] = [
+  "throttle",
+  "brake",
+  "steering",
+  "rpm",
+  "gear",
+  "heading",
+];
+
+function sampleHasKey(samples: DistSample[], key: InterpolateKey) {
+  return samples.some(
+    (sample) => typeof sample[key] === "number" && Number.isFinite(sample[key]),
+  );
 }
 
 /**
@@ -297,13 +325,17 @@ export function compareLaps(
   // Look up the other lap at the same absolute distance (not % of its own length).
   const axisEnd = snapped ? Math.min(refEnd, altEnd) : refEnd;
 
+  const optionalKeys = OPTIONAL_COMPARE_KEYS.filter(
+    (key) => sampleHasKey(ref, key) || sampleHasKey(alt, key),
+  );
+
   const points: ComparedPoint[] = [];
   for (let i = 0; i < steps; i += 1) {
     const progress = i / (steps - 1);
     const dist = progress * axisEnd;
     const refTime = valueAt(ref, dist, "t");
     const otherTime = valueAt(alt, dist, "t");
-    points.push({
+    const row: ComparedPoint = {
       dist,
       refSpeed: valueAt(ref, dist, "speed"),
       otherSpeed: valueAt(alt, dist, "speed"),
@@ -315,9 +347,21 @@ export function compareLaps(
       otherLonG: valueAt(alt, dist, "lonG"),
       delta: otherTime - refTime,
       snapped,
-    });
+    };
+    for (const key of optionalKeys) {
+      (row as Record<string, number | boolean | undefined>)[`ref${capitalize(key)}`] =
+        valueAt(ref, dist, key);
+      (row as Record<string, number | boolean | undefined>)[
+        `other${capitalize(key)}`
+      ] = valueAt(alt, dist, key);
+    }
+    points.push(row);
   }
   return points;
+}
+
+function capitalize(key: string) {
+  return key.charAt(0).toUpperCase() + key.slice(1);
 }
 
 /**
@@ -346,14 +390,28 @@ export function compareMany(
       latG0: first.refLatG,
       lonG0: first.refLonG,
     };
+    // Optional channels from the first pair's reference sample keys.
+    const firstRec = first as Record<string, unknown>;
+    for (const key of OPTIONAL_COMPARE_KEYS) {
+      const refKey = `ref${capitalize(key)}`;
+      if (typeof firstRec[refKey] === "number") {
+        row[`${key}0`] = firstRec[refKey] as number;
+      }
+    }
     pairs.forEach((series, j) => {
       const point = series[i];
+      const pointRec = point as Record<string, unknown>;
       const idx = j + 1;
       row[`speed${idx}`] = point.otherSpeed;
       row[`g${idx}`] = point.otherG;
       row[`latG${idx}`] = point.otherLatG;
       row[`lonG${idx}`] = point.otherLonG;
       row[`delta${idx}`] = point.delta;
+      for (const key of OPTIONAL_COMPARE_KEYS) {
+        const otherKey = `other${capitalize(key)}`;
+        const value = pointRec[otherKey];
+        if (typeof value === "number") row[`${key}${idx}`] = value;
+      }
     });
     // Legacy aliases for 2-lap tooltips / older charts.
     if (others.length === 1) {
