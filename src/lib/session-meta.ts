@@ -50,8 +50,8 @@ export function sessionSharePaths(
   if (lapKey) {
     const params = new URLSearchParams();
     params.set("lap", lapKey);
-    if (options.videoId) params.set("v", options.videoId);
-    if (options.videoTime != null) params.set("t", String(options.videoTime));
+    if (options?.videoId) params.set("v", options.videoId);
+    if (options?.videoTime != null) params.set("t", String(options.videoTime));
     lapPath = `/sessions/${sessionId}?${params.toString()}`;
   }
   return {

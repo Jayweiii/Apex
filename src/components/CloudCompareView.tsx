@@ -21,9 +21,11 @@ type VideoRow = {
   session_id: string;
   provider: string;
   youtube_id?: string | null;
+  youtube_url?: string | null;
   object_key?: string | null;
   title?: string | null;
   lap_id?: string | null;
+  lap_index?: number | null;
   offset_sec?: number | null;
   rate?: number | null;
   sync_source?: string | null;
@@ -44,6 +46,7 @@ function videosBySession(rows: VideoRow[]): Map<string, SessionVideo[]> {
       objectKey: row.object_key ?? undefined,
       title: row.title ?? undefined,
       lapId: row.lap_id ?? null,
+      lapIndex: row.lap_index ?? null,
       offsetSec: row.offset_sec ?? 0,
       rate: row.rate ?? 1,
       syncSource:

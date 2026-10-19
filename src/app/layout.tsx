@@ -18,7 +18,9 @@ export const metadata: Metadata = {
     "Upload TrackAddict or GoPro telemetry, review laps, and compare sessions.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({
+  children,
+}: Readonly<{ children: React.ReactNode }>) {
   return (
     <html
       lang="en"
