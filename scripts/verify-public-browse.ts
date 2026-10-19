@@ -18,12 +18,18 @@ function read(rel: string) {
 // Friends feed must not early-return a login wall when !user.
 const friends = read("src/app/friends/page.tsx");
 assert(
-  !/if\s*\(\s*!user\s*\)\s*\{[\s\S]*?sign in[\s\S]*?return\s*\(/i.test(friends),
-  "friends page must not login-wall signed-out visitors",
+  !/if\s*\(\s*!user\s*\)\s*\{\s*return\s*\(/m.test(friends),
+  "friends page must not early-return when !user",
 );
 assert(
-  friends.includes("Public feed") || friends.includes("public"),
-  "friends page should surface public feed for anon",
+  /visibility\s*=\s*['"]public['"]|eq\(\s*["']visibility["']\s*,\s*["']public["']\s*\)/.test(
+    friends,
+  ) || friends.includes('eq("visibility", "public")'),
+  "friends page filters or relies on public visibility for anon",
+);
+assert(
+  friends.includes("Public sessions") || friends.includes("public"),
+  "friends page should surface public sessions for anon",
 );
 
 // Leaderboard must query cloud sessions without requiring a user.
