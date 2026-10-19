@@ -20,8 +20,8 @@ assert(
   isCloudSessionId("2a553561-b383-46e5-9508-a2ad063952c4"),
   "jason upload uuid",
 );
-assert(!isCloudSessionId("demo-laguna-seca-gt3"), "demo not cloud");
-assert(!isCloudSessionId("pub-spreewaldring"), "pub not cloud");
+assert(!isCloudSessionId("demo-legacy"), "demo prefix not cloud");
+assert(!isCloudSessionId("pub-legacy"), "pub prefix not cloud");
 
 // Public upload that needs backfill after migration
 assert(

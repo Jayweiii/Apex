@@ -272,8 +272,7 @@ export function MissingGps() {
     <p className="rounded-2xl border border-zinc-800/80 bg-zinc-950/40 px-4 py-3 text-sm text-zinc-400">
       No GPS in this file. It needs latitude and longitude columns named{" "}
       <span className="text-zinc-200">lat</span> and{" "}
-      <span className="text-zinc-200">lon</span>. Load the sample session to see a
-      track.
+      <span className="text-zinc-200">lon</span>.
     </p>
   );
 }

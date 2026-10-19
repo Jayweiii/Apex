@@ -1,5 +1,4 @@
 import { AppHeader } from "@/components/AppHeader";
-import { formatLapTime } from "@/lib/format";
 import { hasSupabaseConfig } from "@/lib/supabase/env";
 import { createClient } from "@/lib/supabase/server";
 import { getTrack } from "@/lib/tracks";
@@ -79,8 +78,7 @@ export default async function FriendsSessionsPage() {
         </div>
         {!sessions?.length ? (
           <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-8 text-center text-sm text-zinc-500">
-            No cloud sessions yet. Upload while signed in, or import local
-            sessions from your account page.
+            No sessions yet, upload one.
           </p>
         ) : (
           <ul className="grid gap-3">
@@ -123,9 +121,6 @@ export default async function FriendsSessionsPage() {
             })}
           </ul>
         )}
-        <p className="text-sm text-zinc-600">
-          Example lap label: {formatLapTime(137100)}.
-        </p>
       </main>
     </>
   );

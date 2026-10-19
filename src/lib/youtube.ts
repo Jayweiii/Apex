@@ -8,6 +8,10 @@ const TRACK_HINTS: Array<{ trackId: string; patterns: RegExp[] }> = [
     patterns: [/thunderhill\s*east/i, /thunder\s*hill\s*east/i],
   },
   {
+    trackId: "thunderhill-west",
+    patterns: [/thunderhill\s*west/i, /thunder\s*hill\s*west/i],
+  },
+  {
     trackId: "buttonwillow-13cw",
     patterns: [
       /buttonwillow\s*13\s*cw/i,
@@ -19,14 +23,6 @@ const TRACK_HINTS: Array<{ trackId: string; patterns: RegExp[] }> = [
   {
     trackId: "streets-of-willow-cw",
     patterns: [/streets\s*of\s*willow/i, /willow\s*springs/i],
-  },
-  {
-    trackId: "laguna-seca",
-    patterns: [/laguna\s*seca/i, /weathertech/i],
-  },
-  {
-    trackId: "spreewaldring",
-    patterns: [/spreewaldring/i],
   },
 ];
 

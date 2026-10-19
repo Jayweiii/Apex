@@ -92,7 +92,9 @@ export function AccountSessions() {
     return <p className="text-sm text-red-300">{error}</p>;
   }
   if (rows.length === 0) {
-    return <p className="text-sm text-zinc-500">No sessions yet.</p>;
+    return (
+      <p className="text-sm text-zinc-500">No sessions yet, upload one.</p>
+    );
   }
 
   return (

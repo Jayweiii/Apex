@@ -1,6 +1,6 @@
 # Apex
 
-Track lap-time app: upload TrackAddict CSV or GoPro MP4 telemetry, review laps, sync onboard video, compare corners, and share deep links. Public datasets are attributed; synthetic demos and your uploads are labeled separately.
+Track lap-time app: upload TrackAddict CSV or GoPro MP4 telemetry, review laps, sync onboard video, compare corners, and share deep links. The app starts empty — no demo sessions or placeholder tracks are seeded.
 
 ## Setup
 
@@ -37,23 +37,22 @@ Open [http://localhost:3000](http://localhost:3000).
 - **Theoretical best:** Best micro-sectors vs actual best lap
 - **Corners:** Brake / min / exit and time delta vs reference
 - **Drivers & cars:** Driver profiles, class, tags (e.g. “205 tires”)
-- **Leaderboards:** Per track / class / driver from local uploads
+- **Leaderboards:** Per track / class / driver from uploaded sessions
 - **Share links:** Session, lap, and compare deep links (`/share/[sessionId]`)
 - **Weather & tires:** Notes shown on session, lap, and compare views
 
-## Data kinds
+## Built-in tracks
 
-| Kind | Meaning |
+Minimal list of circuits with real coordinates (users can add more on upload):
+
+| Track | Location |
 | --- | --- |
-| **Public data** | Real telemetry redistributed under a clear open license |
-| **Synthetic demo** | Generated Laguna Seca–style laps for UI exploration |
-| **Your upload** | CSV/GoPro you imported |
+| Thunderhill Raceway — East | Willows, California |
+| Thunderhill Raceway — West | Willows, California |
+| Buttonwillow Raceway — 13CW | Buttonwillow, California |
+| Streets of Willow — CW | Rosamond, California |
 
-### Public datasets
-
-| Session | Track | Source | License |
-| --- | --- | --- | --- |
-| Spreewaldring — TrackAddict log | Spreewaldring Training Center | [thomasjungblut/trackaddict-cli](https://github.com/thomasjungblut/trackaddict-cli) `example/STC_log.csv` | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) |
+Optional redistributable telemetry (e.g. Spreewaldring STC) may live under `public/datasets/` for manual tooling — it is **not** auto-loaded into the app.
 
 ## Scripts
 

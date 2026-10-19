@@ -4,22 +4,17 @@ export type Track = {
   location: string;
   /** Community session count. Higher values sort first on the homepage. */
   popularity: number;
-  /** Circuit reference point. Catalog GPS is shifted onto this from the sample trace. */
+  /** Circuit reference point. */
   lat: number;
   lon: number;
   search: string;
 };
 
+/**
+ * Minimal built-in list: real circuits Jason uses, with real coordinates.
+ * User-created / shared tracks come from Supabase + localStorage.
+ */
 export const TRACKS: Track[] = [
-  {
-    id: "spreewaldring",
-    name: "Spreewaldring Training Center",
-    location: "Waldow/Brand, Germany",
-    popularity: 19200,
-    lat: 51.99907,
-    lon: 13.6883,
-    search: "spreewaldring stc brandenburg germany trackaddict",
-  },
   {
     id: "thunderhill-east",
     name: "Thunderhill Raceway — East",
@@ -34,7 +29,7 @@ export const TRACKS: Track[] = [
     name: "Thunderhill Raceway — West",
     location: "Willows, California",
     popularity: 12800,
-    // Dragy DRG71 sample near West course (PNG ThunderhillRacewayParkWest_*)
+    // Dragy DRG71 sample near West course
     lat: 39.53905,
     lon: -122.3387,
     search: "thunderhill west willows california",
@@ -44,7 +39,6 @@ export const TRACKS: Track[] = [
     name: "Buttonwillow Raceway — 13CW",
     location: "Buttonwillow, California",
     popularity: 13200,
-    // Wikipedia / park coords (~Race #13 CW). "Buttonwillow Circuit" titles map here.
     lat: 35.4913,
     lon: -119.5449,
     search: "buttonwillow 13cw cw13 circuit california",
@@ -54,100 +48,9 @@ export const TRACKS: Track[] = [
     name: "Streets of Willow — CW",
     location: "Rosamond, California",
     popularity: 11800,
-    // Willow Springs / Streets of Willow complex
     lat: 34.874,
     lon: -118.263,
     search: "streets of willow willow springs cw california",
-  },
-  {
-    id: "spa",
-    name: "Circuit de Spa-Francorchamps",
-    location: "Spa-Francorchamps, Belgium",
-    popularity: 18620,
-    lat: 50.4372,
-    lon: 5.9714,
-    search: "spa francorchamps belgium",
-  },
-  {
-    id: "nurburgring",
-    name: "Nürburgring Grand Prix",
-    location: "Nürburg, Germany",
-    popularity: 17140,
-    lat: 50.334,
-    lon: 6.943,
-    search: "nurburgring nurburg germany gp nordschleife",
-  },
-  {
-    id: "monza",
-    name: "Autodromo Nazionale Monza",
-    location: "Monza, Italy",
-    popularity: 15990,
-    lat: 45.6156,
-    lon: 9.2811,
-    search: "monza italy",
-  },
-  {
-    id: "suzuka",
-    name: "Suzuka International Racing Course",
-    location: "Suzuka, Japan",
-    popularity: 14820,
-    lat: 34.8431,
-    lon: 136.5407,
-    search: "suzuka japan",
-  },
-  {
-    id: "laguna-seca",
-    name: "WeatherTech Raceway Laguna Seca",
-    location: "Monterey, California",
-    popularity: 13650,
-    lat: 36.59063,
-    lon: -121.7537,
-    search: "laguna seca monterey california weathertech",
-  },
-  {
-    id: "silverstone",
-    name: "Silverstone Circuit",
-    location: "Silverstone, England",
-    popularity: 12410,
-    lat: 52.0733,
-    lon: -1.0147,
-    search: "silverstone england uk",
-  },
-  {
-    id: "cota",
-    name: "Circuit of the Americas",
-    location: "Austin, Texas",
-    popularity: 11180,
-    lat: 30.1328,
-    lon: -97.6411,
-    search: "cota austin texas circuit of the americas",
-  },
-  {
-    id: "watkins-glen",
-    name: "Watkins Glen International",
-    location: "Watkins Glen, New York",
-    popularity: 9720,
-    lat: 42.3369,
-    lon: -76.927,
-    search: "watkins glen new york",
-  },
-  {
-    id: "brands-hatch",
-    name: "Brands Hatch",
-    location: "Kent, England",
-    popularity: 8640,
-    lat: 51.3569,
-    lon: 0.2631,
-    search: "brands hatch kent england uk",
-  },
-  {
-    id: "road-atlanta",
-    name: "Road Atlanta",
-    location: "Braselton, Georgia",
-    popularity: 7510,
-    lat: 34.1547,
-    lon: -83.8128,
-    search: "road atlanta braselton georgia",
   },
 ];
 
@@ -252,7 +155,7 @@ export function saveCustomTrack(name: string): Track {
 export function popularTracks(query = "", extras: Track[] = []): Track[] {
   const merged = [...TRACKS];
   for (const extra of [...listSharedTracksCache(), ...extras]) {
-    if (!merged.some((track) => track.id === extra.id)) merged.push(extra);
+    if (!merged.some((item) => item.id === extra.id)) merged.push(extra);
   }
   const ranked = merged.sort(
     (a, b) => b.popularity - a.popularity || a.name.localeCompare(b.name),

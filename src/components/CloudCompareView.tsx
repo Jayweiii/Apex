@@ -4,10 +4,6 @@ import { AppHeader } from "@/components/AppHeader";
 import { LapCompare } from "@/components/LapCompare";
 import { SaveComparisonControls } from "@/components/SaveComparisonControls";
 import type { ComparisonDraftSnapshot } from "@/lib/comparisons";
-import {
-  catalogSessionsForTrack,
-  loadCatalogSession,
-} from "@/lib/catalog";
 import { fetchSharedTracks } from "@/lib/cloud-tracks";
 import {
   groupLapsBySession,
@@ -58,33 +54,6 @@ function videosBySession(rows: VideoRow[]): Map<string, SessionVideo[]> {
     map.set(row.session_id, list);
   }
   return map;
-}
-
-async function catalogAsCompareOptions(
-  trackId: string | null | undefined,
-): Promise<CompareSessionOption[]> {
-  if (!trackId) return [];
-  const entries = catalogSessionsForTrack(trackId).slice(0, 6);
-  const loaded = await Promise.all(
-    entries.map((entry) => loadCatalogSession(entry.id)),
-  );
-  return loaded
-    .filter((item): item is NonNullable<typeof item> => item != null)
-    .map((item) => ({
-      id: item.id,
-      name: item.name,
-      car: item.car,
-      kind: item.kind,
-      trackId: item.trackId,
-      laps: item.laps.map((lap) => ({
-        id: lap.id,
-        session_id: item.id,
-        user_id: "catalog",
-        lap_number: lap.lap_number,
-        lap_time_ms: lap.lap_time_ms,
-        telemetry: lap.telemetry,
-      })),
-    }));
 }
 
 async function fetchAccessibleSessions(
@@ -148,7 +117,7 @@ async function fetchAccessibleSessions(
 
 /**
  * Cloud compare: current session plus every accessible peer
- * (own / friends / public via RLS) and catalog demos, filterable by track.
+ * (own / friends / public via RLS), filterable by track.
  */
 export function CloudCompareView({
   id,
@@ -287,18 +256,9 @@ export function CloudCompareView({
             (v) => v.provider === "youtube" && v.youtubeId,
           ),
         }));
-        const catalogOptions = (
-          await catalogAsCompareOptions(current.track_id)
-        ).filter(
-          (option) => !cloudOptions.some((cloud) => cloud.id === option.id),
-        );
 
         if (!cancelled) {
-          const merged = new Map<string, CompareSessionOption>();
-          for (const option of [...cloudOptions, ...catalogOptions]) {
-            if (!merged.has(option.id)) merged.set(option.id, option);
-          }
-          setCompareSessions([...merged.values()]);
+          setCompareSessions(cloudOptions);
         }
       } catch (err) {
         if (!cancelled) {

@@ -7,13 +7,6 @@ import { SessionUpload } from "@/components/SessionUpload";
 import { PublicCloudSessions } from "@/components/PublicCloudSessions";
 import { TrackMap } from "@/components/TrackMap";
 import { YourSessions } from "@/components/YourSessions";
-import {
-  catalogBestMs,
-  catalogSessionsForTrack,
-  CATALOG_SESSIONS,
-  loadCatalogSession,
-  type CatalogSession,
-} from "@/lib/catalog";
 import { builtinCenterline } from "@/lib/centerlines";
 import { fetchSharedTracks } from "@/lib/cloud-tracks";
 import { formatLapTime } from "@/lib/format";
@@ -39,22 +32,10 @@ type TrackRow = {
   best: number;
   laps: number;
   kind: DataKind;
-  attribution?: CatalogSession["attribution"];
 };
 
 function rowsForTrack(trackId: string, local: StoredSession[]): TrackRow[] {
-  const catalog: TrackRow[] = catalogSessionsForTrack(trackId).map(
-    (session: CatalogSession) => ({
-      id: session.id,
-      name: session.name,
-      car: session.car,
-      best: catalogBestMs(session),
-      laps: session.lapCount ?? 3,
-      kind: session.kind,
-      attribution: session.attribution,
-    }),
-  );
-  const browser: TrackRow[] = local
+  return local
     .filter((session) => session.trackId === trackId)
     .map((session) => ({
       id: session.id,
@@ -62,9 +43,8 @@ function rowsForTrack(trackId: string, local: StoredSession[]): TrackRow[] {
       car: session.car?.trim() || "Unknown",
       best: Math.min(...session.laps.map((lap) => lap.lap_time_ms)),
       laps: session.laps.length,
-      kind: "upload" as const,
+      kind: (session.kind ?? "upload") as DataKind,
     }));
-  return [...catalog, ...browser];
 }
 
 function groupByCar(rows: TrackRow[]) {
@@ -133,8 +113,6 @@ export function TrackHome() {
     () => popularTracks(query, extraTracks),
     [query, extraTracks],
   );
-  const publicSessions = CATALOG_SESSIONS.filter((s) => s.kind === "public");
-  const demoCount = CATALOG_SESSIONS.filter((s) => s.kind === "demo").length;
 
   return (
     <>
@@ -145,18 +123,13 @@ export function TrackHome() {
             Lap times · GPS · compare
           </p>
           <h1 className="max-w-xl text-3xl font-semibold tracking-tight text-zinc-50 sm:text-4xl">
-            Review real sessions and your own TrackAddict logs
+            Upload sessions and compare real laps
           </h1>
           <p className="max-w-2xl text-sm leading-relaxed text-zinc-400 sm:text-base">
             Upload a CSV or GoPro — no account required. Guests save to the
             cloud (default Public link); add an email later to keep sessions
-            across devices. Public datasets and demos are always available.
+            across devices.
           </p>
-          <div className="mt-1 flex flex-wrap gap-2 text-xs text-zinc-500">
-            <DataKindBadge kind="public" />
-            <DataKindBadge kind="demo" />
-            <DataKindBadge kind="upload" />
-          </div>
         </section>
 
         <SessionUpload />
@@ -167,62 +140,6 @@ export function TrackHome() {
 
         <LeaderboardPanel />
 
-        <section className="flex flex-col gap-3">
-          <div className="flex flex-wrap items-end justify-between gap-2">
-            <div>
-              <h2 className="text-sm font-medium text-zinc-200">Public datasets</h2>
-              <p className="mt-1 text-sm text-zinc-500">
-                Redistributable telemetry with source, author, and license.
-              </p>
-            </div>
-            <p className="text-xs text-zinc-600">
-              {demoCount} synthetic demos on Laguna Seca
-            </p>
-          </div>
-          {publicSessions.length === 0 ? (
-            <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-6 text-sm text-zinc-500">
-              No public datasets yet.
-            </p>
-          ) : (
-            <ul className="grid gap-3">
-              {publicSessions.map((session) => {
-                const track = getTrack(session.trackId);
-                return (
-                  <li key={session.id}>
-                    <Link
-                      href={`/sessions/${session.id}`}
-                      className="block rounded-2xl border border-zinc-800/80 bg-zinc-950/50 px-4 py-4 transition hover:border-zinc-700 hover:bg-zinc-900/60 sm:px-5"
-                    >
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="min-w-0 space-y-2">
-                          <p className="font-medium text-zinc-100">{session.name}</p>
-                          <p className="text-sm text-zinc-500">
-                            {track?.name ?? session.trackId}
-                            {" · "}
-                            {session.car}
-                          </p>
-                          <span className="inline-flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-                            <DataKindBadge kind="public" />
-                            <span>
-                              {session.attribution.source}
-                              {session.attribution.license
-                                ? ` · ${session.attribution.license}`
-                                : ""}
-                            </span>
-                          </span>
-                        </div>
-                        <p className="shrink-0 font-mono text-lg text-orange-400">
-                          {formatLapTime(catalogBestMs(session))}
-                        </p>
-                      </div>
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
-
         <label className="flex flex-col gap-2">
           <span className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
             Search tracks
@@ -230,7 +147,7 @@ export function TrackHome() {
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Thunderhill, Spa, Spreewaldring…"
+            placeholder="Thunderhill, Buttonwillow…"
             className="min-h-12 rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:text-sm"
           />
         </label>
@@ -246,12 +163,6 @@ export function TrackHome() {
           ) : (
             <ul className="grid gap-3">
               {tracks.map((track) => {
-                const sessions = catalogSessionsForTrack(track.id);
-                const best = sessions.length
-                  ? Math.min(...sessions.map((session) => catalogBestMs(session)))
-                  : Number.POSITIVE_INFINITY;
-                const publicCount = sessions.filter((s) => s.kind === "public").length;
-                const demoCountForTrack = sessions.filter((s) => s.kind === "demo").length;
                 return (
                   <li key={track.id}>
                     <Link
@@ -271,15 +182,11 @@ export function TrackHome() {
                         </p>
                         <p className="mt-1 text-xs text-zinc-500">
                           {track.location}
-                          {publicCount ? ` · ${publicCount} public` : ""}
-                          {demoCountForTrack ? ` · ${demoCountForTrack} demo` : ""}
-                          {!publicCount && !demoCountForTrack
-                            ? " · upload your sessions"
-                            : ""}
+                          {" · upload your sessions"}
                         </p>
                       </div>
                       <p className="shrink-0 font-mono text-lg text-orange-400">
-                        {Number.isFinite(best) ? formatLapTime(best) : "—"}
+                        —
                       </p>
                     </Link>
                   </li>
@@ -293,6 +200,45 @@ export function TrackHome() {
   );
 }
 
+function overviewPointsForTrack(
+  track: Track,
+  local: StoredSession[] | null,
+): TelemetryPoint[] | null {
+  const centerline = builtinCenterline(track.id);
+  if (centerline) {
+    return centerline.map((point, index) => ({
+      t: index,
+      speed: 120,
+      lat: point.lat,
+      lon: point.lon,
+    }));
+  }
+  const localWithGps = (local ?? []).find((session) =>
+    session.laps.some((lap) =>
+      lap.telemetry.some((point) => point.lat != null && point.lon != null),
+    ),
+  );
+  if (localWithGps) {
+    const lap =
+      localWithGps.laps.find((item) =>
+        item.telemetry.some((point) => point.lat != null && point.lon != null),
+      ) ?? localWithGps.laps[0];
+    return lap?.telemetry ?? null;
+  }
+  if (track.lat && track.lon) {
+    return [
+      { t: 0, speed: 0, lat: track.lat, lon: track.lon },
+      {
+        t: 1,
+        speed: 0,
+        lat: track.lat + 0.002,
+        lon: track.lon + 0.002,
+      },
+    ];
+  }
+  return null;
+}
+
 function TrackOverviewMap({
   track,
   local,
@@ -300,66 +246,12 @@ function TrackOverviewMap({
   track: Track;
   local: StoredSession[] | null;
 }) {
-  const [catalogPoints, setCatalogPoints] = useState<TelemetryPoint[] | null>(
-    null,
+  const mapPoints = useMemo(
+    () => overviewPointsForTrack(track, local),
+    [track, local],
   );
-
-  useEffect(() => {
-    let cancelled = false;
-    const centerline = builtinCenterline(track.id);
-    if (centerline) {
-      setCatalogPoints(
-        centerline.map((point, index) => ({
-          t: index,
-          speed: 120,
-          lat: point.lat,
-          lon: point.lon,
-        })),
-      );
-      return;
-    }
-    const localWithGps = (local ?? []).find((session) =>
-      session.laps.some((lap) =>
-        lap.telemetry.some((point) => point.lat != null && point.lon != null),
-      ),
-    );
-    if (localWithGps) {
-      const lap =
-        localWithGps.laps.find((item) =>
-          item.telemetry.some((point) => point.lat != null && point.lon != null),
-        ) ?? localWithGps.laps[0];
-      setCatalogPoints(lap?.telemetry ?? null);
-      return;
-    }
-    const catalog = catalogSessionsForTrack(track.id)[0];
-    if (!catalog) {
-      if (track.lat && track.lon) {
-        setCatalogPoints([
-          { t: 0, speed: 0, lat: track.lat, lon: track.lon },
-          {
-            t: 1,
-            speed: 0,
-            lat: track.lat + 0.002,
-            lon: track.lon + 0.002,
-          },
-        ]);
-      }
-      return;
-    }
-    void loadCatalogSession(catalog.id).then((session) => {
-      if (cancelled || !session) return;
-      const lap = session.laps.find((item) =>
-        item.telemetry.some((point) => point.lat != null && point.lon != null),
-      );
-      setCatalogPoints(lap?.telemetry ?? null);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [track, local]);
-
   const centerline = builtinCenterline(track.id);
-  if (!catalogPoints || catalogPoints.length < 2) return null;
+  if (!mapPoints || mapPoints.length < 2) return null;
 
   return (
     <TrackMap
@@ -368,7 +260,7 @@ function TrackOverviewMap({
           id: `${track.id}-overview`,
           label: track.name,
           color: "#f97316",
-          points: catalogPoints,
+          points: mapPoints,
           colorBySpeed: true,
         },
       ]}
@@ -431,8 +323,7 @@ export function TrackDetail({ id }: { id: string }) {
             <p className="text-sm text-zinc-500">Loading sessions…</p>
           ) : groups.length === 0 ? (
             <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-8 text-center text-sm text-zinc-500">
-              No sessions here yet. Upload a CSV above, or open Spreewaldring for
-              public data.
+              No sessions yet, upload one.
             </p>
           ) : (
             groups.map((group) => (

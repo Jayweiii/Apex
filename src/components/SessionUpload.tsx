@@ -971,14 +971,6 @@ export function SessionUpload({
               ? "Upload to account"
               : "Upload session"}
         </button>
-        <button
-          type="button"
-          onClick={() => router.push("/sessions/demo-laguna-seca-gt3")}
-          disabled={busy}
-          className="min-h-11 text-sm text-zinc-400 underline-offset-4 hover:text-zinc-200 hover:underline disabled:opacity-50"
-        >
-          Open synthetic demo
-        </button>
       </div>
     </form>
   );

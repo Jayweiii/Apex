@@ -18,7 +18,7 @@ import { GpsModeToggle } from "@/components/GpsModeToggle";
 import { cornerBreakdown, theoreticalBestLap } from "@/lib/analysis";
 import { useAnalysisMode } from "@/lib/analysis-mode";
 import { getLocalBlob } from "@/lib/blob-store";
-import { catalogSessionsForTrack, loadCatalogSession } from "@/lib/catalog";
+import { loadCatalogSession } from "@/lib/catalog";
 import { resolveTrackCenterline } from "@/lib/cloud-tracks";
 import { GpsQualityBadge } from "@/components/GpsQualityBadge";
 import { compareHref } from "@/lib/compare";
@@ -117,7 +117,6 @@ export function LocalCompare({
 }) {
   const session = useLocalSession(id);
   const [peerSessions, setPeerSessions] = useState<StoredSession[]>([]);
-  const [catalogPeers, setCatalogPeers] = useState<StoredSession[]>([]);
   const [draft, setDraft] = useState<ComparisonDraftSnapshot | null>(null);
   const onDraftChange = useCallback((next: ComparisonDraftSnapshot) => {
     setDraft(next);
@@ -141,26 +140,6 @@ export function LocalCompare({
       ordered.unshift(session);
     }
     setPeerSessions(ordered);
-
-    let cancelled = false;
-    const catalogIds = catalogSessionsForTrack(session.trackId ?? "")
-      .map((entry) => entry.id)
-      .filter((catalogId) => catalogId !== session.id)
-      .slice(0, 6);
-    Promise.all(catalogIds.map((catalogId) => loadCatalogSession(catalogId)))
-      .then((loaded) => {
-        if (!cancelled) {
-          setCatalogPeers(
-            loaded.filter((item): item is StoredSession => item != null),
-          );
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setCatalogPeers([]);
-      });
-    return () => {
-      cancelled = true;
-    };
   }, [session]);
 
   const compareCenterline = useMemo(() => {
@@ -188,8 +167,8 @@ export function LocalCompare({
       telemetry: lap.telemetry,
     }));
 
-  const compareSessions = [
-    ...peerSessions.map((item) => ({
+  const compareSessions = peerSessions
+    .map((item) => ({
       id: item.id,
       name: item.name,
       car: item.car,
@@ -201,21 +180,8 @@ export function LocalCompare({
         (v) => v.provider === "youtube" && v.youtubeId,
       ),
       laps: toRows(item),
-    })),
-    ...catalogPeers
-      .filter((item) => !peerSessions.some((peer) => peer.id === item.id))
-      .map((item) => ({
-        id: item.id,
-        name: item.name,
-        car: item.car,
-        kind: item.kind,
-        trackId: item.trackId,
-        sourceKind: item.sourceKind ?? null,
-        gpsQuality: item.gpsQuality ?? null,
-        videos: item.videos ?? [],
-        laps: toRows(item),
-      })),
-  ].sort((a, b) => preferGpsSession(a, b));
+    }))
+    .sort((a, b) => preferGpsSession(a, b));
 
   const laps = toRows(session);
   const shareParams = new URLSearchParams();

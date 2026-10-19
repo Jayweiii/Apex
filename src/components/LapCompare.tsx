@@ -536,8 +536,8 @@ export function LapCompare({
   if (totalLaps < 2) {
     return (
       <p className="text-sm text-zinc-500">
-        Need at least two laps to compare. Upload another session, open a
-        friends/public session on this track, or pick a demo lap.
+        Need at least two laps to compare. Upload another session or open a
+        friends/public session on this track.
       </p>
     );
   }

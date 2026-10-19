@@ -47,19 +47,8 @@ export const THUNDERHILL_EAST_CENTERLINE: LatLon[] = ellipseLoop(
   0.22,
 );
 
-/** Laguna Seca-ish oval for demo sessions (sample GPS is already near Laguna). */
-export const LAGUNA_SECA_CENTERLINE: LatLon[] = ellipseLoop(
-  36.584,
-  -121.753,
-  520,
-  780,
-  80,
-  0.28,
-);
-
 const BUILTIN: Record<string, LatLon[]> = {
   "thunderhill-east": THUNDERHILL_EAST_CENTERLINE,
-  "laguna-seca": LAGUNA_SECA_CENTERLINE,
 };
 
 export function builtinCenterline(trackId: string | null | undefined): LatLon[] | null {

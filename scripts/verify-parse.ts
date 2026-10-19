@@ -45,7 +45,10 @@ assert(
 );
 
 const sample = parseTelemetryCsv(
-  fs.readFileSync(path.join(root, "public/sample-telemetry.csv"), "utf8"),
+  fs.readFileSync(
+    path.join(root, "src/lib/fixtures/sample-telemetry.csv"),
+    "utf8",
+  ),
 );
 assert(sample.laps.length === 3, `sample expected 3 laps, got ${sample.laps.length}`);
 

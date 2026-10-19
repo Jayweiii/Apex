@@ -123,7 +123,7 @@ export function YourSessions() {
       </div>
       {sessions.length === 0 ? (
         <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-6 text-sm text-zinc-500">
-          No cloud sessions yet. Upload above while signed in.
+          No sessions yet, upload one.
         </p>
       ) : (
         <ul className="grid gap-3">
