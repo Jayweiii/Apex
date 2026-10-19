@@ -72,7 +72,10 @@ assert(
   "compare stacked telemetry (no tabs)",
 );
 assert(!compare.includes("setChartPanel"), "compare has no chart tabs");
-assert(compare.includes("lg:grid-cols-2"), "compare side-by-side");
+assert(
+  compare.includes("lg:grid-cols-2") || compare.includes("lg:grid-cols-["),
+  "compare side-by-side",
+);
 
 const trackDetail = read("src/components/TrackDirectory.tsx");
 assert(trackDetail.includes('setTab("sessions")') || trackDetail.includes("setTab(item.id)"), "track tabs");
