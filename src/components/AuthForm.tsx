@@ -5,6 +5,7 @@ import {
   ensureAuthenticatedUser,
   isAnonymousUser,
 } from "@/lib/guest-auth";
+import { resolveSignUpOutcome } from "@/lib/signup-outcome";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
@@ -57,11 +58,21 @@ export function AuthForm() {
           "Check your email to confirm, then you can sign in with this address on any device.",
         );
       } else if (mode === "signup") {
-        const { error: signUpError } = await supabase.auth.signUp({
+        const { data, error: signUpError } = await supabase.auth.signUp({
           email,
           password,
         });
-        if (signUpError) throw signUpError;
+        const outcome = resolveSignUpOutcome(data, signUpError);
+        if (outcome.kind === "error") {
+          setError(outcome.message);
+          return;
+        }
+        if (outcome.kind === "signed_in") {
+          router.replace("/");
+          router.refresh();
+          return;
+        }
+        // session null + unconfirmed user → only when confirm-email is on
         setMessage("Check your email to confirm the account, then sign in.");
       } else {
         const { error: signInError } = await supabase.auth.signInWithPassword({
