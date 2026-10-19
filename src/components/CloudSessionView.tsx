@@ -274,7 +274,7 @@ export function CloudSessionView({ id }: { id: string }) {
       <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8">
         <div className="space-y-3">
           <Link
-            href={mine ? "/account" : "/friends"}
+            href={mine ? "/account" : "/lap-comparisons?tab=sessions"}
             className="text-[11px] uppercase tracking-[0.2em] text-zinc-500 hover:text-zinc-300"
           >
             {mine ? "Your account sessions" : userId ? "Friends" : "Public feed"}

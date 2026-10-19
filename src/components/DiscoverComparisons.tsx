@@ -46,7 +46,7 @@ export function DiscoverComparisons() {
         <code className="text-zinc-300">
           supabase/migrations/20261019_comparisons.sql
         </code>{" "}
-        in the Supabase SQL editor to enable Discover.
+        in the Supabase SQL editor to enable Lap Comparisons.
       </p>
     );
   }
