@@ -93,10 +93,12 @@ export function buildCloudSessionPayload(
     user_id: userId,
     provider: video.provider,
     youtube_id: video.youtubeId ?? null,
+    youtube_url: video.youtubeUrl ?? null,
     object_key: video.objectKey ?? null,
     title: video.title ?? null,
     // lap_id resolved after lap insert when possible
     lap_id: video.lapId ?? null,
+    lap_index: video.lapIndex ?? null,
     offset_sec: video.offsetSec,
     rate: video.rate ?? 1,
     sync_source: video.syncSource,

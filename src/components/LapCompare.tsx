@@ -33,6 +33,7 @@ import {
 } from "@/lib/map-match";
 import { progressFromIndex } from "@/lib/scrub";
 import { getTrack } from "@/lib/tracks";
+import { pickSessionVideoForLap } from "@/lib/pick-session-video";
 import type { LapRow, SessionVideo } from "@/lib/types";
 import {
   useCallback,
@@ -66,13 +67,7 @@ function pickVideoForLap(
   session: CompareSessionOption | null | undefined,
   lapId: string | undefined,
 ): SessionVideo | null {
-  const videos = (session?.videos ?? []).filter(
-    (video) => video.provider === "youtube" && video.youtubeId,
-  );
-  if (!videos.length) return null;
-  return (
-    videos.find((video) => video.lapId === lapId) ?? videos[0] ?? null
-  );
+  return pickSessionVideoForLap(session?.videos, lapId, { youtubeOnly: true });
 }
 
 function formatDistance(meters: number) {

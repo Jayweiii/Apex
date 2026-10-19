@@ -3,6 +3,7 @@
 import { AppHeader } from "@/components/AppHeader";
 import { GpsQualityBadge } from "@/components/GpsQualityBadge";
 import { LapChips, LapList } from "@/components/LapList";
+import { videoCoverage } from "@/lib/pick-session-video";
 import { SessionLapDetail } from "@/components/SessionLapDetail";
 import { SessionVideosCard } from "@/components/SessionVideosCard";
 import { SessionVisibilityControl } from "@/components/SessionVisibilityControl";
@@ -293,6 +294,12 @@ export function CloudSessionView({ id }: { id: string }) {
     (min, lap) => Math.min(min, lap.lap_time_ms),
     Number.POSITIVE_INFINITY,
   );
+  const coverage = videoCoverage(
+    videos,
+    laps.map((lap) => lap.id),
+  );
+  const dedicatedVideoLapIds = [...coverage.byLapId.keys()];
+
   const href = compareHref(session.id, laps);
   const mine = Boolean(userId && session.user_id === userId);
   const visibility = normalizeVisibility(session.visibility ?? DEFAULT_VISIBILITY);
@@ -355,6 +362,8 @@ export function CloudSessionView({ id }: { id: string }) {
             laps={laps}
             selectedId={selected?.id}
             onSelect={(lap) => selectLap(lap)}
+            videoLapIds={dedicatedVideoLapIds}
+            sessionVideo={Boolean(coverage.sessionLevel)}
           />
         ) : null}
 
@@ -390,6 +399,8 @@ export function CloudSessionView({ id }: { id: string }) {
                 laps={laps}
                 selectedId={selected?.id}
                 onSelect={(lap) => selectLap(lap)}
+                videoLapIds={dedicatedVideoLapIds}
+                sessionVideo={Boolean(coverage.sessionLevel)}
               />
             ) : (
               <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-8 text-center text-sm text-zinc-500">

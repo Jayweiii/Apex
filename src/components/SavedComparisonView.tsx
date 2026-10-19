@@ -107,6 +107,7 @@ export function SavedComparisonView({ id }: { id: string }) {
                   id: String(v.id),
                   provider: (v.provider as "youtube" | "mp4") ?? "youtube",
                   youtubeId: (v.youtube_id as string) ?? undefined,
+                  youtubeUrl: (v.youtube_url as string) ?? undefined,
                   offsetSec: Number(v.offset_sec ?? 0),
                   rate: Number(v.rate ?? 1),
                   syncSource:
