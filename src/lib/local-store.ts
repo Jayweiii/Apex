@@ -1,5 +1,6 @@
 import type { DataKind, DatasetAttribution } from "./attribution";
 import type { GpsQuality } from "./gps-quality";
+import { applyLapTrim, videoOffsetAfterStartShift } from "./lap-trim";
 import type { ParsedLap, SessionVideo, TelemetryPoint } from "./types";
 
 const STORAGE_KEY = "apex.local-sessions";
@@ -15,6 +16,8 @@ export type StoredLap = {
   started_at_ms?: number;
   excluded?: boolean;
   exclude_reason?: string | null;
+  start_offset_override?: number | null;
+  end_offset_override?: number | null;
 };
 
 export type SessionSourceKind = "csv" | "gopro" | "logger";
@@ -171,6 +174,49 @@ export function setLocalLapExcluded(
       : lap,
   );
   return updateLocalSession(sessionId, { laps });
+}
+
+/** Persist lap trim overrides for a local session; recomputes lap_time_ms. */
+export function setLocalLapTrim(
+  sessionId: string,
+  lapId: string,
+  overrides: {
+    start_offset_override: number | null;
+    end_offset_override: number | null;
+  },
+): StoredSession | null {
+  const session = getLocalSession(sessionId);
+  if (!session) return null;
+  const previous = session.laps.find((lap) => lap.id === lapId);
+  if (!previous) return null;
+  const before = applyLapTrim(previous);
+  const nextLap = {
+    ...previous,
+    start_offset_override: overrides.start_offset_override,
+    end_offset_override: overrides.end_offset_override,
+  };
+  const after = applyLapTrim(nextLap);
+  const startDelta = after.start_offset_sec - before.start_offset_sec;
+  const laps = session.laps.map((lap) =>
+    lap.id === lapId
+      ? {
+          ...nextLap,
+          lap_time_ms: after.lap_time_ms,
+        }
+      : lap,
+  );
+  let videos = session.videos ?? [];
+  if (Math.abs(startDelta) > 1e-6 && videos.length) {
+    videos = videos.map((video) =>
+      video.lapId === lapId
+        ? {
+            ...video,
+            offsetSec: videoOffsetAfterStartShift(video, lapId, startDelta),
+          }
+        : video,
+    );
+  }
+  return updateLocalSession(sessionId, { laps, videos });
 }
 
 export type SessionMetaInput = {

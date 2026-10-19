@@ -1,15 +1,14 @@
 "use client";
 
 import { GChart } from "@/components/GChart";
+import { PlaybackControls } from "@/components/PlaybackControls";
 import { SpeedChart } from "@/components/SpeedChart";
 import { MissingGps, TrackMap } from "@/components/TrackMap";
+import { usePlaybackClock } from "@/components/usePlaybackClock";
 import { Mp4Player } from "@/components/video/Mp4Player";
 import { SyncPanel } from "@/components/video/SyncPanel";
 import { YouTubePlayer } from "@/components/video/YouTubePlayer";
-import {
-  useVideoSync,
-  type VideoPlayerHandle,
-} from "@/components/video/useVideoSync";
+import type { VideoPlayerHandle } from "@/components/video/useVideoSync";
 import { useAnalysisMode } from "@/lib/analysis-mode";
 import { resolveTrackCenterline } from "@/lib/cloud-tracks";
 import { hasGps } from "@/lib/compare";
@@ -28,7 +27,6 @@ import {
 } from "@/lib/map-match";
 import type { SessionVideo, TelemetryPoint } from "@/lib/types";
 import {
-  cursorFromVideoTime,
   toSyncLaps,
   videoTimeFromLapProgress,
   type SyncLap,
@@ -66,9 +64,10 @@ export function SyncedLapView({
   mp4Src,
   sessionStartedAtMs,
   bestLapMs,
-  followCharts = false,
   onVideoChange,
   trackId,
+  trimMarkers,
+  onTrimBoundaryDrag,
 }: {
   sessionId?: string;
   lap: {
@@ -90,9 +89,10 @@ export function SyncedLapView({
   mp4Src?: string | null;
   sessionStartedAtMs?: number;
   bestLapMs?: number;
-  followCharts?: boolean;
   onVideoChange?: (next: SessionVideo) => void;
   trackId?: string | null;
+  trimMarkers?: { startT: number; endT: number } | null;
+  onTrimBoundaryDrag?: (which: "start" | "end", lapLocalT: number) => void;
 }) {
   const centerline = useMemo(
     () =>
@@ -150,10 +150,8 @@ export function SyncedLapView({
 
   const playerRef = useRef<VideoPlayerHandle | null>(null);
   const [player, setPlayer] = useState<VideoPlayerHandle | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const [videoTime, setVideoTime] = useState(0);
-  const [progress, setProgress] = useState<number | null>(null);
-  const [follow, setFollow] = useState(followCharts);
-  // Optimistic copy so SyncPanel nudges update UI before parent re-fetches.
   const [draftVideo, setDraftVideo] = useState<SessionVideo | null>(
     video ?? null,
   );
@@ -182,22 +180,44 @@ export function SyncedLapView({
     [onVideoChange],
   );
 
-  const { seek } = useVideoSync({
-    player,
-    onTime: (t) => {
-      setVideoTime(t);
-      if (!activeVideo) return;
-      const cursor = cursorFromVideoTime(t, activeVideo, syncLaps);
-      if (cursor.lap?.id === lap.id && data.length > 1) {
-        const lastT = data[data.length - 1].t || 1;
-        setProgress(Math.max(0, Math.min(1, cursor.lapTime / lastT)));
-      }
-    },
-    enabled: Boolean(activeVideo),
+  const durationMs = Math.max(
+    1,
+    lap.lap_time_ms ||
+      Math.round((chartData[chartData.length - 1]?.t ?? 1) * 1000),
+  );
+
+  const clock = usePlaybackClock({
+    durationMs,
+    enabled: true,
+    rootRef,
   });
+  const { pause, setProgress, progress, playing, toggle, speed, setSpeed } =
+    clock;
+
+  const seekVideo = useCallback(
+    (nextProgress: number) => {
+      if (!activeVideo || !player) return;
+      const t = videoTimeFromLapProgress(
+        currentSyncLap,
+        nextProgress,
+        activeVideo,
+      );
+      player.seek(t);
+      setVideoTime(t);
+    },
+    [activeVideo, player, currentSyncLap],
+  );
+
+  useEffect(() => {
+    seekVideo(progress);
+  }, [progress, seekVideo]);
+
+  useEffect(() => {
+    player?.pause();
+  }, [player, playing]);
 
   const index =
-    progress == null || chartData.length < 2
+    chartData.length < 2
       ? null
       : Math.round(progress * (chartData.length - 1));
   const cursorPoint =
@@ -207,49 +227,38 @@ export function SyncedLapView({
   const deltaVsBest =
     bestLapMs != null ? (lap.lap_time_ms - bestLapMs) / 1000 : null;
 
+  const setProgressFromUi = useCallback(
+    (next: number | null) => {
+      if (next == null) return;
+      pause();
+      setProgress(next);
+    },
+    [pause, setProgress],
+  );
+
   const hoverFromChart = useCallback(
     (next: number | null) => {
       const nextProgress = progressFromIndex(next, chartData.length);
-      setProgress(nextProgress);
-      // Only drive video when Follow is on — off lets you pair video+chart for sync.
-      if (!follow || nextProgress == null || !activeVideo) return;
-      const t = videoTimeFromLapProgress(
-        currentSyncLap,
-        nextProgress,
-        activeVideo,
-      );
-      seek(t);
-      setVideoTime(t);
+      if (nextProgress == null) return;
+      setProgressFromUi(nextProgress);
     },
-    [chartData.length, activeVideo, follow, currentSyncLap, seek],
+    [chartData.length, setProgressFromUi],
   );
 
-  const onMapProgress = useCallback(
-    (next: number | null) => {
-      setProgress(next);
-      if (!follow || next == null || !activeVideo) return;
-      const t = videoTimeFromLapProgress(currentSyncLap, next, activeVideo);
-      seek(t);
-      setVideoTime(t);
-    },
-    [activeVideo, follow, currentSyncLap, seek],
-  );
+  const onMapProgress = setProgressFromUi;
 
   const chartLapTimeSec =
-    progress == null
-      ? null
-      : progress *
-        (chartData[chartData.length - 1]?.t ??
-          lap.lap_time_ms / 1000);
+    progress *
+    (chartData[chartData.length - 1]?.t ?? lap.lap_time_ms / 1000);
 
   const seekChartLapTime = useCallback(
     (lapTimeSec: number) => {
       const lastT =
         chartData[chartData.length - 1]?.t ?? lap.lap_time_ms / 1000;
       if (lastT <= 0) return;
-      setProgress(Math.max(0, Math.min(1, lapTimeSec / lastT)));
+      setProgressFromUi(Math.max(0, Math.min(1, lapTimeSec / lastT)));
     },
-    [chartData, lap.lap_time_ms],
+    [chartData, lap.lap_time_ms, setProgressFromUi],
   );
 
   const mapProps = {
@@ -269,7 +278,7 @@ export function SyncedLapView({
   }, []);
 
   return (
-    <div className="flex flex-col gap-6">
+    <div ref={rootRef} tabIndex={0} className="flex flex-col gap-6 outline-none">
       {activeVideo ? (
         <div className="space-y-4">
           <div className="w-full">
@@ -297,16 +306,18 @@ export function SyncedLapView({
               {deltaVsBest != null ? (
                 <span>Δ best {formatGap(deltaVsBest)}</span>
               ) : null}
-              <label className="ml-auto flex items-center gap-2 text-xs uppercase tracking-[0.16em] text-zinc-500">
-                <input
-                  type="checkbox"
-                  checked={follow}
-                  onChange={(e) => setFollow(e.target.checked)}
-                />
-                Follow scrub
-              </label>
             </div>
           </div>
+          <PlaybackControls
+            progress={progress}
+            onProgress={(next) => setProgressFromUi(next)}
+            playing={playing}
+            onTogglePlay={toggle}
+            speed={speed}
+            onSpeed={setSpeed}
+            durationMs={durationMs}
+            label="Lap playback"
+          />
           <div>
             {hasGps(data) ? (
               <TrackMap
@@ -328,23 +339,37 @@ export function SyncedLapView({
             )}
           </div>
         </div>
-      ) : hasGps(data) ? (
-        <TrackMap
-          traces={[
-            {
-              id: "lap",
-              label: `Lap ${lap.lap_number}`,
-              color: "#f97316",
-              points: data,
-              colorBySpeed: true,
-            },
-          ]}
-          activeProgress={progress}
-          onProgress={onMapProgress}
-          {...mapProps}
-        />
       ) : (
-        <MissingGps />
+        <>
+          <PlaybackControls
+            progress={progress}
+            onProgress={(next) => setProgressFromUi(next)}
+            playing={playing}
+            onTogglePlay={toggle}
+            speed={speed}
+            onSpeed={setSpeed}
+            durationMs={durationMs}
+            label="Lap playback"
+          />
+          {hasGps(data) ? (
+            <TrackMap
+              traces={[
+                {
+                  id: "lap",
+                  label: `Lap ${lap.lap_number}`,
+                  color: "#f97316",
+                  points: data,
+                  colorBySpeed: true,
+                },
+              ]}
+              activeProgress={progress}
+              onProgress={onMapProgress}
+              {...mapProps}
+            />
+          ) : (
+            <MissingGps />
+          )}
+        </>
       )}
 
       {activeVideo && onVideoChange ? (
@@ -361,7 +386,10 @@ export function SyncedLapView({
           chartLapTimeSec={chartLapTimeSec}
           lapPoints={chartData}
           onChange={handleVideoChange}
-          onSeek={seek}
+          onSeek={(t) => {
+            player?.seek(t);
+            setVideoTime(t);
+          }}
           onSeekChartLapTime={seekChartLapTime}
         />
       ) : null}
@@ -371,6 +399,8 @@ export function SyncedLapView({
         activeIndex={index}
         onHoverIndex={hoverFromChart}
         syncId="lap-detail"
+        trimMarkers={trimMarkers ?? undefined}
+        onTrimBoundaryDrag={onTrimBoundaryDrag}
       />
       <GChart
         points={chartData}

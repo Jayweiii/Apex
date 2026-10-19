@@ -32,9 +32,14 @@ import {
   listSessionsForCompare,
   replaceLocalSessionLaps,
   setLocalLapExcluded,
+  setLocalLapTrim,
   updateLocalSession,
   type StoredSession,
 } from "@/lib/local-store";
+import {
+  mergeAdjacentLaps,
+  splitLapAtProgress,
+} from "@/lib/lap-trim";
 import { parseTelemetryCsv } from "@/lib/parse-telemetry";
 import { sessionLapHref } from "@/lib/session-lap-url";
 import { pickSessionVideoForLap } from "@/lib/pick-session-video";
@@ -399,6 +404,87 @@ export function LocalSession({ id }: { id: string }) {
     window.location.reload();
   }
 
+  function onTrimChange(change: {
+    lapId: string;
+    start_offset_override: number | null;
+    end_offset_override: number | null;
+  }) {
+    setLocalLapTrim(sessionId, change.lapId, {
+      start_offset_override: change.start_offset_override,
+      end_offset_override: change.end_offset_override,
+    });
+    window.location.reload();
+  }
+
+  function onTrimReset(lapId: string) {
+    onTrimChange({
+      lapId,
+      start_offset_override: null,
+      end_offset_override: null,
+    });
+  }
+
+  function onMergeNext(lapId: string) {
+    if (!session) return;
+    const merged = mergeAdjacentLaps(
+      session.laps.map((lap) => ({
+        id: lap.id,
+        lap_number: lap.lap_number,
+        lap_time_ms: lap.lap_time_ms,
+        start_offset_sec: lap.start_offset_sec,
+        telemetry: lap.telemetry,
+        start_offset_override: lap.start_offset_override,
+        end_offset_override: lap.end_offset_override,
+      })),
+      lapId,
+    );
+    if (!merged) return;
+    updateLocalSession(sessionId, {
+      laps: merged.map((lap) => ({
+        id: lap.id,
+        lap_number: lap.lap_number,
+        lap_time_ms: lap.lap_time_ms,
+        telemetry: lap.telemetry,
+        start_offset_sec: lap.start_offset_sec ?? undefined,
+        start_offset_override: lap.start_offset_override,
+        end_offset_override: lap.end_offset_override,
+      })),
+    });
+    window.location.reload();
+  }
+
+  function onSplit(lapId: string, progress: number) {
+    if (!session) return;
+    const split = splitLapAtProgress(
+      session.laps.map((lap) => ({
+        id: lap.id,
+        lap_number: lap.lap_number,
+        lap_time_ms: lap.lap_time_ms,
+        start_offset_sec: lap.start_offset_sec,
+        telemetry: lap.telemetry,
+        start_offset_override: lap.start_offset_override,
+        end_offset_override: lap.end_offset_override,
+      })),
+      lapId,
+      progress,
+    );
+    if (!split) return;
+    updateLocalSession(sessionId, {
+      laps: split.map((lap) => ({
+        id: lap.id.startsWith(lapId) && lap.id !== lapId
+          ? crypto.randomUUID()
+          : lap.id,
+        lap_number: lap.lap_number,
+        lap_time_ms: lap.lap_time_ms,
+        telemetry: lap.telemetry,
+        start_offset_sec: lap.start_offset_sec ?? undefined,
+        start_offset_override: null,
+        end_offset_override: null,
+      })),
+    });
+    window.location.reload();
+  }
+
   const selectedLap =
     session.laps.find((lap) => lap.id === selected?.id) ?? null;
   const track = session.trackId ? getTrack(session.trackId) : null;
@@ -618,6 +704,10 @@ export function LocalSession({ id }: { id: string }) {
                   start_offset_sec: selectedLap.start_offset_sec,
                   telemetry: selectedLap.telemetry,
                   excluded: selectedLap.excluded ?? false,
+                  exclude_reason: selectedLap.exclude_reason ?? null,
+                  start_offset_override:
+                    selectedLap.start_offset_override ?? null,
+                  end_offset_override: selectedLap.end_offset_override ?? null,
                 }}
                 siblingLaps={session.laps.map((item) => ({
                   id: item.id,
@@ -626,11 +716,20 @@ export function LocalSession({ id }: { id: string }) {
                   start_offset_sec: item.start_offset_sec,
                   telemetry: item.telemetry,
                   excluded: item.excluded ?? false,
+                  exclude_reason: item.exclude_reason ?? null,
+                  start_offset_override: item.start_offset_override ?? null,
+                  end_offset_override: item.end_offset_override ?? null,
                 }))}
                 videos={youtubeVideos}
                 videoParam={videoParam}
                 trackId={session.trackId}
                 sessionStartedAtMs={session.startedAtMs}
+                canEdit
+                onExcludeChange={onExcludeChange}
+                onTrimChange={onTrimChange}
+                onTrimReset={onTrimReset}
+                onMergeNext={onMergeNext}
+                onSplit={onSplit}
                 onVideoChange={
                   session.kind === "upload"
                     ? (next) => {
