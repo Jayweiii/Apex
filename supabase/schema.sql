@@ -43,7 +43,9 @@ create table if not exists public.laps (
   start_offset_sec double precision,
   started_at_ms bigint,
   excluded boolean not null default false,
-  exclude_reason text
+  exclude_reason text,
+  start_offset_override double precision,
+  end_offset_override double precision
 );
 
 create table if not exists public.session_videos (
@@ -150,6 +152,8 @@ alter table public.laps add column if not exists start_offset_sec double precisi
 alter table public.laps add column if not exists started_at_ms bigint;
 alter table public.laps add column if not exists excluded boolean not null default false;
 alter table public.laps add column if not exists exclude_reason text;
+alter table public.laps add column if not exists start_offset_override double precision;
+alter table public.laps add column if not exists end_offset_override double precision;
 
 drop policy if exists "session_videos_select_own" on public.session_videos;
 create policy "session_videos_select_own"

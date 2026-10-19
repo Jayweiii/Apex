@@ -1,7 +1,6 @@
 "use client";
 
-import { GChart } from "@/components/GChart";
-import { SpeedChart } from "@/components/SpeedChart";
+import { StackedLapTelemetry } from "@/components/StackedTelemetry";
 import { SyncedVideo } from "@/components/SyncedVideo";
 import { MissingGps, TrackMap } from "@/components/TrackMap";
 import { useAnalysisMode } from "@/lib/analysis-mode";
@@ -72,51 +71,50 @@ export function LapCharts({
     [chartPoints.length],
   );
 
+  const mapBlock = hasGps(data) ? (
+    <TrackMap
+      traces={[
+        {
+          id: "lap",
+          label,
+          color: "#f97316",
+          points: data,
+          colorBySpeed: true,
+        },
+      ]}
+      activeProgress={progress}
+      onProgress={setProgress}
+      centerline={centerline}
+      gpsMode={centerline ? gpsMode : undefined}
+      onGpsModeChange={centerline ? setGpsMode : undefined}
+      analysisMode={centerline ? analysisMode : undefined}
+      onAnalysisModeChange={centerline ? setAnalysisMode : undefined}
+      analysisDisabled={!hasAnalysisSnap}
+    />
+  ) : (
+    <MissingGps />
+  );
+
   return (
-    <>
-      {videoSrc ? (
-        <SyncedVideo
-          src={videoSrc}
-          progress={progress}
-          durationHint={durationHint}
-          onProgress={setProgress}
-        />
-      ) : null}
-      {hasGps(data) ? (
-        <TrackMap
-          traces={[
-            {
-              id: "lap",
-              label,
-              color: "#f97316",
-              points: data,
-              colorBySpeed: true,
-            },
-          ]}
-          activeProgress={progress}
-          onProgress={setProgress}
-          centerline={centerline}
-          gpsMode={centerline ? gpsMode : undefined}
-          onGpsModeChange={centerline ? setGpsMode : undefined}
-          analysisMode={centerline ? analysisMode : undefined}
-          onAnalysisModeChange={centerline ? setAnalysisMode : undefined}
-          analysisDisabled={!hasAnalysisSnap}
-        />
-      ) : (
-        <MissingGps />
-      )}
-      <SpeedChart
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,1.05fr)_minmax(280px,0.95fr)] lg:items-start">
+      <div className="min-w-0 space-y-3 lg:sticky lg:top-20">
+        {videoSrc ? (
+          <SyncedVideo
+            src={videoSrc}
+            progress={progress}
+            durationHint={durationHint}
+            onProgress={setProgress}
+          />
+        ) : null}
+        {mapBlock}
+      </div>
+      <StackedLapTelemetry
         points={chartPoints}
         activeIndex={index}
         onHoverIndex={hoverFromChart}
         syncId="lap-detail"
+        className="max-h-[min(70vh,720px)]"
       />
-      <GChart
-        points={chartPoints}
-        activeIndex={index}
-        onHoverIndex={hoverFromChart}
-        syncId="lap-detail"
-      />
-    </>
+    </div>
   );
 }

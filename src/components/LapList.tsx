@@ -1,5 +1,6 @@
 "use client";
 
+import { ExcludeFromBestControl } from "@/components/ExcludeFromBestControl";
 import { formatLapTime } from "@/lib/format";
 import {
   bestLapTimeMs,
@@ -62,7 +63,7 @@ export function LapList({
   videoLapIds?: Set<string> | string[];
   /** Session-level video covers all laps. */
   sessionVideo?: boolean;
-  /** Session owner — show exclude toggle / one-click flag actions. */
+  /** Session owner — show exclude icon per row. */
   canEdit?: boolean;
   onExcludeChange?: (change: LapExcludeChange) => void;
   excludeBusyId?: string | null;
@@ -104,49 +105,35 @@ export function LapList({
               : "hover:bg-zinc-900/80"
           }`;
 
-          const excludeControls =
+          const excludeControl =
             canEdit && onExcludeChange ? (
               <div
-                className="flex flex-col items-end gap-1"
+                className="flex justify-end"
                 onClick={(event) => event.stopPropagation()}
                 onKeyDown={(event) => event.stopPropagation()}
               >
-                <label
-                  className="inline-flex cursor-pointer items-center gap-1.5 text-[10px] uppercase tracking-[0.14em] text-zinc-500"
-                  title="Exclude from session best and leaderboards"
-                >
-                  <input
-                    type="checkbox"
-                    className="size-3.5 accent-orange-500"
-                    checked={excluded}
-                    disabled={busy}
-                    onChange={(event) => {
-                      onExcludeChange({
-                        lapId: lap.id,
-                        excluded: event.target.checked,
-                        exclude_reason: event.target.checked ? "manual" : null,
-                      });
-                    }}
-                    aria-label={`Exclude lap ${lap.lap_number} from best`}
-                  />
-                  <span className="hidden sm:inline">Exclude</span>
-                </label>
-                {!excluded && suspicion ? (
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => {
-                      onExcludeChange({
-                        lapId: lap.id,
-                        excluded: true,
-                        exclude_reason: suspicion.labels.join("; "),
-                      });
-                    }}
-                    className="text-[10px] uppercase tracking-[0.14em] text-amber-400/90 hover:text-amber-300 disabled:opacity-50"
-                  >
-                    Exclude
-                  </button>
-                ) : null}
+                <ExcludeFromBestControl
+                  size="icon"
+                  excluded={excluded}
+                  busy={busy}
+                  reason={lap.exclude_reason}
+                  title={
+                    suspicion
+                      ? suspicion.labels.join("; ")
+                      : "Exclude from best"
+                  }
+                  onChange={(next) => {
+                    onExcludeChange({
+                      lapId: lap.id,
+                      excluded: next.excluded,
+                      exclude_reason: next.excluded
+                        ? (suspicion && next.excluded
+                            ? suspicion.labels.join("; ")
+                            : next.exclude_reason)
+                        : null,
+                    });
+                  }}
+                />
               </div>
             ) : null;
 
@@ -172,7 +159,6 @@ export function LapList({
                       className="inline-flex items-center gap-1 text-[10px] font-sans uppercase tracking-[0.16em] text-zinc-500"
                       title={lap.exclude_reason ?? "Excluded from best"}
                     >
-                      <ExcludedIcon />
                       Excluded
                     </span>
                   ) : null}
@@ -196,7 +182,7 @@ export function LapList({
                     ? "—"
                     : `+${(delta / 1000).toFixed(3)}`}
               </span>
-              {excludeControls}
+              {excludeControl}
             </>
           );
 
@@ -303,22 +289,6 @@ function SuspicionBadge({ suspicion }: { suspicion: LapSuspicion }) {
       {suspicion.labels[0]}
       {suspicion.labels.length > 1 ? ` +${suspicion.labels.length - 1}` : ""}
     </span>
-  );
-}
-
-function ExcludedIcon() {
-  return (
-    <svg
-      aria-hidden
-      viewBox="0 0 16 16"
-      className="size-3 shrink-0"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-    >
-      <circle cx="8" cy="8" r="5.5" />
-      <path d="M4.5 4.5l7 7" />
-    </svg>
   );
 }
 
