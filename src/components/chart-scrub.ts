@@ -39,6 +39,10 @@ export function bindChartScrub(
     onTouchEnd: () => onHoverIndex?.(null),
     onTouchCancel: () => onHoverIndex?.(null),
     onPointerDown: scrubAt,
-    onPointerMove: scrubAt,
+    // Only scrub while a button is held — hover must not seek/play video.
+    onPointerMove: (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (event.buttons === 0) return;
+      scrubAt(event);
+    },
   };
 }

@@ -66,7 +66,7 @@ export function SyncedLapView({
   mp4Src,
   sessionStartedAtMs,
   bestLapMs,
-  followCharts = true,
+  followCharts = false,
   onVideoChange,
   trackId,
 }: {
@@ -271,20 +271,21 @@ export function SyncedLapView({
   return (
     <div className="flex flex-col gap-6">
       {activeVideo ? (
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
-          <div className="space-y-3">
+        <div className="space-y-4">
+          <div className="w-full">
             {activeVideo.provider === "youtube" && activeVideo.youtubeId ? (
               <YouTubePlayer
                 key={activeVideo.youtubeId}
                 videoId={activeVideo.youtubeId}
                 ref={bindPlayer}
+                className="w-full"
               />
             ) : mp4Src ? (
-              <Mp4Player src={mp4Src} ref={bindPlayer} />
+              <Mp4Player src={mp4Src} ref={bindPlayer} className="w-full" />
             ) : (
               <MissingYouTube sessionId={sessionId} />
             )}
-            <div className="flex flex-wrap items-center gap-3 text-sm text-zinc-400">
+            <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-zinc-400">
               <span className="font-mono text-zinc-200">
                 {formatLapTime(lap.lap_time_ms)}
               </span>

@@ -52,7 +52,12 @@ export function GChart({
             data={points}
             syncId={syncId}
             margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
-            onMouseMove={(state) => onHoverIndex?.(hoverIndex(state))}
+            onMouseMove={(state) => {
+              // Hover alone must not scrub — chart-scrub handles drag via pointer.
+              const native = (state as { event?: MouseEvent }).event;
+              if (native && native.buttons === 0) return;
+              onHoverIndex?.(hoverIndex(state));
+            }}
             onMouseLeave={() => onHoverIndex?.(null)}
           >
             <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />

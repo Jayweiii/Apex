@@ -48,7 +48,11 @@ export function SpeedChart({
             data={points}
             syncId={syncId}
             margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
-            onMouseMove={(state) => onHoverIndex?.(hoverIndex(state))}
+            onMouseMove={(state) => {
+              const native = (state as { event?: MouseEvent }).event;
+              if (native && native.buttons === 0) return;
+              onHoverIndex?.(hoverIndex(state));
+            }}
             onMouseLeave={() => onHoverIndex?.(null)}
           >
             <defs>

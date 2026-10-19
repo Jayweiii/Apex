@@ -108,6 +108,8 @@ export const YouTubePlayer = forwardRef<
           playsinline: 1,
           rel: 0,
           modestbranding: 1,
+          fs: 1,
+          autoplay: 0,
           start: startSeconds != null ? Math.floor(startSeconds) : undefined,
         },
         events: {
@@ -131,8 +133,23 @@ export const YouTubePlayer = forwardRef<
 
   return (
     <div className={className}>
-      <div className="aspect-video w-full overflow-hidden rounded-xl bg-black">
+      <div className="relative aspect-video w-full overflow-hidden rounded-xl bg-black">
         <div ref={hostRef} className="h-full w-full" />
+        <button
+          type="button"
+          onClick={() => {
+            const root = hostRef.current?.parentElement;
+            if (!root) return;
+            if (document.fullscreenElement === root) {
+              void document.exitFullscreen();
+            } else {
+              void root.requestFullscreen?.();
+            }
+          }}
+          className="absolute bottom-2 right-2 z-10 rounded-md bg-black/70 px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-zinc-200 hover:bg-black/90"
+        >
+          Fullscreen
+        </button>
       </div>
     </div>
   );

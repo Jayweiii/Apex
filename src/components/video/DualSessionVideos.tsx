@@ -161,15 +161,15 @@ export function DualSessionVideos({
   const count = resolved.length;
 
   return (
-    <div className="space-y-3 rounded-2xl border border-zinc-800/80 bg-zinc-950/40 p-3 sm:p-4">
+    <div className="w-full space-y-3 rounded-2xl border border-zinc-800/80 bg-zinc-950/40 p-3 sm:p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
             {count > 2 ? `${count}-way` : "Dual"} onboard · lap-relative sync
           </p>
           <p className="mt-1 text-sm text-zinc-400">
-            Shared cursor from lap start — play/pause/scrub all sessions
-            together.
+            Shared cursor from lap start — play only on explicit click (no hover
+            autoplay).
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -195,9 +195,7 @@ export function DualSessionVideos({
         </div>
       </div>
 
-      <div
-        className={`${gridClass(count)} max-h-[70vh] overflow-y-auto sm:max-h-none`}
-      >
+      <div className={`${gridClass(count)} w-full`}>
         {resolved.map((side, index) => (
           <SidePlayer
             key={`${side.lap.id}-${index}`}

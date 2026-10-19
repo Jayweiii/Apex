@@ -1,8 +1,10 @@
 "use client";
 
 import { DataKindBadge } from "@/components/Attribution";
+import { BusyIndicator } from "@/components/BusyIndicator";
 import { GpsQualityBadge } from "@/components/GpsQualityBadge";
 import { putLocalBlob } from "@/lib/blob-store";
+import { detectNearestTrack } from "@/lib/detect-track";
 import { readMp4CreationTime } from "@/lib/mp4-creation-time";
 import {
   listDrivers,
@@ -376,8 +378,15 @@ export function SessionUpload({
       setPickedTrack(created.id);
       return created.id;
     }
-    if (!pickedTrack) throw new Error("Choose a track");
-    return pickedTrack;
+    if (pickedTrack) return pickedTrack;
+    // Auto-detect from GPS when the uploader leaves track blank.
+    const sample = laps[0]?.points ?? [];
+    const nearest = detectNearestTrack(sample);
+    if (nearest) {
+      setPickedTrack(nearest.id);
+      return nearest.id;
+    }
+    throw new Error("Choose a track (or drive near a known circuit for auto-detect)");
   }
 
   async function onSubmit(event: FormEvent) {
@@ -430,6 +439,7 @@ export function SessionUpload({
       let sourceKind: SessionSourceKind = "csv";
       let gpsQuality: GpsQuality | null = null;
       let videoStartedAtMs: number | undefined;
+      let autoTrackId: string | undefined;
 
       if (isMp4) {
         setProgress("Reading MP4 creation_time (GPS clock preferred when present)…");
@@ -443,10 +453,11 @@ export function SessionUpload({
         const parsed = await parseGoProChapters(files, {
           onProgress: (percent) => {
             setProgress(
-              `Extracting GoPro GPMF… ${Math.round(percent)}% (not uploading video unless checked)`,
+              `Extracting GoPro GPMF… ${Math.round(percent)}% (GPS only — not uploading video)`,
             );
           },
           startFinish,
+          trackId: trackForSf,
           // Fallback only — parseGoPro prefers plausible GPS-derived time.
           videoStartedAtMs,
         });
@@ -459,6 +470,15 @@ export function SessionUpload({
         }
         sourceKind = "gopro";
         gpsQuality = parsed.gpsQuality;
+        autoTrackId = parsed.detectedTrackId;
+        if (autoTrackId && !trackForSf) {
+          setProgress(
+            `Detected ${autoTrackId} · ${laps.length} laps from GPS SF crossings`,
+          );
+          setPickedTrack(autoTrackId);
+        } else {
+          setProgress(`Split ${laps.length} laps from GoPro GPS`);
+        }
       } else {
         setProgress("Detecting GPS log format…");
         const peek = await files[0].slice(0, 4).arrayBuffer();
@@ -529,6 +549,9 @@ export function SessionUpload({
       );
       const stored = await storeRawExport(sessionId, files);
       const resolvedTrack = await resolveTrackId(laps);
+      if (autoTrackId && resolvedTrack === autoTrackId) {
+        setProgress(`Saving… track ${autoTrackId}`);
+      }
       const tags = carTags
         .split(",")
         .map((tag) => tag.trim())
@@ -753,12 +776,11 @@ export function SessionUpload({
             <label className="flex flex-col gap-1.5 text-sm">
               <span className="text-zinc-400">Track</span>
               <select
-                required
                 value={pickedTrack}
                 onChange={(event) => setPickedTrack(event.target.value)}
                 className="min-h-12 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
               >
-                <option value="">Choose a track</option>
+                <option value="">Auto-detect from GPS…</option>
                 {tracks.map((track) => (
                   <option key={track.id} value={track.id}>
                     {track.name}
@@ -1009,7 +1031,7 @@ export function SessionUpload({
           {error}
         </p>
       ) : null}
-      {progress ? <p className="mt-3 text-sm text-zinc-400">{progress}</p> : null}
+      <BusyIndicator busy={busy} message={progress} />
       {savedBanner ? (
         <p className="mt-3 text-sm text-emerald-300">{savedBanner}</p>
       ) : null}

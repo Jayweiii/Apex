@@ -733,14 +733,15 @@ export function LapCompare({
             </div>
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
-            <div className="space-y-4 lg:sticky lg:top-20">
-              <DualSessionVideos
-                sides={videoSides}
-                progress={progress}
-                onProgress={setProgress}
-              />
+          <div className="space-y-4">
+            <DualSessionVideos
+              sides={videoSides}
+              progress={progress}
+              onProgress={setProgress}
+            />
 
+            <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
+            <div className="space-y-4 lg:sticky lg:top-20">
               {showMap ? (
                 <TrackMap
                   traces={mapTraces}
@@ -798,7 +799,11 @@ export function LapCompare({
                       data={series}
                       syncId="compare"
                       margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
-                      onMouseMove={(state) => hoverFromChart(hoverIndex(state))}
+                      onMouseMove={(state) => {
+                        const native = (state as { event?: MouseEvent }).event;
+                        if (native && native.buttons === 0) return;
+                        hoverFromChart(hoverIndex(state));
+                      }}
                       onMouseLeave={() => setProgress(null)}
                     >
                       <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
@@ -851,7 +856,11 @@ export function LapCompare({
                       data={series}
                       syncId="compare"
                       margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
-                      onMouseMove={(state) => hoverFromChart(hoverIndex(state))}
+                      onMouseMove={(state) => {
+                        const native = (state as { event?: MouseEvent }).event;
+                        if (native && native.buttons === 0) return;
+                        hoverFromChart(hoverIndex(state));
+                      }}
                       onMouseLeave={() => setProgress(null)}
                     >
                       <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
@@ -897,7 +906,11 @@ export function LapCompare({
                       data={series}
                       syncId="compare"
                       margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
-                      onMouseMove={(state) => hoverFromChart(hoverIndex(state))}
+                      onMouseMove={(state) => {
+                        const native = (state as { event?: MouseEvent }).event;
+                        if (native && native.buttons === 0) return;
+                        hoverFromChart(hoverIndex(state));
+                      }}
                       onMouseLeave={() => setProgress(null)}
                     >
                       <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
@@ -934,6 +947,7 @@ export function LapCompare({
                   </ResponsiveContainer>
                 </ChartCard>
               ) : null}
+            </div>
             </div>
           </div>
         </>

@@ -5,7 +5,11 @@ import {
   type GpsFixType,
   type GpsQuality,
 } from "./gps-quality";
+import { detectNearestTrack } from "./detect-track";
+import type { LatLon } from "./map-match";
 import { splitLapsByStartFinish } from "./split-laps";
+import { resolveTrackCenterline } from "./cloud-tracks";
+import { resolveTrackStartFinish } from "./track-start-finish";
 import type { ParsedLap, TelemetryPoint } from "./types";
 
 const GoProTelemetry =
@@ -198,12 +202,21 @@ export type GoProParseResult = {
   gpsQuality: GpsQuality;
   /** True when GYRO samples were present (not yet used in charts). */
   hasGyro: boolean;
+  /** Track used for SF / centerline (selected or auto-detected). */
+  detectedTrackId?: string;
 };
 
 export type GoProParseOptions = {
   onProgress?: (percent: number) => void;
   /** Track start/finish for lap detection. */
   startFinish?: { lat: number; lon: number } | null;
+  /** Track centerline for snap + SF progress wraps. */
+  centerline?: LatLon[] | null;
+  /**
+   * Selected track id. When omitted, nearest catalog track is auto-detected
+   * from GPS so SF / centerline can still drive lap splits.
+   */
+  trackId?: string | null;
   /** Override gopro-telemetry GPSPrecision (DOP×100). */
   gpsPrecisionMax?: number;
   /** Override gopro-telemetry GPSFix minimum. */
@@ -437,21 +450,15 @@ export async function parseGoProRawData(
     throw new Error(GOPRO_NO_FIX_MESSAGE);
   }
 
-  let laps;
-  try {
-    laps = splitLapsByStartFinish(points, {
-      sessionStartedAtMs: startedAtMs,
-      startFinish: options.startFinish ?? null,
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "lap split failed";
-    throw new Error(
-      `GoPro GPS was read (${points.length} points) but laps could not be detected (${message}). Drive a full lap past start/finish, or pass the track’s start/finish line.`,
-    );
-  }
+  const split = splitGoProLaps(points, {
+    sessionStartedAtMs: startedAtMs,
+    startFinish: options.startFinish ?? null,
+    centerline: options.centerline ?? null,
+    trackId: options.trackId ?? null,
+  });
 
   return {
-    laps,
+    laps: split.laps,
     pointCount: points.length,
     gpsStream,
     startedAtMs,
@@ -459,6 +466,7 @@ export async function parseGoProRawData(
     gpsDerivedStartedAtMs,
     clockSource: resolved.clockSource,
     hasGyro,
+    detectedTrackId: split.detectedTrackId,
     gpsQuality: buildGpsQuality({
       stream: gpsStream,
       sampleCount: points.length,
@@ -467,6 +475,56 @@ export async function parseGoProRawData(
       sourceKind: "gopro",
     }),
   };
+}
+
+/**
+ * Resolve track geometry (selected → auto-detect nearest) and split laps on
+ * SF crossings / centerline progress wraps. Shared by single-file and chapter
+ * parsers so GPS points are only extracted once.
+ */
+export function splitGoProLaps(
+  points: TelemetryPoint[],
+  options: {
+    sessionStartedAtMs?: number;
+    startFinish?: { lat: number; lon: number } | null;
+    centerline?: LatLon[] | null;
+    trackId?: string | null;
+  } = {},
+): { laps: ParsedLap[]; detectedTrackId?: string } {
+  let trackId = options.trackId ?? null;
+  if (!trackId) {
+    trackId = detectNearestTrack(points)?.id ?? null;
+  }
+
+  let startFinish = options.startFinish ?? null;
+  let centerline = options.centerline ?? null;
+  if (trackId) {
+    // Do not pass the whole session as sampleLaps — that builds a multi-lap
+    // blob centerline and over-splits on progress wraps.
+    if (!centerline) {
+      centerline = resolveTrackCenterline(trackId, null);
+    }
+    if (!startFinish) {
+      startFinish = resolveTrackStartFinish(trackId);
+    }
+  }
+
+  try {
+    const laps = splitLapsByStartFinish(points, {
+      sessionStartedAtMs: options.sessionStartedAtMs,
+      startFinish,
+      centerline,
+    });
+    return {
+      laps,
+      detectedTrackId: trackId ?? undefined,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "lap split failed";
+    throw new Error(
+      `GoPro GPS was read (${points.length} points) but laps could not be detected (${message}). Drive a full lap past start/finish, or pass the track’s start/finish line.`,
+    );
+  }
 }
 
 /**
@@ -565,10 +623,13 @@ export async function parseGoProChapters(
     timeOffset = chapterEnd;
   }
 
-  const laps = splitLapsByStartFinish(allPoints, {
+  const split = splitGoProLaps(allPoints, {
     sessionStartedAtMs: startedAtMs,
     startFinish: options.startFinish ?? null,
+    centerline: options.centerline ?? null,
+    trackId: options.trackId ?? null,
   });
+  const laps = split.laps;
 
   const sampleCount = qualityParts.reduce((sum, q) => sum + q.sampleCount, 0);
   const precisionVals = qualityParts
@@ -592,6 +653,7 @@ export async function parseGoProChapters(
     gpsDerivedStartedAtMs,
     clockSource,
     hasGyro,
+    detectedTrackId: split.detectedTrackId,
     gpsQuality: buildGpsQuality({
       stream: gpsStream,
       sampleCount,

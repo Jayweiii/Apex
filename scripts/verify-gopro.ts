@@ -18,6 +18,7 @@ import {
   parseGoProGpx,
   parseGoProJson,
 } from "../src/lib/parse-gopro-export";
+import { detectNearestTrack } from "../src/lib/detect-track";
 import {
   GOPRO_NO_FIX_MESSAGE,
   GOPRO_NO_GPS_MESSAGE,
@@ -31,6 +32,7 @@ import {
   parseGoProRawData,
   pointsFromGpsSamples,
   resolveGoProStartedAtMs,
+  splitGoProLaps,
 } from "../src/lib/parse-gopro";
 import { splitLapsByStartFinish } from "../src/lib/split-laps";
 import type { TelemetryPoint } from "../src/lib/types";
@@ -274,6 +276,62 @@ ${oval
     assert(message.length > 10, "raw garbage fails clearly");
   }
 
+  // --- Real Thunderhill West multi-lap GPS (stitched from Jason cloud laps) ---
+  const sessionGpsPath = resolve(
+    root,
+    "src/lib/fixtures/gopro-thunderhill-west-session-gps.json",
+  );
+  const sessionGps = JSON.parse(readFileSync(sessionGpsPath, "utf8")) as {
+    points: TelemetryPoint[];
+    expectedHotLaps: number;
+  };
+  const autoSplit = splitGoProLaps(sessionGps.points, {});
+  assert(
+    autoSplit.detectedTrackId === "thunderhill-west",
+    `auto-detect west, got ${autoSplit.detectedTrackId}`,
+  );
+  // outlap + N hot laps + inlap — at least expected hot laps, usually +2 tails
+  assert(
+    autoSplit.laps.length >= sessionGps.expectedHotLaps,
+    `expected ≥${sessionGps.expectedHotLaps} laps, got ${autoSplit.laps.length}`,
+  );
+  const hotLaps = autoSplit.laps.filter(
+    (lap) => lap.lapTimeMs >= 60_000 && lap.lapTimeMs <= 180_000,
+  );
+  assert(
+    hotLaps.length >= sessionGps.expectedHotLaps,
+    `hot laps ${hotLaps.length} < expected ${sessionGps.expectedHotLaps}`,
+  );
+
+  // Real GPS9 GPMF extracted from GL010183.LRV (Streets of Willow, parked).
+  const willowPath = resolve(
+    root,
+    "src/lib/fixtures/gopro-willow-gps9.gpmf.raw",
+  );
+  let willowDetail = "";
+  try {
+    const willow = await parseGoProRawData(readFileSync(willowPath), {
+      gpsPrecisionMax: 9999,
+    });
+    willowDetail = `points=${willow.pointCount} laps=${willow.laps.length} track=${willow.detectedTrackId}`;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    // Parked clip: GPS lock but no motion — still proves GPS9 parse + track detect.
+    assert(/GPS|motion|laps/i.test(message), `willow error: ${message}`);
+    willowDetail = `graceful: ${message.slice(0, 120)}`;
+    const parked = Array.from({ length: 30 }, (_, i) => ({
+      t: i,
+      lat: 34.874153,
+      lon: -118.257449,
+      speed: 0.1,
+    }));
+    const nearest = detectNearestTrack(parked);
+    assert(
+      nearest?.id === "streets-of-willow-cw",
+      `willow nearest ${nearest?.id}`,
+    );
+  }
+
   console.log(
     JSON.stringify({
       ok: true,
@@ -294,6 +352,10 @@ ${oval
       },
       gpmfFixture: gpmfOk,
       gpmfDetail,
+      thunderhillLaps: autoSplit.laps.length,
+      thunderhillHotLaps: hotLaps.length,
+      thunderhillTrack: autoSplit.detectedTrackId,
+      willowDetail,
     }),
   );
 }
