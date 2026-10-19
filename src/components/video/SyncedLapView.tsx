@@ -33,7 +33,9 @@ import {
   type PlayerSyncEvent,
   type SyncAuthority,
 } from "@/lib/playback-sync";
+import { sessionLapHref } from "@/lib/session-lap-url";
 import type { SessionVideo, TelemetryPoint } from "@/lib/types";
+import { isVideoSynced } from "@/lib/video-sync-guide";
 import {
   toSyncLaps,
   videoTimeFromLapProgress,
@@ -192,6 +194,10 @@ export function SyncedLapView({
         }
       : null);
 
+  /** Two-way lock only after a saved sync (point-match / auto / tod). */
+  void sessionStartedAtMs;
+  const locked = isVideoSynced(activeVideo);
+
   const handleVideoChange = useCallback(
     (next: SessionVideo) => {
       setDraftVideo(next);
@@ -246,21 +252,21 @@ export function SyncedLapView({
     [activeVideo, player, currentSyncLap, drivePlayer],
   );
 
-  // Clock → video: play/pause + rate (progress is handled separately).
+  // Clock → video only after Synced (setup keeps YouTube independent).
   useEffect(() => {
-    if (!activeVideo || !player) return;
+    if (!locked || !activeVideo || !player) return;
     if (authorityRef.current !== "clock") return;
     drivePlayer(clock.playing ? "play" : "pause");
     drivePlayer("rate", clock.speed);
-  }, [activeVideo, player, clock.playing, clock.speed, drivePlayer]);
+  }, [locked, activeVideo, player, clock.playing, clock.speed, drivePlayer]);
 
-  // Seek when scrubbing / paused under clock authority.
   useEffect(() => {
-    if (!activeVideo || !player) return;
+    if (!locked || !activeVideo || !player) return;
     if (authorityRef.current !== "clock") return;
     if (clock.playing) return;
     seekVideoToProgress(clock.progress, true);
   }, [
+    locked,
     activeVideo,
     player,
     clock.playing,
@@ -268,15 +274,29 @@ export function SyncedLapView({
     seekVideoToProgress,
   ]);
 
-  // Periodic drift correction while clock owns playback.
   useEffect(() => {
-    if (!activeVideo || !player || !clock.playing) return;
+    if (!locked || !activeVideo || !player || !clock.playing) return;
     const id = window.setInterval(() => {
       if (authorityRef.current !== "clock") return;
       seekVideoToProgress(clock.progress, false);
     }, DRIFT_CHECK_INTERVAL_MS);
     return () => window.clearInterval(id);
-  }, [activeVideo, player, clock.playing, clock.progress, seekVideoToProgress]);
+  }, [locked, activeVideo, player, clock.playing, clock.progress, seekVideoToProgress]);
+
+  // During setup, poll video clock so Sync here sees the paused frame.
+  useEffect(() => {
+    if (locked || !player) return;
+    let raf = 0;
+    let last = 0;
+    const tick = (now: number) => {
+      raf = requestAnimationFrame(tick);
+      if (now - last < 100) return;
+      last = now;
+      setVideoTime(player.getTime());
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [locked, player]);
 
   const applyVideoTime = useCallback(
     (time: number) => {
@@ -296,6 +316,17 @@ export function SyncedLapView({
     (event: PlayerSyncEvent) => {
       if (!activeVideo) return;
       if (suppress.current.active()) return;
+      // Before Synced: track video time only — do not drive the track clock.
+      if (!locked) {
+        if (event.type === "time" || event.type === "seek" || event.type === "pause") {
+          const t =
+            event.type === "seek"
+              ? event.time
+              : (player?.getTime() ?? videoTime);
+          setVideoTime(t);
+        }
+        return;
+      }
 
       if (event.type === "play") {
         authorityRef.current = "video";
@@ -328,7 +359,7 @@ export function SyncedLapView({
         applyVideoTime(event.time);
       }
     },
-    [activeVideo, applyVideoTime, clock, player, videoTime],
+    [activeVideo, locked, applyVideoTime, clock, player, videoTime],
   );
 
   const index =
@@ -348,9 +379,10 @@ export function SyncedLapView({
       authorityRef.current = "clock";
       clock.pause();
       clock.setProgress(next);
-      seekVideoToProgress(next, true);
+      // Pin telemetry freely during setup; seek video only when Synced.
+      if (locked) seekVideoToProgress(next, true);
     },
-    [clock, seekVideoToProgress],
+    [clock, locked, seekVideoToProgress],
   );
 
   const hoverFromChart = useCallback(
@@ -365,16 +397,6 @@ export function SyncedLapView({
   const chartLapTimeSec =
     clock.progress *
     (chartData[chartData.length - 1]?.t ?? lap.lap_time_ms / 1000);
-
-  const seekChartLapTime = useCallback(
-    (lapTimeSec: number) => {
-      const lastT =
-        chartData[chartData.length - 1]?.t ?? lap.lap_time_ms / 1000;
-      if (lastT <= 0) return;
-      setProgressFromUi(Math.max(0, Math.min(1, lapTimeSec / lastT)));
-    },
-    [chartData, lap.lap_time_ms, setProgressFromUi],
-  );
 
   const mapProps = {
     centerline,
@@ -486,7 +508,44 @@ export function SyncedLapView({
               {deltaVsBest != null ? (
                 <span>Δ best {formatGap(deltaVsBest)}</span>
               ) : null}
+              {!locked ? (
+                <span className="rounded-md bg-zinc-800 px-2 py-0.5 text-[11px] uppercase tracking-[0.12em] text-zinc-400">
+                  Sync setup · video free
+                </span>
+              ) : null}
             </div>
+            {sessionId && siblingLaps.length > 1 ? (
+              <div
+                className="mt-3 flex flex-wrap items-center gap-1.5"
+                role="group"
+                aria-label="Lap"
+              >
+                <span className="mr-1 text-[11px] uppercase tracking-[0.14em] text-zinc-500">
+                  Lap
+                </span>
+                {[...siblingLaps]
+                  .sort((a, b) => a.lap_number - b.lap_number)
+                  .map((item) => {
+                    const selected = item.id === lap.id;
+                    return (
+                      <a
+                        key={item.id}
+                        href={sessionLapHref(sessionId, item, {
+                          videoId: activeVideo?.id,
+                        })}
+                        aria-current={selected ? "true" : undefined}
+                        className={`inline-flex min-h-8 items-center rounded-md px-2.5 font-mono text-xs ${
+                          selected
+                            ? "bg-orange-500 text-black"
+                            : "border border-zinc-800 text-zinc-400 hover:border-zinc-600 hover:text-zinc-200"
+                        }`}
+                      >
+                        {item.lap_number}
+                      </a>
+                    );
+                  })}
+              </div>
+            ) : null}
           </div>
           {playbackBar}
           <div>{mapBlock}</div>
@@ -498,26 +557,30 @@ export function SyncedLapView({
         </>
       )}
 
-      {activeVideo && onVideoChange ? (
-        <SyncPanel
+      {(activeVideo || canEditSync) && (onVideoChange || onAttachYouTube) ? (
+        <LapVideoSyncGuide
           video={activeVideo}
           videoTime={videoTime}
           lapStartOffsetSec={currentSyncLap.startOffsetSec}
           lapTimeMs={lap.lap_time_ms}
-          sessionStartedAtMs={sessionStartedAtMs}
-          loggedLaps={syncLaps.map((item) => ({
-            startOffsetSec: item.startOffsetSec,
-            lapTimeMs: item.lapTimeMs,
-          }))}
+          lapNumber={lap.lap_number}
           chartLapTimeSec={chartLapTimeSec}
-          lapPoints={chartData}
-          onChange={handleVideoChange}
+          canEdit={canEditSync || Boolean(onVideoChange)}
+          sessionLevel={Boolean(activeVideo && !activeVideo.lapId)}
+          availableLaps={siblingLaps.map((item) => ({
+            lap_number: item.lap_number,
+            lap_time_ms: item.lap_time_ms,
+          }))}
+          startsAtLapNumber={lap.lap_number}
+          onChange={onVideoChange ? handleVideoChange : undefined}
           onSeek={(t) => {
-            authorityRef.current = "clock";
+            // Independent seek during setup; after sync still allow fine nudge.
             drivePlayer("seek", t);
-            applyVideoTime(t);
+            setVideoTime(t);
+            if (locked) applyVideoTime(t);
           }}
-          onSeekChartLapTime={seekChartLapTime}
+          onAttachYouTube={onAttachYouTube}
+          onPlayBoth={locked ? playBoth : undefined}
         />
       ) : null}
 
@@ -528,24 +591,7 @@ export function SyncedLapView({
         syncId="lap-detail"
         trimMarkers={trimMarkers ?? undefined}
         onTrimBoundaryDrag={onTrimBoundaryDrag}
-        fallback={
-          <>
-            <SpeedChart
-              points={chartData}
-              activeIndex={index}
-              onHoverIndex={hoverFromChart}
-              syncId="lap-detail"
-              trimMarkers={trimMarkers ?? undefined}
-              onTrimBoundaryDrag={onTrimBoundaryDrag}
-            />
-            <GChart
-              points={chartData}
-              activeIndex={index}
-              onHoverIndex={hoverFromChart}
-              syncId="lap-detail"
-            />
-          </>
-        }
+        fallback={null}
       />
     </div>
   );

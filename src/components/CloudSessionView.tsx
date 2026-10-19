@@ -758,12 +758,24 @@ export function CloudSessionView({ id }: { id: string }) {
                 onVideoChange={
                   mine
                     ? async (next) => {
-                        setVideos((prev) =>
-                          prev.map((v) => (v.id === next.id ? next : v)),
-                        );
+                        setVideos((prev) => {
+                          const exists = prev.some((v) => v.id === next.id);
+                          return exists
+                            ? prev.map((v) => (v.id === next.id ? next : v))
+                            : [...prev, next];
+                        });
                         try {
                           const supabase = createClient();
-                          await updateSessionVideoSync(supabase, next);
+                          if (userId) {
+                            await upsertSessionVideo(
+                              supabase,
+                              session.id,
+                              userId,
+                              next,
+                            );
+                          } else {
+                            await updateSessionVideoSync(supabase, next);
+                          }
                         } catch {
                           // keep local UI state
                         }

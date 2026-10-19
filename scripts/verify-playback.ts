@@ -54,12 +54,14 @@ const synced = readFileSync(
 );
 assert(synced.includes("PlaybackControls"), "session lap uses PlaybackControls");
 assert(synced.includes("usePlaybackClock"), "session lap owns clock");
+assert(synced.includes("LapVideoSyncGuide"), "point-match guide");
+assert(synced.includes("isVideoSynced"), "gates two-way on synced");
 
 const controls = readFileSync(
   resolve(import.meta.dirname, "../src/components/PlaybackControls.tsx"),
   "utf8",
 );
-assert(controls.includes("0.25"), "speed 0.25");
+assert(controls.includes("PLAYBACK_SPEEDS"), "uses PLAYBACK_SPEEDS");
 assert(controls.includes("type=\"range\""), "scrub bar");
 
 console.log("verify-playback ok");

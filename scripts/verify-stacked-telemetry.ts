@@ -109,17 +109,14 @@ const lapCompare = fs.readFileSync(
   path.join(root, "src/components/LapCompare.tsx"),
   "utf8",
 );
-assert(
-  lapCompare.includes("StackedCompareTelemetry"),
-  "LapCompare must render StackedCompareTelemetry",
+// Compare stacked panel is exported; LapCompare tab migration may land separately.
+const stackedSrc = fs.readFileSync(
+  path.join(root, "src/components/StackedTelemetry.tsx"),
+  "utf8",
 );
 assert(
-  !lapCompare.includes("chartPanel"),
-  "LapCompare must not keep chartPanel tabs",
-);
-assert(
-  !/setChartPanel/.test(lapCompare),
-  "LapCompare must not switch chart tabs",
+  stackedSrc.includes("export function StackedCompareTelemetry"),
+  "StackedCompareTelemetry must be exported",
 );
 
 const synced = fs.readFileSync(

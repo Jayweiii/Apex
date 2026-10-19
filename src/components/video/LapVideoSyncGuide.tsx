@@ -4,11 +4,12 @@ import {
   formatOffsetReadout,
   guessOffsetFromClipLength,
   isVideoSynced,
+  offsetFromPointMatch,
+  SYNC_GUIDE_STEPS,
   syncBadgeForVideo,
   syncGuideStepForVideo,
   type SyncGuideStep,
 } from "@/lib/video-sync-guide";
-import { offsetForLapStart } from "@/lib/video-sync";
 import { formatClock } from "@/lib/format";
 import type { SessionVideo } from "@/lib/types";
 import { parseYouTubeId } from "@/lib/youtube";
@@ -16,13 +17,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 const FRAME = 1 / 30;
 const NUDGE = 0.1;
-
-const STEPS: Array<{ id: SyncGuideStep; label: string }> = [
-  { id: 1, label: "Paste link" },
-  { id: 2, label: "Mark start" },
-  { id: 3, label: "Check sync" },
-  { id: 4, label: "Saved" },
-];
 
 async function fetchOEmbedTitle(id: string, fallback: string): Promise<string> {
   try {
@@ -40,8 +34,15 @@ async function fetchOEmbedTitle(id: string, fallback: string): Promise<string> {
 }
 
 /**
- * Guided, compact YouTube ↔ lap sync flow for the session page.
- * Steps: paste → mark start line → check → auto-save confirmation.
+ * Jason's point-matching sync stepper.
+ *
+ * 1) Pick lap + paste YouTube
+ * 2) Click a moment on the speed chart (pins telemetry time)
+ * 3) Pause video at that same moment (YouTube stays independent until Synced)
+ * 4) Sync here → offset = videoTime − telemetrySessionTime
+ *
+ * Keeps ±0.1s, frame-step, Auto-guess, Synced/Not synced, Saved, Reset.
+ * After sync, parent enables two-way playback.
  */
 export function LapVideoSyncGuide({
   video,
@@ -49,31 +50,43 @@ export function LapVideoSyncGuide({
   lapStartOffsetSec,
   lapTimeMs,
   lapNumber,
+  chartLapTimeSec,
   durationSec,
   canEdit = false,
+  sessionLevel = false,
   onChange,
   onSeek,
   onAttachYouTube,
   onPlayBoth,
+  onStartsAtLapChange,
+  startsAtLapNumber,
+  availableLaps,
 }: {
   video: SessionVideo | null;
   videoTime: number;
   lapStartOffsetSec: number;
   lapTimeMs: number;
   lapNumber?: number;
+  /** Current telemetry pin as lap-relative seconds (from chart/map). */
+  chartLapTimeSec?: number | null;
   /** Clip duration when known (catalog / metadata) for Auto-guess. */
   durationSec?: number | null;
   canEdit?: boolean;
+  /** Session-level clip (lapId null) — offset applies at each lap start. */
+  sessionLevel?: boolean;
   onChange?: (next: SessionVideo) => void;
   onSeek?: (videoTime: number) => void;
-  /** Paste + attach a YouTube URL for this lap (step 1). */
   onAttachYouTube?: (input: {
     youtubeId: string;
     youtubeUrl: string;
     title: string;
   }) => void | Promise<void>;
-  /** Start lockstep playback so map/charts and video move together. */
+  /** Start lockstep playback (only meaningful after Synced). */
   onPlayBoth?: () => void;
+  /** Rebind session-level video to "starts at lap N". */
+  onStartsAtLapChange?: (lapNumber: number) => void;
+  startsAtLapNumber?: number | null;
+  availableLaps?: Array<{ lap_number: number; lap_time_ms: number }>;
 }) {
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
@@ -81,6 +94,8 @@ export function LapVideoSyncGuide({
   const [savedFlash, setSavedFlash] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [undoStack, setUndoStack] = useState<SessionVideo[]>([]);
+  /** Sticky pin: last chart time the user scrubbed to during setup. */
+  const [pinnedLapTime, setPinnedLapTime] = useState<number | null>(null);
   const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const hasClip = Boolean(
@@ -88,9 +103,22 @@ export function LapVideoSyncGuide({
   );
   const synced = isVideoSynced(video);
   const badge = syncBadgeForVideo(video);
-  const activeStep: SyncGuideStep = savedFlash
-    ? 4
-    : syncGuideStepForVideo(video);
+
+  useEffect(() => {
+    if (chartLapTimeSec == null || !Number.isFinite(chartLapTimeSec)) return;
+    setPinnedLapTime(chartLapTimeSec);
+  }, [chartLapTimeSec]);
+
+  const telemetryPinned = pinnedLapTime != null;
+  const activeStep: SyncGuideStep = syncGuideStepForVideo(video, {
+    telemetryPinned,
+    justSaved: savedFlash,
+  });
+
+  const pinSessionTime =
+    pinnedLapTime != null
+      ? lapStartOffsetSec + pinnedLapTime
+      : null;
 
   const offsetReadout = useMemo(() => {
     if (!video) return null;
@@ -122,9 +150,14 @@ export function LapVideoSyncGuide({
     flashSaved();
   }
 
-  function markStartLineHere() {
+  function syncHere() {
     if (!video || !onChange) return;
-    const offsetSec = offsetForLapStart(videoTime, lapStartOffsetSec);
+    if (pinSessionTime == null) {
+      setError("Click the speed chart or map to pin a telemetry moment first");
+      return;
+    }
+    setError(null);
+    const offsetSec = offsetFromPointMatch(videoTime, pinSessionTime);
     save({ ...video, offsetSec, syncSource: "manual" });
   }
 
@@ -174,6 +207,7 @@ export function LapVideoSyncGuide({
     if (!video || !onChange) return;
     pushUndo(video);
     onChange({ ...video, offsetSec: 0, syncSource: "unsynced", rate: 1 });
+    setPinnedLapTime(null);
     setError(null);
   }
 
@@ -211,13 +245,13 @@ export function LapVideoSyncGuide({
   return (
     <section
       className="rounded-xl border border-zinc-800/80 bg-zinc-950/60 p-3 sm:p-4"
-      aria-label="Video sync guide"
+      aria-label="Point-match video sync"
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">
-              Sync this lap
+              Point-match sync
               {lapNumber != null ? ` · L${lapNumber}` : ""}
             </p>
             <span
@@ -228,8 +262,8 @@ export function LapVideoSyncGuide({
               }`}
               title={
                 badge.synced
-                  ? "Start line is aligned to telemetry"
-                  : "Paste a link and mark the start/finish crossing"
+                  ? "Video and telemetry are locked together"
+                  : "Match a chart moment to a paused video frame"
               }
             >
               {badge.label}
@@ -249,7 +283,7 @@ export function LapVideoSyncGuide({
             </p>
           ) : (
             <p className="mt-1 text-sm text-zinc-500">
-              Align the onboard so start/finish matches the GPS lap.
+              Pin a chart moment, pause the matching video frame, then Sync here.
             </p>
           )}
         </div>
@@ -258,7 +292,6 @@ export function LapVideoSyncGuide({
             type="button"
             onClick={() => setHelpOpen((v) => !v)}
             className="min-h-8 text-xs text-zinc-500 underline-offset-2 hover:text-zinc-300 hover:underline"
-            title="Short overview of how video sync works"
           >
             How syncing works
           </button>
@@ -267,7 +300,6 @@ export function LapVideoSyncGuide({
               type="button"
               onClick={undo}
               className="min-h-8 rounded-md border border-zinc-800 px-2 text-xs text-zinc-400 hover:border-zinc-600 hover:text-zinc-200"
-              title="Undo last sync change"
             >
               Undo
             </button>
@@ -277,7 +309,6 @@ export function LapVideoSyncGuide({
               type="button"
               onClick={resetSync}
               className="min-h-8 rounded-md border border-zinc-800 px-2 text-xs text-zinc-400 hover:border-zinc-600 hover:text-zinc-200"
-              title="Clear sync and start over"
             >
               Reset
             </button>
@@ -288,32 +319,34 @@ export function LapVideoSyncGuide({
       {helpOpen ? (
         <div className="mt-3 rounded-lg border border-zinc-800/80 bg-zinc-900/40 px-3 py-2 text-xs leading-relaxed text-zinc-400">
           <p>
-            The GPS lap starts at the start/finish line. Pause the onboard on
-            that exact crossing, click{" "}
-            <span className="text-zinc-200">Mark start line here</span>, then
-            play map + video together to confirm. Offset saves automatically for
-            you and friends.
+            Click or scrub the speed chart / map to pin a telemetry time. Pause
+            the YouTube player on the matching visual moment (they stay
+            independent until you sync).{" "}
+            <span className="text-zinc-200">Sync here</span> saves{" "}
+            <span className="font-mono text-zinc-300">
+              offset = video − telemetry
+            </span>
+            . After that, map and video play together.
           </p>
           <p className="mt-1.5">
-            Tip: frame-step with the nudge buttons beside the mark control.
-            Auto-guess estimates from clip length vs lap time when duration is
-            known.
+            Session-level clips: set “This video starts at lap N” so the same
+            offset applies at each lap start via start_offset_sec.
           </p>
         </div>
       ) : null}
 
       <ol className="mt-3 flex flex-wrap gap-1.5" aria-label="Sync steps">
-        {STEPS.map((step) => {
+        {SYNC_GUIDE_STEPS.map((step) => {
           const done =
-            step.id < activeStep || (step.id === 4 && savedFlash) ||
+            step.id < activeStep ||
             (step.id === 1 && hasClip) ||
-            (step.id === 2 && synced) ||
-            (step.id === 3 && synced);
+            (step.id === 2 && telemetryPinned) ||
+            (step.id === 4 && synced);
           const current = step.id === activeStep;
           return (
             <li
               key={step.id}
-              className={`inline-flex min-h-8 items-center gap-1.5 rounded-md px-2.5 text-xs ${
+              className={`inline-flex min-h-8 max-w-full items-center gap-1.5 rounded-md px-2.5 text-xs ${
                 current
                   ? "bg-orange-500/20 text-orange-200 ring-1 ring-orange-500/40"
                   : done
@@ -322,19 +355,17 @@ export function LapVideoSyncGuide({
               }`}
             >
               <span className="font-mono text-[10px] opacity-70">{step.id}</span>
-              {step.label}
+              <span className="truncate">{step.label}</span>
             </li>
           );
         })}
       </ol>
 
-      {/* Step 1 — paste */}
+      {/* Step 1 — pick lap + paste */}
       {canEdit && onAttachYouTube ? (
-        <div
-          className={`mt-3 space-y-2 ${activeStep === 1 ? "" : "opacity-90"}`}
-        >
+        <div className="mt-3 space-y-2">
           <p className="text-[11px] uppercase tracking-[0.14em] text-zinc-500">
-            1 · Paste YouTube link
+            1 · Pick lap + paste YouTube
           </p>
           <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
             <input
@@ -358,86 +389,128 @@ export function LapVideoSyncGuide({
               Current: {video.title}
             </p>
           ) : null}
-        </div>
-      ) : null}
-
-      {/* Step 2 — mark start */}
-      {hasClip && canEdit && onChange ? (
-        <div className="mt-4 space-y-2">
-          <p className="text-[11px] uppercase tracking-[0.14em] text-zinc-500">
-            2 · Find the start line
-          </p>
-          <p className="text-xs text-zinc-500">
-            Pause on the exact start/finish crossing, then mark. Use frame-step
-            or ±0.1s to land on the line.
-          </p>
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={markStartLineHere}
-              className="min-h-12 rounded-lg bg-orange-500 px-5 text-sm font-semibold text-black hover:bg-orange-400"
-              title="Set offset so this paused frame is lap start (SF)"
-            >
-              Mark start line here
-            </button>
-            <span className="font-mono text-xs text-zinc-500">
-              @ {formatClock(videoTime)}
-            </span>
-          </div>
-          <div className="flex flex-wrap gap-1.5" aria-label="Frame nudge">
-            {[
-              { label: "−1s", d: -1, seek: true },
-              { label: "−0.1s", d: -NUDGE, seek: true },
-              { label: "−1f", d: -FRAME, seek: true },
-              { label: "+1f", d: FRAME, seek: true },
-              { label: "+0.1s", d: NUDGE, seek: true },
-              { label: "+1s", d: 1, seek: true },
-            ].map((item) => (
-              <button
-                key={item.label}
-                type="button"
-                onClick={() => nudgeVideo(item.d)}
-                className="min-h-9 rounded-md border border-zinc-800 px-2.5 font-mono text-xs text-zinc-300 hover:border-zinc-600"
-                title={`Seek video ${item.label}`}
+          {sessionLevel && availableLaps?.length && onStartsAtLapChange ? (
+            <label className="flex flex-wrap items-center gap-2 text-xs text-zinc-400">
+              This video starts at lap
+              <select
+                value={startsAtLapNumber ?? availableLaps[0]?.lap_number ?? 1}
+                onChange={(e) =>
+                  onStartsAtLapChange(Number(e.target.value))
+                }
+                className="min-h-9 rounded-md border border-zinc-800 bg-zinc-950 px-2 text-sm text-zinc-200"
               >
-                {item.label}
-              </button>
-            ))}
+                {availableLaps.map((lap) => (
+                  <option key={lap.lap_number} value={lap.lap_number}>
+                    {lap.lap_number}
+                  </option>
+                ))}
+              </select>
+              <span className="text-zinc-600">
+                (offset applies at each lap start)
+              </span>
+            </label>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* Steps 2–4 — point match */}
+      {hasClip && canEdit && onChange ? (
+        <div className="mt-4 space-y-3">
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.14em] text-zinc-500">
+              2 · Click a moment on the speed chart
+            </p>
+            <p className="mt-1 text-xs text-zinc-500">
+              Scrub or click the chart / map — the cursor pins telemetry time.
+              Video stays free until you sync.
+            </p>
+            <p className="mt-1 font-mono text-xs text-zinc-400">
+              Pin{" "}
+              {pinSessionTime != null
+                ? `session ${formatClock(pinSessionTime)} (lap ${formatClock(pinnedLapTime!)})`
+                : "— click chart —"}
+            </p>
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            <button
-              type="button"
-              onClick={autoGuess}
-              className="min-h-9 rounded-md border border-zinc-700 px-3 text-xs text-zinc-300 hover:border-zinc-500"
-              title="Estimate offset from clip length vs lap time, then fine-tune"
+
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.14em] text-zinc-500">
+              3 · Pause video at that same moment
+            </p>
+            <p className="mt-1 text-xs text-zinc-500">
+              Use the player or frame-step below. Current video{" "}
+              <span className="font-mono text-zinc-300">
+                {formatClock(videoTime)}
+              </span>
+            </p>
+            <div
+              className="mt-2 flex flex-wrap gap-1.5"
+              aria-label="Frame nudge"
             >
-              Auto-guess
-            </button>
-            <button
-              type="button"
-              onClick={() => nudgeOffset(-NUDGE)}
-              className="min-h-9 rounded-md border border-zinc-800 px-2.5 font-mono text-xs text-zinc-400 hover:border-zinc-600"
-              title="Shift sync earlier by 0.1s"
-            >
-              Sync −0.1s
-            </button>
-            <button
-              type="button"
-              onClick={() => nudgeOffset(NUDGE)}
-              className="min-h-9 rounded-md border border-zinc-800 px-2.5 font-mono text-xs text-zinc-400 hover:border-zinc-600"
-              title="Shift sync later by 0.1s"
-            >
-              Sync +0.1s
-            </button>
+              {[
+                { label: "−1s", d: -1 },
+                { label: "−0.1s", d: -NUDGE },
+                { label: "−1f", d: -FRAME },
+                { label: "+1f", d: FRAME },
+                { label: "+0.1s", d: NUDGE },
+                { label: "+1s", d: 1 },
+              ].map((item) => (
+                <button
+                  key={item.label}
+                  type="button"
+                  onClick={() => nudgeVideo(item.d)}
+                  className="min-h-9 rounded-md border border-zinc-800 px-2.5 font-mono text-xs text-zinc-300 hover:border-zinc-600"
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.14em] text-zinc-500">
+              4 · Sync here
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={syncHere}
+                disabled={pinSessionTime == null}
+                className="min-h-12 rounded-lg bg-orange-500 px-5 text-sm font-semibold text-black hover:bg-orange-400 disabled:opacity-40"
+                title="offset = videoTime − telemetryTime"
+              >
+                Sync here
+              </button>
+              <button
+                type="button"
+                onClick={autoGuess}
+                className="min-h-9 rounded-md border border-zinc-700 px-3 text-xs text-zinc-300 hover:border-zinc-500"
+              >
+                Auto-guess
+              </button>
+              <button
+                type="button"
+                onClick={() => nudgeOffset(-NUDGE)}
+                className="min-h-9 rounded-md border border-zinc-800 px-2.5 font-mono text-xs text-zinc-400 hover:border-zinc-600"
+              >
+                −0.1s
+              </button>
+              <button
+                type="button"
+                onClick={() => nudgeOffset(NUDGE)}
+                className="min-h-9 rounded-md border border-zinc-800 px-2.5 font-mono text-xs text-zinc-400 hover:border-zinc-600"
+              >
+                +0.1s
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
 
-      {/* Step 3 — check */}
-      {hasClip ? (
+      {/* After sync — two-way play */}
+      {hasClip && synced ? (
         <div className="mt-4 space-y-2">
           <p className="text-[11px] uppercase tracking-[0.14em] text-zinc-500">
-            3 · Check the sync
+            Two-way playback
           </p>
           <div className="flex flex-wrap items-center gap-2">
             {onPlayBoth ? (
@@ -449,25 +522,10 @@ export function LapVideoSyncGuide({
                 Play map + video
               </button>
             ) : null}
-            <span
-              className={`inline-flex min-h-8 items-center rounded-md px-2 text-xs uppercase tracking-[0.12em] ${
-                synced
-                  ? "bg-emerald-500/15 text-emerald-300"
-                  : "bg-zinc-800 text-zinc-500"
-              }`}
-            >
-              {badge.label}
+            <span className="font-mono text-sm text-zinc-200">
+              {offsetReadout}
             </span>
-            {offsetReadout ? (
-              <span className="font-mono text-sm text-zinc-200">
-                {offsetReadout}
-              </span>
-            ) : null}
           </div>
-          <p className="text-xs text-zinc-600">
-            Watch the car on the map hit SF as the video crosses the line. Nudge
-            Sync ±0.1s if it&apos;s early or late — changes save automatically.
-          </p>
         </div>
       ) : null}
 

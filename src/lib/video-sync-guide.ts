@@ -1,4 +1,5 @@
 import { offsetForLapStart } from "@/lib/video-sync";
+import { offsetForSessionMoment } from "@/lib/sync-events";
 import type { SessionVideo, VideoSyncSource } from "@/lib/types";
 
 /** Sources that count as an intentional sync (not just a pasted link). */
@@ -6,9 +7,10 @@ const SYNCED_SOURCES: ReadonlySet<VideoSyncSource> = new Set([
   "manual",
   "auto",
   "time_of_day",
+  "lap_match",
 ]);
 
-/** True when the clip has a real start-line sync, not only an attach. */
+/** True when the clip has a saved point-match (or other) sync, not only an attach. */
 export function isVideoSynced(
   video: Pick<SessionVideo, "syncSource"> | null | undefined,
 ): boolean {
@@ -29,7 +31,18 @@ export function syncBadgeForVideo(
 }
 
 /**
- * Live human readout of how the clip sits relative to lap start.
+ * Point-match: offset so this video frame aligns with absolute session time.
+ * `offsetSec = videoTime - telemetrySessionTime` (rate = 1).
+ */
+export function offsetFromPointMatch(
+  videoTime: number,
+  telemetrySessionTime: number,
+): number {
+  return offsetForSessionMoment(videoTime, telemetrySessionTime);
+}
+
+/**
+ * Live readout of the saved offset relative to a lap start.
  * Uses video time at lap start: offsetSec + lapStartOffsetSec (rate = 1).
  */
 export function formatOffsetReadout(
@@ -68,11 +81,26 @@ export function guessOffsetFromClipLength(
 
 export type SyncGuideStep = 1 | 2 | 3 | 4;
 
-/** Which stepper step to highlight given current video state. */
+export const SYNC_GUIDE_STEPS: Array<{ id: SyncGuideStep; label: string }> = [
+  { id: 1, label: "Pick lap + paste YouTube" },
+  { id: 2, label: "Click a moment on the speed chart" },
+  { id: 3, label: "Pause video at that same moment" },
+  { id: 4, label: "Sync here" },
+];
+
+/**
+ * Which stepper step to highlight.
+ * - 1: no clip yet
+ * - 2: clip attached, telemetry pin not set
+ * - 3: pin set, waiting for Sync here
+ * - 4: already synced (or just saved)
+ */
 export function syncGuideStepForVideo(
   video: SessionVideo | null | undefined,
+  options?: { telemetryPinned?: boolean; justSaved?: boolean },
 ): SyncGuideStep {
   if (!video?.youtubeId && video?.provider !== "mp4") return 1;
-  if (!isVideoSynced(video)) return 2;
-  return 3;
+  if (options?.justSaved || isVideoSynced(video)) return 4;
+  if (options?.telemetryPinned) return 3;
+  return 2;
 }

@@ -316,6 +316,27 @@ export function SessionLapDetail({
         bestLapMs={bestMs ?? undefined}
         trackId={trackId}
         onVideoChange={onVideoChange}
+        canEditSync={canEdit}
+        onAttachYouTube={
+          canEdit && onVideoChange
+            ? async ({ youtubeId, youtubeUrl, title }) => {
+                const next: SessionVideo = {
+                  id: activeVideo?.id ?? crypto.randomUUID(),
+                  provider: "youtube",
+                  youtubeId,
+                  youtubeUrl,
+                  title,
+                  lapId: lap.id,
+                  lapIndex: lap.lap_number,
+                  offsetSec: activeVideo?.offsetSec ?? 0,
+                  rate: activeVideo?.rate ?? 1,
+                  // Fresh paste starts unsynced so point-match can run.
+                  syncSource: activeVideo ? activeVideo.syncSource : "unsynced",
+                };
+                onVideoChange(next);
+              }
+            : undefined
+        }
         trimMarkers={
           canEdit && onTrimChange && trimMarkers
             ? // Markers are on auto chart — when showing applied telemetry,

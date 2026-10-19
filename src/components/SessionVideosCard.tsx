@@ -226,11 +226,6 @@ export function SessionVideosCard({
     );
   }
 
-  function setStartLineHere(video: SessionVideo, markSec: number) {
-    patchVideo(video.id, { offsetSec: markSec, syncSource: "manual" });
-    setStatus(`Start line set @ ${markSec.toFixed(1)}s`);
-  }
-
   return (
     <section className="rounded-2xl border border-zinc-800/80 bg-zinc-950/50 p-4 sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -238,8 +233,8 @@ export function SessionVideosCard({
           <h2 className="text-sm font-medium text-zinc-200">Videos</h2>
           <p className="mt-1 text-sm text-zinc-500">
             Paste a YouTube URL per lap (or one session-level clip for many
-            laps). Sync offset is saved so friends see the same alignment.
-            YouTube only — no file storage.
+            laps). Point-match sync on the lap panel; offset is saved so
+            friends see the same alignment. YouTube only — no file storage.
           </p>
         </div>
         {!readOnly ? (
@@ -421,6 +416,15 @@ export function SessionVideosCard({
 
                 {!readOnly ? (
                   <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <span
+                      className={`inline-flex min-h-8 items-center rounded-md px-2 text-[11px] uppercase tracking-[0.12em] ${
+                        video.syncSource === "unsynced"
+                          ? "bg-zinc-800 text-zinc-400"
+                          : "bg-emerald-500/15 text-emerald-300"
+                      }`}
+                    >
+                      {video.syncSource === "unsynced" ? "Not synced" : "Synced"}
+                    </span>
                     <button
                       type="button"
                       onClick={() =>
@@ -445,29 +449,9 @@ export function SessionVideosCard({
                     >
                       +0.1s
                     </button>
-                    <label className="flex min-h-9 items-center gap-2 text-xs text-zinc-500">
-                      Start @
-                      <input
-                        type="number"
-                        step={0.1}
-                        defaultValue={video.offsetSec}
-                        key={`${video.id}-${video.offsetSec.toFixed(1)}`}
-                        onBlur={(e) => {
-                          const n = Number(e.target.value);
-                          if (!Number.isFinite(n)) return;
-                          setStartLineHere(video, n);
-                        }}
-                        className="w-20 rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1 font-mono text-zinc-200"
-                      />
-                      s
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => setStartLineHere(video, video.offsetSec)}
-                      className="min-h-9 rounded-md border border-orange-500/40 px-2.5 text-xs uppercase tracking-[0.14em] text-orange-300 hover:border-orange-400"
-                    >
-                      Set start line here
-                    </button>
+                    <span className="text-xs text-zinc-500">
+                      Point-match on the lap panel (chart ↔ pause ↔ Sync here)
+                    </span>
                   </div>
                 ) : null}
               </li>
