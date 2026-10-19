@@ -3,6 +3,7 @@
 import { LapCharts } from "@/components/LapCharts";
 import { SyncedLapView } from "@/components/video/SyncedLapView";
 import { formatLapTime } from "@/lib/format";
+import { bestLapTimeMs } from "@/lib/lap-quality";
 import { pickSessionVideoForLap } from "@/lib/pick-session-video";
 import type { SessionVideo, TelemetryPoint } from "@/lib/types";
 import { useMemo } from "react";
@@ -13,6 +14,7 @@ export type SessionLapDetailLap = {
   lap_time_ms: number;
   start_offset_sec?: number | null;
   telemetry: TelemetryPoint[];
+  excluded?: boolean | null;
 };
 
 /**
@@ -40,8 +42,9 @@ export function SessionLapDetail({
 }) {
   const points = lap.telemetry;
   const peak = points.reduce((max, point) => Math.max(max, point.speed), 0);
-  const bestMs = Math.min(...siblingLaps.map((item) => item.lap_time_ms));
-  const deltaSec = (lap.lap_time_ms - bestMs) / 1000;
+  const bestMs = bestLapTimeMs(siblingLaps);
+  const deltaSec =
+    bestMs != null ? (lap.lap_time_ms - bestMs) / 1000 : null;
 
   const activeVideo: SessionVideo | null = useMemo(
     () =>
@@ -73,7 +76,7 @@ export function SessionLapDetail({
         </div>
         <div className="text-sm text-zinc-500">
           <span>Peak {peak.toFixed(0)} km/h</span>
-          {deltaSec !== 0 ? (
+          {deltaSec == null ? null : deltaSec !== 0 ? (
             <span className="ml-3 font-mono">
               Δ best {deltaSec > 0 ? "+" : ""}
               {deltaSec.toFixed(3)}s
@@ -103,7 +106,7 @@ export function SessionLapDetail({
           }))}
           video={activeVideo}
           sessionStartedAtMs={sessionStartedAtMs}
-          bestLapMs={bestMs}
+          bestLapMs={bestMs ?? undefined}
           trackId={trackId}
           onVideoChange={onVideoChange}
         />

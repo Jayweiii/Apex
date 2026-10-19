@@ -9,9 +9,9 @@ import { AppHeader } from "@/components/AppHeader";
 import { LapCompare } from "@/components/LapCompare";
 import { SaveComparisonControls } from "@/components/SaveComparisonControls";
 import type { ComparisonDraftSnapshot } from "@/lib/comparisons";
-import { LapChips, LapList } from "@/components/LapList";
-import { videoCoverage } from "@/lib/pick-session-video";
+import { LapChips, LapList, type LapExcludeChange } from "@/components/LapList";
 import { SessionLapDetail } from "@/components/SessionLapDetail";
+import { videoCoverage } from "@/lib/pick-session-video";
 import { SessionVideosCard } from "@/components/SessionVideosCard";
 import { ShareLinkButton } from "@/components/ShareLinkButton";
 import { GpsModeToggle } from "@/components/GpsModeToggle";
@@ -25,11 +25,13 @@ import { GpsQualityBadge } from "@/components/GpsQualityBadge";
 import { compareHref } from "@/lib/compare";
 import { preferGpsSession } from "@/lib/gps-quality";
 import { formatLapTime } from "@/lib/format";
+import { bestLapTimeMs, lapsEligibleForBest } from "@/lib/lap-quality";
 import { analysisPoints, mapMatchLap } from "@/lib/map-match";
 import {
   getLocalSession,
   listSessionsForCompare,
   replaceLocalSessionLaps,
+  setLocalLapExcluded,
   updateLocalSession,
   type StoredSession,
 } from "@/lib/local-store";
@@ -49,7 +51,7 @@ function CompareLink({
   label = "Compare laps",
 }: {
   sessionId: string;
-  laps: { id: string; lap_time_ms: number }[];
+  laps: { id: string; lap_time_ms: number; excluded?: boolean | null }[];
   focusId?: string;
   label?: string;
 }) {
@@ -168,6 +170,8 @@ export function LocalCompare({
       lap_number: lap.lap_number,
       lap_time_ms: lap.lap_time_ms,
       telemetry: lap.telemetry,
+      excluded: lap.excluded ?? false,
+      exclude_reason: lap.exclude_reason ?? null,
     }));
 
   const compareSessions = peerSessions
@@ -339,8 +343,10 @@ export function LocalSession({ id }: { id: string }) {
 
   const theo = useMemo(() => {
     if (!session) return null;
+    const eligible = lapsEligibleForBest(session.laps);
+    if (!eligible.length) return null;
     return theoreticalBestLap(
-      session.laps.map((lap) => ({
+      eligible.map((lap) => ({
         lapNumber: lap.lap_number,
         lapTimeMs: lap.lap_time_ms,
         points: analysisPoints(
@@ -358,6 +364,7 @@ export function LocalSession({ id }: { id: string }) {
         id: lap.id,
         lap_number: lap.lap_number,
         lap_time_ms: lap.lap_time_ms,
+        excluded: lap.excluded ?? false,
       })),
     [session],
   );
@@ -368,19 +375,29 @@ export function LocalSession({ id }: { id: string }) {
     return <MissingShell message="Session not found in this browser." />;
   }
 
-  const best = session.laps.reduce(
-    (min, lap) => Math.min(min, lap.lap_time_ms),
-    Number.POSITIVE_INFINITY,
-  );
+  const best = bestLapTimeMs(session.laps);
+  const sessionId = session.id;
   const laps = session.laps.map((lap) => ({
     id: lap.id,
-    session_id: session.id,
+    session_id: sessionId,
     user_id: "local",
     lap_number: lap.lap_number,
     lap_time_ms: lap.lap_time_ms,
     telemetry: lap.telemetry,
+    excluded: lap.excluded ?? false,
+    exclude_reason: lap.exclude_reason ?? null,
     start_offset_sec: lap.start_offset_sec,
   }));
+
+  function onExcludeChange(change: LapExcludeChange) {
+    setLocalLapExcluded(
+      sessionId,
+      change.lapId,
+      change.excluded,
+      change.exclude_reason,
+    );
+    window.location.reload();
+  }
 
   const selectedLap =
     session.laps.find((lap) => lap.id === selected?.id) ?? null;
@@ -458,7 +475,7 @@ export function LocalSession({ id }: { id: string }) {
               <span>
                 {session.car ? `${session.car} · ` : ""}
                 {session.laps.length} laps
-                {Number.isFinite(best) ? ` · best ${formatLapTime(best)}` : ""}
+                {best != null ? ` · best ${formatLapTime(best)}` : ""}
               </span>
               <GpsQualityBadge
                 quality={session.gpsQuality}
@@ -551,6 +568,8 @@ export function LocalSession({ id }: { id: string }) {
                     v.youtubeId &&
                     (v.lapId == null || v.lapId === ""),
                 )}
+                canEdit
+                onExcludeChange={onExcludeChange}
               />
             ) : (
               <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-8 text-center text-sm text-zinc-500">
@@ -598,6 +617,7 @@ export function LocalSession({ id }: { id: string }) {
                   lap_time_ms: selectedLap.lap_time_ms,
                   start_offset_sec: selectedLap.start_offset_sec,
                   telemetry: selectedLap.telemetry,
+                  excluded: selectedLap.excluded ?? false,
                 }}
                 siblingLaps={session.laps.map((item) => ({
                   id: item.id,
@@ -605,6 +625,7 @@ export function LocalSession({ id }: { id: string }) {
                   lap_time_ms: item.lap_time_ms,
                   start_offset_sec: item.start_offset_sec,
                   telemetry: item.telemetry,
+                  excluded: item.excluded ?? false,
                 }))}
                 videos={youtubeVideos}
                 videoParam={videoParam}

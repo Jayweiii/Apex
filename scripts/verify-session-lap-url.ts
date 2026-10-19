@@ -35,4 +35,14 @@ assert(resolveSelectedLap(laps, "a")?.id === "a", "by uuid");
 assert(resolveSelectedLap(laps, "99") === null, "missing number");
 assert(resolveSelectedLap([], "1") === null, "empty");
 
+const withExcluded = [
+  { id: "a", lap_number: 1, lap_time_ms: 95_000 },
+  { id: "b", lap_number: 2, lap_time_ms: 90_000, excluded: true },
+  { id: "c", lap_number: 3, lap_time_ms: 93_100 },
+];
+assert(
+  resolveSelectedLap(withExcluded, null)?.id === "c",
+  "default ignores excluded",
+);
+
 console.log("session-lap-url: ok");
