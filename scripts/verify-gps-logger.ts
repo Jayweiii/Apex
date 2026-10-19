@@ -16,6 +16,7 @@ import {
   parseGpxLogger,
   parseVbo,
   vboCoordToDegrees,
+  vboLonToDegrees,
 } from "../src/lib/parse-gps-logger";
 import type { TelemetryPoint } from "../src/lib/types";
 
@@ -141,6 +142,10 @@ async function main() {
     Math.abs(vboCoordToDegrees(2192.4) - 2192.4 / 60) < 1e-9,
     "minutes → deg",
   );
+  assert(
+    Math.abs(vboLonToDegrees(7340.3217) - -122.338695) < 1e-5,
+    "west-positive lon",
+  );
 
   // --- GPX ---
   const gpx = `<?xml version="1.0"?>
@@ -168,9 +173,9 @@ sats time latitude longitude velocity heading height
 ${oval
   .slice(0, 70)
   .map((p, i) => {
-    // store as minutes (RaceLogic style)
     const latMin = p.lat! * 60;
-    const lonMin = p.lon! * 60;
+    // VBO: positive longitude = west
+    const lonMin = Math.abs(p.lon!) * 60;
     return `8 ${(i * 0.1).toFixed(3)} ${latMin.toFixed(6)} ${lonMin.toFixed(6)} ${p.speed.toFixed(2)} 90.0 100.0`;
   })
   .join("\n")}
@@ -188,6 +193,10 @@ ${oval
   assert(
     Math.abs(vboResult.laps[0].points[0].lat! - oval[0].lat!) < 0.01,
     "vbo lat converted from minutes",
+  );
+  assert(
+    Math.abs(vboResult.laps[0].points[0].lon! - oval[0].lon!) < 0.01,
+    "vbo lon west-positive → negative deg",
   );
 
   // --- Dragy CSV ---

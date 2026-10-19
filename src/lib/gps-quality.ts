@@ -25,6 +25,8 @@ export type GpsQuality = {
   precisionP100?: number | null;
   /** 0 none, 2 2D, 3 3D. */
   fix?: GpsFixType | null;
+  /** Average satellite count when available (Dragy/VBO sats column). */
+  satellites?: number | null;
   /** Human label for UI. */
   label: string;
 };
@@ -55,10 +57,15 @@ export function buildGpsQuality(input: {
   droppedCount?: number;
   precisionP100?: number | null;
   fix?: GpsFixType | null;
+  satellites?: number | null;
   sourceKind?: GpsSourceKind;
 }): GpsQuality {
   const precisionP100 = input.precisionP100 ?? null;
   const fix = input.fix ?? null;
+  const satellites =
+    input.satellites != null && Number.isFinite(input.satellites)
+      ? Math.round(input.satellites)
+      : null;
   const rank = gpsSourceRank(input.stream, input.sourceKind);
   const parts: string[] = [];
   if (input.stream === "GPS9" || input.stream === "GPS5" || input.stream === "GPS") {
@@ -83,6 +90,7 @@ export function buildGpsQuality(input: {
   if (fix === 3) parts.push("3D fix");
   else if (fix === 2) parts.push("2D fix");
   else if (fix === 0) parts.push("no fix");
+  if (satellites != null) parts.push(`${satellites} sats`);
   if (precisionP100 != null && Number.isFinite(precisionP100)) {
     parts.push(`DOP ${(precisionP100 / 100).toFixed(1)}`);
   }
@@ -93,6 +101,7 @@ export function buildGpsQuality(input: {
     droppedCount: input.droppedCount ?? 0,
     precisionP100,
     fix,
+    satellites,
     label: parts.join(" · "),
   };
 }

@@ -74,6 +74,7 @@ function finalizeLogger(
   stream: GpsQuality["stream"],
   startedAtMs: number | undefined,
   startFinish?: { lat: number; lon: number } | null,
+  qualityExtras?: { satellites?: number | null; fix?: GpsQuality["fix"] },
 ): GpsLoggerResult {
   if (points.length < 10) {
     throw new Error(
@@ -100,11 +101,17 @@ function finalizeLogger(
       stream,
       sampleCount: normalized.length,
       sourceKind: stream === "CSV" && format === "trackaddict-csv" ? "csv" : "logger",
+      satellites: qualityExtras?.satellites,
+      fix: qualityExtras?.fix,
     }),
   };
 }
 
-/** RaceLogic VBO stores lat/lon as minutes (±DDMM.mmmm); convert when |value| > 90. */
+/**
+ * RaceLogic / Dragy VBO lat/lon are signed arc-minutes (degrees × 60).
+ * Example: +2372.342940 → 39.539049° N.
+ * When |raw| ≤ 90 the value is already decimal degrees.
+ */
 export function vboCoordToDegrees(raw: number): number {
   if (!Number.isFinite(raw)) return NaN;
   if (Math.abs(raw) <= 90) return raw;
@@ -113,8 +120,93 @@ export function vboCoordToDegrees(raw: number): number {
 }
 
 /**
- * Parse RaceLogic / VBOX / Dragy-style VBO text.
- * Expects `[column names]` then `[data]` sections.
+ * VBO longitude convention: **positive = west**.
+ * `+7340.3217` min → −122.338695° (Thunderhill).
+ */
+export function vboLonToDegrees(raw: number): number {
+  const deg = vboCoordToDegrees(raw);
+  if (!Number.isFinite(deg)) return NaN;
+  // Positive minutes → west → negative decimal degrees.
+  return -deg;
+}
+
+/** Parse VBO / Dragy `hhmmss.sss` UTC time-of-day (e.g. 161709.600 or 000001.000). */
+export function parseVboHhmmss(raw: number): {
+  hours: number;
+  minutes: number;
+  seconds: number;
+} | null {
+  if (!Number.isFinite(raw) || raw < 0) return null;
+  const whole = Math.floor(raw);
+  const frac = raw - whole;
+  const hours = Math.floor(whole / 10000);
+  const minutes = Math.floor((whole % 10000) / 100);
+  const seconds = (whole % 100) + frac;
+  if (hours > 23 || minutes > 59 || seconds >= 60) return null;
+  return { hours, minutes, seconds };
+}
+
+/**
+ * True when a time column value looks like Dragy/RaceLogic hhmmss (not a
+ * relative-seconds clock). Relative series are typically 0, 0.1, 1.2, …
+ * while Dragy uses 161709.600-style values (≥ 1 hour or ≥ 1 minute encoded).
+ */
+export function looksLikeVboHhmmss(raw: number): boolean {
+  const tod = parseVboHhmmss(raw);
+  if (!tod) return false;
+  if (tod.hours >= 1) return true;
+  if (tod.minutes >= 1 && raw >= 100) return true;
+  return false;
+}
+
+/**
+ * Extract session calendar day from Dragy VBO comments / file header.
+ * Accepts `UTC Date Started: 17/10/2026 16:17` or `File created on 17/10/2026 @ 16:17`.
+ */
+export function parseVboSessionDate(text: string): {
+  year: number;
+  month: number;
+  day: number;
+} | null {
+  const patterns = [
+    /UTC Date Started:\s*(\d{1,2})\/(\d{1,2})\/(\d{4})/i,
+    /File created on\s+(\d{1,2})\/(\d{1,2})\/(\d{4})/i,
+  ];
+  for (const re of patterns) {
+    const match = text.match(re);
+    if (!match) continue;
+    const day = Number(match[1]);
+    const month = Number(match[2]);
+    const year = Number(match[3]);
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return { year, month, day };
+    }
+  }
+  return null;
+}
+
+function vboEpochMs(
+  date: { year: number; month: number; day: number },
+  tod: { hours: number; minutes: number; seconds: number },
+  dayOffset: number,
+): number {
+  return Date.UTC(
+    date.year,
+    date.month - 1,
+    date.day + dayOffset,
+    tod.hours,
+    tod.minutes,
+    Math.floor(tod.seconds),
+    Math.round((tod.seconds % 1) * 1000),
+  );
+}
+
+/**
+ * Parse RaceLogic / VBOX / Dragy Lap VBO text.
+ * Dragy DRG71 layout: `[column names] sats time lat long velocity heading height`
+ * then `[data]` at ~10 Hz. Time is UTC `hhmmss.sss` combined with
+ * `UTC Date Started` in `[comments]`. Longitude positive = west.
+ * Idle/pit rows (near-zero velocity) are kept; lap split ignores them.
  */
 export function parseVbo(
   text: string,
@@ -145,45 +237,101 @@ export function parseVbo(
   const lonI = findCol("longitude", "long", "lon", "lng");
   const timeI = findCol("time");
   const speedI = findCol("velocity", "speed", "spd");
+  const satsI = findCol("sats", "satellites", "sat");
   if (latI < 0 || lonI < 0) {
     throw new Error(
       "VBO needs latitude and longitude columns under [column names].",
     );
   }
 
+  const sessionDate = parseVboSessionDate(text);
   const dataLines = dataMatch[1]
     .trim()
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line.length && !line.startsWith("["));
 
-  const raw: Array<{ lat: number; lon: number; t: number; speed?: number }> = [];
-  let t0: number | undefined;
+  const raw: Array<{
+    lat: number;
+    lon: number;
+    t: number;
+    speed?: number;
+    sats?: number;
+  }> = [];
+  let startedAtMs: number | undefined;
+  let dayOffset = 0;
+  let prevTodSec: number | undefined;
+  let relativeT0: number | undefined;
+  let useHhmmss = false;
+
+  // Probe first numeric time to decide hhmmss vs relative seconds.
+  if (timeI >= 0) {
+    for (const line of dataLines.slice(0, 40)) {
+      const cols = line.split(/\s+/);
+      if (looksLikeVboHhmmss(Number(cols[timeI]))) {
+        useHhmmss = true;
+        break;
+      }
+    }
+  }
+
   for (const line of dataLines) {
     const cols = line.split(/\s+/);
-    if (cols.length < columns.length && cols.length < 3) continue;
+    if (cols.length < Math.max(columns.length, 3)) continue;
     const lat = vboCoordToDegrees(Number(cols[latI]));
-    const lon = vboCoordToDegrees(Number(cols[lonI]));
+    const lon = vboLonToDegrees(Number(cols[lonI]));
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
     if (Math.abs(lat) < 0.001 && Math.abs(lon) < 0.001) continue;
 
     let t = raw.length * 0.1;
     if (timeI >= 0 && Number.isFinite(Number(cols[timeI]))) {
-      const abs = Number(cols[timeI]);
-      if (t0 == null) t0 = abs;
-      t = abs - t0;
+      const timeRaw = Number(cols[timeI]);
+      if (useHhmmss && sessionDate) {
+        const tod = parseVboHhmmss(timeRaw);
+        if (tod) {
+          const todSec = tod.hours * 3600 + tod.minutes * 60 + tod.seconds;
+          if (prevTodSec != null && todSec + 12 * 3600 < prevTodSec) {
+            // Midnight rollover (e.g. 23:59 → 00:01).
+            dayOffset += 1;
+          }
+          prevTodSec = todSec;
+          const epoch = vboEpochMs(sessionDate, tod, dayOffset);
+          if (startedAtMs == null) startedAtMs = epoch;
+          t = (epoch - startedAtMs) / 1000;
+        }
+      } else if (useHhmmss) {
+        const tod = parseVboHhmmss(timeRaw);
+        if (tod) {
+          const todSec = tod.hours * 3600 + tod.minutes * 60 + tod.seconds;
+          if (prevTodSec != null && todSec + 12 * 3600 < prevTodSec) {
+            dayOffset += 1;
+          }
+          if (relativeT0 == null) relativeT0 = todSec;
+          prevTodSec = todSec;
+          t = todSec + dayOffset * 86400 - relativeT0;
+        }
+      } else {
+        if (relativeT0 == null) relativeT0 = timeRaw;
+        t = timeRaw - relativeT0;
+      }
     }
+
     let speed: number | undefined;
     if (speedI >= 0 && Number.isFinite(Number(cols[speedI]))) {
-      // VBOX velocity is typically km/h already.
+      // Dragy / VBOX velocity column is km/h (matches TelemetryPoint.speed).
       speed = Number(cols[speedI]);
     }
-    raw.push({ lat, lon, t, speed });
+    let sats: number | undefined;
+    if (satsI >= 0 && Number.isFinite(Number(cols[satsI]))) {
+      sats = Number(cols[satsI]);
+    }
+    raw.push({ lat, lon, t, speed, sats });
   }
 
   const points: TelemetryPoint[] = raw.map((point, index) => {
     let speed = point.speed;
-    if ((speed == null || speed === 0) && index > 0) {
+    // Only synthesize speed when the column is missing — keep real idle (~0 km/h).
+    if (speed == null && index > 0) {
       speed = haversineSpeedKmh(raw[index - 1], point);
     }
     return {
@@ -194,7 +342,24 @@ export function parseVbo(
     };
   });
 
-  return finalizeLogger(points, "vbo", "VBO", undefined, options?.startFinish);
+  const satsVals = raw
+    .map((r) => r.sats)
+    .filter((v): v is number => v != null && v > 0);
+  const avgSats = satsVals.length
+    ? satsVals.reduce((a, b) => a + b, 0) / satsVals.length
+    : null;
+
+  return finalizeLogger(
+    points,
+    "vbo",
+    "VBO",
+    startedAtMs,
+    options?.startFinish,
+    {
+      satellites: avgSats,
+      fix: avgSats != null && avgSats >= 4 ? 3 : null,
+    },
+  );
 }
 
 /**
