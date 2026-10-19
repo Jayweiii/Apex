@@ -1,13 +1,22 @@
 /**
- * GPS quality summary for a session (GoPro GPMF or exported telemetry).
- * Used to prefer GoPro over phone CSV in compare and show a quality badge.
+ * GPS quality summary for a session (GoPro GPMF, logger exports, or phone CSV).
+ * Used to prefer GoPro / dedicated loggers over phone CSV in compare.
  */
 
 export type GpsFixType = 0 | 2 | 3 | "unknown";
 
 export type GpsQuality = {
   /** Best stream used for the session. */
-  stream: "GPS5" | "GPS9" | "GPS" | "GPX" | "JSON" | "CSV" | "unknown";
+  stream:
+    | "GPS5"
+    | "GPS9"
+    | "GPS"
+    | "GPX"
+    | "JSON"
+    | "CSV"
+    | "VBO"
+    | "DRAGY"
+    | "unknown";
   /** Source device/app preference rank — higher is better. */
   rank: number;
   sampleCount: number;
@@ -20,15 +29,21 @@ export type GpsQuality = {
   label: string;
 };
 
-/** Rank: GoPro GPMF > Quik/export > phone CSV. */
+export type GpsSourceKind = "csv" | "gopro" | "logger" | null | undefined;
+
+/** Rank: GoPro GPMF > dedicated logger (VBO/Dragy/GPX) > Quik JSON > phone CSV. */
 export function gpsSourceRank(
   stream: GpsQuality["stream"],
-  sourceKind?: "csv" | "gopro" | null,
+  sourceKind?: GpsSourceKind,
 ): number {
   if (stream === "GPS9") return 100;
   if (stream === "GPS5" || stream === "GPS") return 90;
-  if (stream === "GPX" || stream === "JSON") return 70;
+  if (stream === "VBO") return 78;
+  if (stream === "DRAGY") return 76;
+  if (stream === "GPX") return 74;
   if (sourceKind === "gopro") return 80;
+  if (sourceKind === "logger") return 72;
+  if (stream === "JSON") return 70;
   if (stream === "CSV") return 40;
   if (sourceKind === "csv") return 30;
   return 10;
@@ -40,7 +55,7 @@ export function buildGpsQuality(input: {
   droppedCount?: number;
   precisionP100?: number | null;
   fix?: GpsFixType | null;
-  sourceKind?: "csv" | "gopro" | null;
+  sourceKind?: GpsSourceKind;
 }): GpsQuality {
   const precisionP100 = input.precisionP100 ?? null;
   const fix = input.fix ?? null;
@@ -48,10 +63,20 @@ export function buildGpsQuality(input: {
   const parts: string[] = [];
   if (input.stream === "GPS9" || input.stream === "GPS5" || input.stream === "GPS") {
     parts.push(`GoPro ${input.stream}`);
-  } else if (input.stream === "GPX" || input.stream === "JSON") {
-    parts.push(`GoPro export (${input.stream})`);
+  } else if (input.stream === "VBO") {
+    parts.push("VBO (RaceLogic/Dragy)");
+  } else if (input.stream === "DRAGY") {
+    parts.push("Dragy CSV");
+  } else if (input.stream === "GPX") {
+    parts.push(
+      input.sourceKind === "gopro" ? "GoPro export (GPX)" : "GPX logger",
+    );
+  } else if (input.stream === "JSON") {
+    parts.push("GoPro export (JSON)");
   } else if (input.sourceKind === "gopro") {
     parts.push("GoPro");
+  } else if (input.sourceKind === "logger") {
+    parts.push("GPS logger");
   } else {
     parts.push(input.stream === "CSV" ? "Phone/CSV" : "GPS");
   }
@@ -72,16 +97,17 @@ export function buildGpsQuality(input: {
   };
 }
 
-/** Prefer the higher-ranked GPS source (GoPro over phone). */
-export function preferGpsSession<T extends { gpsQuality?: GpsQuality | null; sourceKind?: string | null }>(
-  a: T,
-  b: T,
-): number {
+/** Prefer the higher-ranked GPS source (GoPro / logger over phone). */
+export function preferGpsSession<
+  T extends { gpsQuality?: GpsQuality | null; sourceKind?: string | null },
+>(a: T, b: T): number {
+  const kind = (value: string | null | undefined): GpsSourceKind => {
+    if (value === "gopro" || value === "logger" || value === "csv") return value;
+    return null;
+  };
   const rankA =
-    a.gpsQuality?.rank ??
-    gpsSourceRank("unknown", a.sourceKind === "gopro" ? "gopro" : "csv");
+    a.gpsQuality?.rank ?? gpsSourceRank("unknown", kind(a.sourceKind));
   const rankB =
-    b.gpsQuality?.rank ??
-    gpsSourceRank("unknown", b.sourceKind === "gopro" ? "gopro" : "csv");
+    b.gpsQuality?.rank ?? gpsSourceRank("unknown", kind(b.sourceKind));
   return rankB - rankA;
 }

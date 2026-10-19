@@ -18,7 +18,7 @@ export type CloudSessionMeta = {
   weather?: string;
   tires?: string;
   notes?: string;
-  sourceKind: "csv" | "gopro";
+  sourceKind: "csv" | "gopro" | "logger";
   gpsQuality?: GpsQuality | null;
   rawObjectKey?: string | null;
   videoObjectKey?: string | null;

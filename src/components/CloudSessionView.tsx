@@ -255,7 +255,9 @@ export function CloudSessionView({ id }: { id: string }) {
               <GpsQualityBadge
                 quality={session.gps_quality}
                 sourceKind={
-                  session.source_kind === "gopro" || session.source_kind === "csv"
+                  session.source_kind === "gopro" ||
+                  session.source_kind === "csv" ||
+                  session.source_kind === "logger"
                     ? session.source_kind
                     : null
                 }

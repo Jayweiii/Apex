@@ -1,7 +1,7 @@
 import type { SessionRow } from "./types";
 import type { DatasetAttribution } from "./attribution";
 
-export type SessionSourceKind = "csv" | "gopro";
+export type SessionSourceKind = "csv" | "gopro" | "logger";
 
 export type SessionMeta = {
   track_id?: string | null;

@@ -8,7 +8,7 @@ export type CompareSessionOption = {
   car?: string;
   kind?: string;
   trackId?: string;
-  sourceKind?: "csv" | "gopro" | null;
+  sourceKind?: "csv" | "gopro" | "logger" | null;
   gpsQuality?: GpsQuality | null;
   /** Onboard clips for dual-session video compare. */
   videos?: SessionVideo[];
@@ -66,7 +66,9 @@ export function groupLapsBySession(
     if (!sessionLaps.length) continue;
     const labeled = labelForAccessibleSession(meta, currentUserId);
     const sourceKind =
-      meta.source_kind === "gopro" || meta.source_kind === "csv"
+      meta.source_kind === "gopro" ||
+      meta.source_kind === "csv" ||
+      meta.source_kind === "logger"
         ? meta.source_kind
         : null;
     options.push({
