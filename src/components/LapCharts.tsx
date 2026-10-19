@@ -113,7 +113,6 @@ export function LapCharts({
         activeIndex={index}
         onHoverIndex={hoverFromChart}
         syncId="lap-detail"
-        className="max-h-[min(70vh,720px)]"
       />
     </div>
   );
