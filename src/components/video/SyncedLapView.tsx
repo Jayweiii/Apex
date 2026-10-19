@@ -276,7 +276,8 @@ export function SyncedLapView({
 
   function bindPlayer(handle: VideoPlayerHandle | null) {
     playerRef.current = handle;
-    setPlayer(handle);
+    // Avoid re-render loops when the player ref callback fires every commit.
+    setPlayer((prev) => (prev === handle ? prev : handle));
   }
 
   return (
