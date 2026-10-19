@@ -44,14 +44,19 @@ function rowsForTrack(trackId: string, local: StoredSession[]): TrackRow[] {
         session.trackId != null &&
         (aliases.has(session.trackId) || session.trackId === trackId),
     )
-    .map((session) => ({
-      id: session.id,
-      name: session.name,
-      car: session.car?.trim() || "Unknown",
-      best: Math.min(...session.laps.map((lap) => lap.lap_time_ms)),
-      laps: session.laps.length,
-      kind: (session.kind ?? "upload") as DataKind,
-    }));
+    .map((session) => {
+      const eligible = session.laps.filter((lap) => !lap.excluded);
+      if (!eligible.length) return null;
+      return {
+        id: session.id,
+        name: session.name,
+        car: session.car?.trim() || "Unknown",
+        best: Math.min(...eligible.map((lap) => lap.lap_time_ms)),
+        laps: session.laps.length,
+        kind: (session.kind ?? "upload") as DataKind,
+      };
+    })
+    .filter((row): row is TrackRow => row != null);
 }
 
 function groupByCar(rows: TrackRow[]) {

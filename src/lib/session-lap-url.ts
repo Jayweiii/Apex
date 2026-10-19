@@ -7,6 +7,7 @@ export type LapPick = {
   id: string;
   lap_number: number;
   lap_time_ms: number;
+  excluded?: boolean | null;
 };
 
 export function sessionLapHref(
@@ -43,7 +44,9 @@ export function resolveSelectedLap<T extends LapPick>(
 ): T | null {
   if (!laps.length) return null;
   if (lapParam == null || lapParam === "") {
-    return laps.reduce((best, lap) =>
+    const eligible = laps.filter((lap) => !lap.excluded);
+    const pool = eligible.length ? eligible : laps;
+    return pool.reduce((best, lap) =>
       lap.lap_time_ms < best.lap_time_ms ? lap : best,
     );
   }

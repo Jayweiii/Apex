@@ -1,6 +1,7 @@
 "use client";
 
 import { formatLapTime } from "@/lib/format";
+import { bestLapMsBySession } from "@/lib/session-best";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
 import {
   DEFAULT_VISIBILITY,
@@ -48,19 +49,7 @@ export function AccountSessions() {
         if (sessionsError) throw new Error(sessionsError.message);
         const list = (sessions ?? []) as Row[];
         const ids = list.map((s) => s.id);
-        const bestBySession = new Map<string, number>();
-        if (ids.length) {
-          const { data: laps } = await supabase
-            .from("laps")
-            .select("session_id, lap_time_ms")
-            .in("session_id", ids);
-          for (const lap of laps ?? []) {
-            const current = bestBySession.get(lap.session_id);
-            if (current == null || lap.lap_time_ms < current) {
-              bestBySession.set(lap.session_id, lap.lap_time_ms);
-            }
-          }
-        }
+        const bestBySession = await bestLapMsBySession(supabase, ids);
         if (!cancelled) {
           setRows(
             list.map((row) => ({

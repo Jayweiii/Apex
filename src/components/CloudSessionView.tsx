@@ -2,15 +2,16 @@
 
 import { AppHeader } from "@/components/AppHeader";
 import { GpsQualityBadge } from "@/components/GpsQualityBadge";
-import { LapChips, LapList } from "@/components/LapList";
-import { videoCoverage } from "@/lib/pick-session-video";
+import { LapChips, LapList, type LapExcludeChange } from "@/components/LapList";
 import { SessionLapDetail } from "@/components/SessionLapDetail";
+import { videoCoverage } from "@/lib/pick-session-video";
 import { SessionVideosCard } from "@/components/SessionVideosCard";
 import { SessionVisibilityControl } from "@/components/SessionVisibilityControl";
 import { useSessionLapSelection } from "@/components/useSessionLapSelection";
 import { compareHref } from "@/lib/compare";
 import { formatLapTime } from "@/lib/format";
 import type { GpsQuality } from "@/lib/gps-quality";
+import { bestLapTimeMs } from "@/lib/lap-quality";
 import {
   deleteSessionVideo,
   fetchSessionVideos,
@@ -58,6 +59,8 @@ export function CloudSessionView({ id }: { id: string }) {
   const [error, setError] = useState<string | null>(null);
   const [visibilityError, setVisibilityError] = useState<string | null>(null);
   const [visibilityBusy, setVisibilityBusy] = useState(false);
+  const [excludeError, setExcludeError] = useState<string | null>(null);
+  const [excludeBusyId, setExcludeBusyId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -154,6 +157,7 @@ export function CloudSessionView({ id }: { id: string }) {
         lap_time_ms: lap.lap_time_ms,
         start_offset_sec: lap.start_offset_sec,
         telemetry: (lap.telemetry ?? []) as TelemetryPoint[],
+        excluded: lap.excluded ?? false,
       })),
     [laps],
   );
@@ -245,6 +249,119 @@ export function CloudSessionView({ id }: { id: string }) {
     }
   }
 
+  async function onExcludeChange(change: LapExcludeChange) {
+    if (!session || !userId || session.user_id !== userId || excludeBusyId) {
+      return;
+    }
+    const previous = laps;
+    setExcludeError(null);
+    setExcludeBusyId(change.lapId);
+    setLaps((rows) =>
+      rows.map((lap) =>
+        lap.id === change.lapId
+          ? {
+              ...lap,
+              excluded: change.excluded,
+              exclude_reason: change.excluded
+                ? (change.exclude_reason ?? "manual")
+                : null,
+            }
+          : lap,
+      ),
+    );
+
+    try {
+      const response = await fetch(
+        `/api/sessions/${session.id}/laps/${change.lapId}/exclude`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({
+            excluded: change.excluded,
+            exclude_reason: change.exclude_reason ?? null,
+          }),
+        },
+      );
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        excluded?: boolean;
+        exclude_reason?: string | null;
+      };
+
+      if (response.ok) {
+        setLaps((rows) =>
+          rows.map((lap) =>
+            lap.id === change.lapId
+              ? {
+                  ...lap,
+                  excluded: Boolean(payload.excluded),
+                  exclude_reason: payload.exclude_reason ?? null,
+                }
+              : lap,
+          ),
+        );
+        return;
+      }
+
+      if (response.status === 401) {
+        const supabase = createClient();
+        const { data, error: updateError } = await supabase
+          .from("laps")
+          .update({
+            excluded: change.excluded,
+            exclude_reason: change.excluded
+              ? (change.exclude_reason ?? "manual")
+              : null,
+          })
+          .eq("id", change.lapId)
+          .eq("session_id", session.id)
+          .eq("user_id", userId)
+          .select("id, excluded, exclude_reason")
+          .maybeSingle();
+        if (updateError) {
+          setLaps(previous);
+          setExcludeError(
+            /excluded|exclude_reason/i.test(updateError.message)
+              ? "Run supabase/migrations/20261019_exclude_bad_laps.sql in the Supabase SQL editor, then retry."
+              : updateError.message,
+          );
+          return;
+        }
+        if (!data) {
+          setLaps(previous);
+          setExcludeError("Update blocked — are you the session owner?");
+          return;
+        }
+        setLaps((rows) =>
+          rows.map((lap) =>
+            lap.id === change.lapId
+              ? {
+                  ...lap,
+                  excluded: Boolean(data.excluded),
+                  exclude_reason:
+                    (data.exclude_reason as string | null) ?? null,
+                }
+              : lap,
+          ),
+        );
+        return;
+      }
+
+      setLaps(previous);
+      setExcludeError(
+        payload.error ?? `Could not update lap (${response.status})`,
+      );
+    } catch (err) {
+      setLaps(previous);
+      setExcludeError(
+        err instanceof Error ? err.message : "Could not update lap",
+      );
+    } finally {
+      setExcludeBusyId(null);
+    }
+  }
+
   if (session === undefined) {
     return (
       <>
@@ -290,16 +407,12 @@ export function CloudSessionView({ id }: { id: string }) {
     );
   }
 
-  const best = laps.reduce(
-    (min, lap) => Math.min(min, lap.lap_time_ms),
-    Number.POSITIVE_INFINITY,
-  );
+  const best = bestLapTimeMs(laps);
   const coverage = videoCoverage(
     videos,
     laps.map((lap) => lap.id),
   );
   const dedicatedVideoLapIds = [...coverage.byLapId.keys()];
-
   const href = compareHref(session.id, laps);
   const mine = Boolean(userId && session.user_id === userId);
   const visibility = normalizeVisibility(session.visibility ?? DEFAULT_VISIBILITY);
@@ -330,7 +443,7 @@ export function CloudSessionView({ id }: { id: string }) {
               <span>
                 {session.car ? `${session.car} · ` : ""}
                 {laps.length} laps
-                {Number.isFinite(best) ? ` · best ${formatLapTime(best)}` : ""}
+                {best != null ? ` · best ${formatLapTime(best)}` : ""}
                 {session.driver_name ? ` · ${session.driver_name}` : ""}
                 {mine ? " · saved to your account" : ""}
                 {!mine ? ` · ${visibility}` : ""}
@@ -387,6 +500,14 @@ export function CloudSessionView({ id }: { id: string }) {
                     {visibilityError}
                   </p>
                 ) : null}
+                {excludeError ? (
+                  <p
+                    role="alert"
+                    className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100"
+                  >
+                    {excludeError}
+                  </p>
+                ) : null}
               </div>
             ) : (
               <p className="text-xs uppercase tracking-[0.16em] text-zinc-600">
@@ -401,6 +522,9 @@ export function CloudSessionView({ id }: { id: string }) {
                 onSelect={(lap) => selectLap(lap)}
                 videoLapIds={dedicatedVideoLapIds}
                 sessionVideo={Boolean(coverage.sessionLevel)}
+                canEdit={mine}
+                onExcludeChange={mine ? onExcludeChange : undefined}
+                excludeBusyId={excludeBusyId}
               />
             ) : (
               <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-8 text-center text-sm text-zinc-500">

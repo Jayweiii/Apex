@@ -13,6 +13,8 @@ export type StoredLap = {
   telemetry: TelemetryPoint[];
   start_offset_sec?: number;
   started_at_ms?: number;
+  excluded?: boolean;
+  exclude_reason?: string | null;
 };
 
 export type SessionSourceKind = "csv" | "gopro" | "logger";
@@ -146,6 +148,29 @@ export function replaceLocalSessionLaps(
     ...(meta?.startedAtMs != null ? { startedAtMs: meta.startedAtMs } : {}),
     ...(meta?.sessionDate ? { sessionDate: meta.sessionDate } : {}),
   });
+}
+
+/** Toggle exclude-from-best for a lap in a local (browser) session. */
+export function setLocalLapExcluded(
+  sessionId: string,
+  lapId: string,
+  excluded: boolean,
+  excludeReason?: string | null,
+): StoredSession | null {
+  const session = getLocalSession(sessionId);
+  if (!session) return null;
+  const laps = session.laps.map((lap) =>
+    lap.id === lapId
+      ? {
+          ...lap,
+          excluded,
+          exclude_reason: excluded
+            ? (excludeReason?.trim() || "manual")
+            : null,
+        }
+      : lap,
+  );
+  return updateLocalSession(sessionId, { laps });
 }
 
 export type SessionMetaInput = {
@@ -335,7 +360,9 @@ export function localLeaderboard(filters?: {
     ) {
       continue;
     }
-    const bestMs = Math.min(...session.laps.map((lap) => lap.lap_time_ms));
+    const eligible = session.laps.filter((lap) => !lap.excluded);
+    if (!eligible.length) continue;
+    const bestMs = Math.min(...eligible.map((lap) => lap.lap_time_ms));
     rows.push({
       trackId: session.trackId,
       carClass: session.carClass || "Open",

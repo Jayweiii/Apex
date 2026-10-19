@@ -1,4 +1,5 @@
 import { enrichTelemetry } from "./gforce";
+import { lapsForDefaultCompare } from "./lap-quality";
 import type { TelemetryPoint } from "./types";
 
 export type DistSample = TelemetryPoint & { dist: number };
@@ -44,8 +45,11 @@ export function hasGps(points: TelemetryPoint[]): boolean {
   return points.some((point) => point.lat != null && point.lon != null);
 }
 
-export function defaultLapPair(laps: { id: string; lap_time_ms: number }[]) {
-  const sorted = [...laps].sort((a, b) => a.lap_time_ms - b.lap_time_ms);
+export function defaultLapPair(
+  laps: { id: string; lap_time_ms: number; excluded?: boolean | null }[],
+) {
+  const pool = lapsForDefaultCompare(laps);
+  const sorted = [...pool].sort((a, b) => a.lap_time_ms - b.lap_time_ms);
   return {
     ref: sorted[0]?.id ?? "",
     other: (sorted[1] ?? sorted[0])?.id ?? "",
@@ -54,10 +58,11 @@ export function defaultLapPair(laps: { id: string; lap_time_ms: number }[]) {
 
 /** Fastest up to `count` unique lap ids (for seeding a multi-lap compare). */
 export function defaultLapIds(
-  laps: { id: string; lap_time_ms: number }[],
+  laps: { id: string; lap_time_ms: number; excluded?: boolean | null }[],
   count = 2,
 ): string[] {
-  const sorted = [...laps].sort((a, b) => a.lap_time_ms - b.lap_time_ms);
+  const pool = lapsForDefaultCompare(laps);
+  const sorted = [...pool].sort((a, b) => a.lap_time_ms - b.lap_time_ms);
   const ids: string[] = [];
   for (const lap of sorted) {
     if (ids.includes(lap.id)) continue;
@@ -152,7 +157,7 @@ export function serializeCompareSlots(
 
 export function compareHref(
   sessionId: string,
-  laps: { id: string; lap_time_ms: number }[],
+  laps: { id: string; lap_time_ms: number; excluded?: boolean | null }[],
   focusId?: string,
   otherSessionId?: string,
 ) {

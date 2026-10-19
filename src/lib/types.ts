@@ -86,4 +86,7 @@ export type LapRow = {
   telemetry: TelemetryPoint[];
   start_offset_sec?: number | null;
   started_at_ms?: number | null;
+  /** When true, ignored for best-lap stats / leaderboards / default compare. */
+  excluded?: boolean | null;
+  exclude_reason?: string | null;
 };

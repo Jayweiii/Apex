@@ -41,7 +41,9 @@ create table if not exists public.laps (
   lap_time_ms int not null,
   telemetry jsonb not null default '[]'::jsonb,
   start_offset_sec double precision,
-  started_at_ms bigint
+  started_at_ms bigint,
+  excluded boolean not null default false,
+  exclude_reason text
 );
 
 create table if not exists public.session_videos (
@@ -121,6 +123,12 @@ create policy "laps_delete_own"
   on public.laps for delete
   using (auth.uid() = user_id);
 
+drop policy if exists "laps_update_own" on public.laps;
+create policy "laps_update_own"
+  on public.laps for update
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
 -- Additive migration helpers for existing projects created from the earlier schema.
 alter table public.sessions add column if not exists track_id text;
 alter table public.sessions add column if not exists car text;
@@ -140,6 +148,8 @@ alter table public.sessions add column if not exists started_at timestamptz;
 alter table public.sessions add column if not exists session_date date;
 alter table public.laps add column if not exists start_offset_sec double precision;
 alter table public.laps add column if not exists started_at_ms bigint;
+alter table public.laps add column if not exists excluded boolean not null default false;
+alter table public.laps add column if not exists exclude_reason text;
 
 drop policy if exists "session_videos_select_own" on public.session_videos;
 create policy "session_videos_select_own"

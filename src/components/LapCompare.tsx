@@ -505,9 +505,15 @@ export function LapCompare({
     let session = filteredSessions[0];
     let lapId = "";
     for (const candidate of filteredSessions) {
-      for (const lap of [...candidate.laps].sort(
+      const ordered = [...candidate.laps].sort(
         (a, b) => a.lap_time_ms - b.lap_time_ms,
-      )) {
+      );
+      // Prefer non-excluded for default picks; fall back so excluded stay selectable.
+      const pool = [
+        ...ordered.filter((lap) => !lap.excluded),
+        ...ordered.filter((lap) => lap.excluded),
+      ];
+      for (const lap of pool) {
         const key = `${candidate.id}:${lap.id}`;
         if (used.has(key)) continue;
         session = candidate;

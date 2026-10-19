@@ -5,6 +5,7 @@ import {
   localLeaderboard,
   type LeaderboardRow,
 } from "@/lib/local-store";
+import { bestLapMsBySession } from "@/lib/session-best";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
 import { getTrack, trackEquivalentIds } from "@/lib/tracks";
 import Link from "next/link";
@@ -50,17 +51,7 @@ export function LeaderboardPanel({
           const { data: sessions } = await query;
           const ids = (sessions ?? []).map((s) => s.id);
           if (ids.length) {
-            const { data: laps } = await supabase
-              .from("laps")
-              .select("session_id, lap_time_ms")
-              .in("session_id", ids);
-            const bestBySession = new Map<string, number>();
-            for (const lap of laps ?? []) {
-              const current = bestBySession.get(lap.session_id);
-              if (current == null || lap.lap_time_ms < current) {
-                bestBySession.set(lap.session_id, lap.lap_time_ms);
-              }
-            }
+            const bestBySession = await bestLapMsBySession(supabase, ids);
             cloud = (sessions ?? [])
               .filter((session) => session.track_id && bestBySession.has(session.id))
               .map((session) => ({
