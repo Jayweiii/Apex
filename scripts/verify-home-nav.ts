@@ -67,6 +67,15 @@ const trackDetail = read("src/components/TrackDirectory.tsx");
 assert(trackDetail.includes('setTab("sessions")') || trackDetail.includes("setTab(item.id)"), "track tabs");
 
 const account = read("src/components/AccountWorkbench.tsx");
-assert(account.includes("Sessions"), "account tabs");
+assert(account.includes("My Sessions"), "account tabs");
+
+const headerSessions = read("src/components/AppHeader.tsx");
+assert(headerSessions.includes("My Sessions"), "nav My Sessions");
+
+const accountPage = read("src/app/account/page.tsx");
+assert(accountPage.includes("My Sessions"), "account page heading");
+
+const footer = read("src/components/SiteFooter.tsx");
+assert(footer.includes("My Sessions"), "footer My Sessions");
 
 console.log("verify-home-nav: ok");

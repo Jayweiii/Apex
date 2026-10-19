@@ -279,7 +279,7 @@ export function CloudSessionView({ id }: { id: string }) {
               className="text-[11px] uppercase tracking-[0.2em] text-zinc-500 hover:text-zinc-300"
             >
               {mine
-                ? "Your account sessions"
+                ? "My Sessions"
                 : userId
                   ? "Friends"
                   : "Public feed"}

@@ -22,7 +22,7 @@ export function SiteFooter({ signedIn = false }: { signedIn?: boolean }) {
             href="/account"
             className="text-zinc-400 underline-offset-2 hover:text-orange-300 hover:underline"
           >
-            Your sessions
+            My Sessions
           </Link>
         ) : (
           <Link

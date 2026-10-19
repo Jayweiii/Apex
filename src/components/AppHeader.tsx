@@ -104,7 +104,7 @@ export function AppHeader({ email }: { email?: string }) {
                 href="/account"
                 className="inline-flex min-h-10 items-center text-xs uppercase tracking-[0.16em] text-zinc-400 hover:text-zinc-200"
               >
-                Sessions
+                My Sessions
               </Link>
               <span className="hidden max-w-[180px] truncate text-xs text-zinc-500 lg:block">
                 {sessionEmail ?? (guest ? "Guest" : "")}

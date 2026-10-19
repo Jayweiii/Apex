@@ -101,7 +101,7 @@ export function YourSessions() {
     <section className="flex flex-col gap-3">
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
-          <h2 className="text-sm font-medium text-zinc-200">Your sessions</h2>
+          <h2 className="text-sm font-medium text-zinc-200">My Sessions</h2>
           <p className="mt-1 text-sm text-zinc-500">
             Saved to your account ·{" "}
             <Link href="/account" className="text-orange-400 hover:text-orange-300">

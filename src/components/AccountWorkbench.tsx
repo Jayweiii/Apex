@@ -17,7 +17,7 @@ export function AccountWorkbench() {
       <div className="flex flex-wrap gap-2">
         {(
           [
-            { id: "sessions" as const, label: "Sessions" },
+            { id: "sessions" as const, label: "My Sessions" },
             { id: "comparisons" as const, label: "Comparisons" },
             { id: "upload" as const, label: "Upload" },
           ] as const

@@ -29,7 +29,7 @@ export default async function AccountPage() {
             Home
           </Link>
           <h1 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-50">
-            Your sessions
+            My Sessions
           </h1>
           <p className="mt-1 text-sm text-zinc-500">
             Uploads and saved comparisons. Default visibility is Friends.
