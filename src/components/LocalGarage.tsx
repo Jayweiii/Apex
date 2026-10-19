@@ -10,6 +10,7 @@ import { LapCompare } from "@/components/LapCompare";
 import { SaveComparisonControls } from "@/components/SaveComparisonControls";
 import type { ComparisonDraftSnapshot } from "@/lib/comparisons";
 import { LapChips, LapList } from "@/components/LapList";
+import { videoCoverage } from "@/lib/pick-session-video";
 import { SessionLapDetail } from "@/components/SessionLapDetail";
 import { SessionVideosCard } from "@/components/SessionVideosCard";
 import { ShareLinkButton } from "@/components/ShareLinkButton";
@@ -34,6 +35,7 @@ import {
 } from "@/lib/local-store";
 import { parseTelemetryCsv } from "@/lib/parse-telemetry";
 import { sessionLapHref } from "@/lib/session-lap-url";
+import { pickSessionVideoForLap } from "@/lib/pick-session-video";
 import type { SessionVideo } from "@/lib/types";
 import { getTrack } from "@/lib/tracks";
 import Link from "next/link";
@@ -508,6 +510,15 @@ export function LocalSession({ id }: { id: string }) {
             laps={laps}
             selectedId={selected?.id}
             onSelect={(lap) => selectLap(lap)}
+            videoLapIds={(session.videos ?? [])
+              .filter((v) => v.provider === "youtube" && v.youtubeId && v.lapId)
+              .map((v) => v.lapId as string)}
+            sessionVideo={(session.videos ?? []).some(
+              (v) =>
+                v.provider === "youtube" &&
+                v.youtubeId &&
+                (v.lapId == null || v.lapId === ""),
+            )}
           />
         ) : null}
 
@@ -531,6 +542,15 @@ export function LocalSession({ id }: { id: string }) {
                 laps={laps}
                 selectedId={selected?.id}
                 onSelect={(lap) => selectLap(lap)}
+                videoLapIds={(session.videos ?? [])
+                  .filter((v) => v.provider === "youtube" && v.youtubeId && v.lapId)
+                  .map((v) => v.lapId as string)}
+                sessionVideo={(session.videos ?? []).some(
+                  (v) =>
+                    v.provider === "youtube" &&
+                    v.youtubeId &&
+                    (v.lapId == null || v.lapId === ""),
+                )}
               />
             ) : (
               <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-8 text-center text-sm text-zinc-500">

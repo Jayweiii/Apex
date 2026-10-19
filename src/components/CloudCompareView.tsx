@@ -40,6 +40,7 @@ function videosBySession(rows: VideoRow[]): Map<string, SessionVideo[]> {
       id: row.id,
       provider: row.provider === "youtube" ? "youtube" : "mp4",
       youtubeId: row.youtube_id ?? undefined,
+      youtubeUrl: row.youtube_url ?? undefined,
       objectKey: row.object_key ?? undefined,
       title: row.title ?? undefined,
       lapId: row.lap_id ?? null,
@@ -241,7 +242,7 @@ export function CloudCompareView({
         const { data: videoRows } = await supabase
           .from("session_videos")
           .select(
-            "id, session_id, provider, youtube_id, object_key, title, lap_id, offset_sec, rate, sync_source, video_started_at",
+            "id, session_id, provider, youtube_id, youtube_url, object_key, title, lap_id, lap_index, offset_sec, rate, sync_source, video_started_at",
           )
           .in("session_id", ids);
 

@@ -7,9 +7,12 @@ Attach onboard clips to a session by **YouTube URL** (or the channel catalog) an
 On the session page **Videos** card:
 
 1. Paste a YouTube URL (or attach a catalog suggestion).
-2. Optionally bind to a lap.
+2. Bind to a lap, or leave **Whole session** for one clip covering many laps.
+3. **Bulk paste** several URLs — assigned to laps in order.
+4. Lap chips show which laps already have a dedicated (`yt`) or session-level (`sess`) video.
+5. Nudge offset ±0.1s or **Set start line here** on the session card; fine sync stays on the selected lap panel.
 
-Offset is saved in `session_videos.offset_sec` so public/friends share the same sync.
+Offset is saved in `session_videos.offset_sec` (migration `20261019_lap_videos.sql` / view `lap_videos`) so public/friends share the same sync.
 
 ## Auto-suggest
 
