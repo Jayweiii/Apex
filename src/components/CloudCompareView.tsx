@@ -188,7 +188,7 @@ export function CloudCompareView({
         }
         if (!row) {
           setSession(null);
-          setError(user ? "not-found" : "sign-in");
+          setError("not-found");
           return;
         }
         const current = row as SessionRow & {
@@ -294,25 +294,26 @@ export function CloudCompareView({
       <>
         <AppHeader email={email} />
         <main className="mx-auto w-full max-w-5xl px-6 py-8">
-          {error === "sign-in" ? (
-            <>
-              <p className="text-sm text-zinc-300">
-                Sign in to compare against friends&apos; and public sessions.
-              </p>
-              <Link
-                href={`/login?next=${encodeURIComponent(`/sessions/${id}/compare`)}`}
-                className="mt-4 inline-block text-sm text-orange-400"
-              >
-                Sign in
-              </Link>
-            </>
-          ) : (
-            <p className="text-sm text-zinc-400">
-              {error === "not-found"
-                ? "Session not found (or you do not have access)."
-                : (error ?? "Session not found.")}
-            </p>
-          )}
+          <p className="text-sm text-zinc-400">
+            {error === "not-found" || !error
+              ? "Session not found, or it is private / friends-only."
+              : error}
+          </p>
+          <p className="mt-2 text-sm text-zinc-500">
+            Public sessions compare without an account.
+            {!userId ? (
+              <>
+                {" "}
+                <Link
+                  href={`/login?next=${encodeURIComponent(`/sessions/${id}/compare`)}`}
+                  className="text-orange-400"
+                >
+                  Sign in
+                </Link>{" "}
+                to include Friends-visible peers.
+              </>
+            ) : null}
+          </p>
         </main>
       </>
     );
@@ -333,10 +334,11 @@ export function CloudCompareView({
             Compare laps
           </h1>
           <p className="mt-1 text-sm text-zinc-500">
-            Pick any lap from your sessions, friends, or public uploads
+            Pick any lap from public uploads
+            {userId ? ", your sessions, or friends" : ""}
             {session.track_id ? " — filter by track" : ""}.
             {!userId
-              ? " Sign in to see friends' sessions."
+              ? " Sign in only if you need Friends-visible peers."
               : ""}
           </p>
           {error ? (

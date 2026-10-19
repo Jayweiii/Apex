@@ -85,10 +85,9 @@ export function CloudSessionView({ id }: { id: string }) {
           return;
         }
         if (!row) {
+          // Public rows load via anon RLS. Missing ⇒ not found or private/friends.
           setSession(null);
-          // Public rows are readable without auth via RLS. A miss means the
-          // session is private/missing — offer sign-in only as an optional path.
-          setError(user ? "not-found" : "sign-in");
+          setError("not-found");
           return;
         }
         setSession(row as CloudSession);
@@ -229,29 +228,30 @@ export function CloudSessionView({ id }: { id: string }) {
       <>
         <AppHeader email={email} />
         <main className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6">
-          {error === "sign-in" ? (
-            <>
-              <p className="text-sm text-zinc-300">
-                This session is not public. If it is yours, sign in to view it —
-                or ask the owner to set visibility to Public link.
-              </p>
-              <Link
-                href={`/login?next=${encodeURIComponent(`/sessions/${id}`)}`}
-                className="mt-4 inline-block text-sm text-orange-400"
-              >
-                Sign in
-              </Link>
-            </>
-          ) : (
-            <>
-              <p className="text-sm text-zinc-400">
-                Session not found (or you do not have access).
-              </p>
-              <Link href="/" className="mt-4 inline-block text-sm text-orange-400">
-                Back to home
-              </Link>
-            </>
-          )}
+          <p className="text-sm text-zinc-400">
+            {error && error !== "not-found"
+              ? error
+              : "Session not found, or it is private / friends-only."}
+          </p>
+          <p className="mt-2 text-sm text-zinc-500">
+            Public sessions open without an account.{" "}
+            {!userId ? (
+              <>
+                <Link
+                  href={`/login?next=${encodeURIComponent(`/sessions/${id}`)}`}
+                  className="text-orange-400"
+                >
+                  Sign in
+                </Link>{" "}
+                only if this is a Friends or private session you own.
+              </>
+            ) : (
+              "Ask the owner to set visibility to Public link to share."
+            )}
+          </p>
+          <Link href="/" className="mt-4 inline-block text-sm text-orange-400">
+            Browse public sessions
+          </Link>
         </main>
       </>
     );
@@ -277,7 +277,7 @@ export function CloudSessionView({ id }: { id: string }) {
             href={mine ? "/account" : "/friends"}
             className="text-[11px] uppercase tracking-[0.2em] text-zinc-500 hover:text-zinc-300"
           >
-            {mine ? "Your account sessions" : "Friends"}
+            {mine ? "Your account sessions" : userId ? "Friends" : "Public feed"}
           </Link>
           <h1 className="text-2xl font-semibold tracking-tight text-zinc-50 sm:text-3xl">
             {session.name}

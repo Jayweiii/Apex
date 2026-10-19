@@ -77,7 +77,7 @@ export function CloudLapView({
         }
         if (!row) {
           setSession(null);
-          setError(user ? "not-found" : "sign-in");
+          setError("not-found");
           return;
         }
         setSession(row as CloudSession);
@@ -148,33 +148,29 @@ export function CloudLapView({
       <>
         <AppHeader email={email} />
         <main className="mx-auto w-full max-w-5xl px-6 py-8">
-          {error === "sign-in" ? (
-            <>
-              <p className="text-sm text-zinc-300">
-                Sign in to view this lap, or ask the owner for a public link.
-              </p>
+          <p className="text-sm text-zinc-400">
+            {error === "not-found" || !error
+              ? "Lap not found, or the session is private / friends-only."
+              : error}
+          </p>
+          {!userId ? (
+            <p className="mt-2 text-sm text-zinc-500">
+              Public laps open without an account.{" "}
               <Link
                 href={`/login?next=${encodeURIComponent(`/sessions/${sessionId}/laps/${lapId}`)}`}
-                className="mt-4 inline-block text-sm text-orange-400"
+                className="text-orange-400"
               >
                 Sign in
-              </Link>
-            </>
-          ) : (
-            <>
-              <p className="text-sm text-zinc-400">
-                {error === "not-found"
-                  ? "Lap not found (or you do not have access)."
-                  : (error ?? "Lap not found.")}
-              </p>
-              <Link
-                href={`/sessions/${sessionId}`}
-                className="mt-4 inline-block text-sm text-orange-400"
-              >
-                Back to session
-              </Link>
-            </>
-          )}
+              </Link>{" "}
+              only for Friends or private access.
+            </p>
+          ) : null}
+          <Link
+            href={`/sessions/${sessionId}`}
+            className="mt-4 inline-block text-sm text-orange-400"
+          >
+            Back to session
+          </Link>
         </main>
       </>
     );

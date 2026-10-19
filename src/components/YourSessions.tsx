@@ -26,7 +26,7 @@ type CloudSessionListItem = {
  * uploads land in Supabase (browser client, same auth as upload).
  */
 export function YourSessions() {
-  const [email, setEmail] = useState<string | null>(null);
+  const [signedIn, setSignedIn] = useState(false);
   const [sessions, setSessions] = useState<CloudSessionListItem[] | null>(null);
 
   useEffect(() => {
@@ -43,11 +43,11 @@ export function YourSessions() {
         } = await supabase.auth.getUser();
         if (cancelled) return;
         if (!user) {
-          setEmail(null);
+          setSignedIn(false);
           setSessions([]);
           return;
         }
-        setEmail(user.email ?? null);
+        setSignedIn(true);
 
         const { data: rows } = await supabase
           .from("sessions")
@@ -92,16 +92,8 @@ export function YourSessions() {
     };
   }, []);
 
-  if (sessions === null) {
-    return (
-      <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-medium text-zinc-200">Your sessions</h2>
-        <p className="text-sm text-zinc-500">Checking account…</p>
-      </section>
-    );
-  }
-
-  if (!email) {
+  // Signed-out: hide entirely (no "Checking account" wall). Guests (anon) still show.
+  if (sessions === null || !signedIn) {
     return null;
   }
 
