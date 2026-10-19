@@ -14,6 +14,11 @@ export type DualVideoSide = {
   video: SessionVideo | null;
   /** Resolved MP4 object URL / download URL when provider is mp4. */
   mp4Src?: string | null;
+  /**
+   * True when the session has an MP4 metadata row (with offset) but the
+   * media blob is not available in this browser / object storage.
+   */
+  needsLocalFile?: boolean;
   label: string;
 };
 
@@ -63,4 +68,23 @@ export function sideHasPlayableVideo(side: DualVideoSide): boolean {
   if (!side.video) return false;
   if (side.video.provider === "youtube") return Boolean(side.video.youtubeId);
   return Boolean(side.mp4Src);
+}
+
+/** Session has video metadata (offset etc.) even if media is missing locally. */
+export function sideHasVideoMeta(side: DualVideoSide): boolean {
+  return Boolean(side.video);
+}
+
+/**
+ * Align dual compare at lap start: shared progress 0 maps each side through
+ * its own offsetSec (already baked into dualVideoTimeAtProgress).
+ */
+export function dualCompareAlignedAtLapStart(
+  ref: DualVideoSide,
+  other: DualVideoSide,
+): { refVideoTime: number | null; otherVideoTime: number | null } {
+  return {
+    refVideoTime: dualVideoTimeAtProgress(ref, 0),
+    otherVideoTime: dualVideoTimeAtProgress(other, 0),
+  };
 }

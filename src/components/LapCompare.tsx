@@ -427,42 +427,52 @@ export function LapCompare({
 
           {reference && other && !sameLap ? (
             <DualSessionVideos
-              refSide={{
-                lap: lapAsSyncLap(reference),
-                video: pickVideoForLap(refSession, reference.id),
-                mp4Src: (() => {
-                  const video = pickVideoForLap(refSession, reference.id);
-                  if (!video || video.provider !== "mp4") return null;
-                  return (
-                    refSession?.videoSrcById?.[video.id] ??
-                    (video.objectKey
-                      ? `/api/storage/download?key=${encodeURIComponent(video.objectKey)}`
-                      : null)
-                  );
-                })(),
-                label:
-                  refSession && refSession.name !== "This session"
-                    ? refSession.name
-                    : `Lap ${reference.lap_number}`,
-              }}
-              otherSide={{
-                lap: lapAsSyncLap(other),
-                video: pickVideoForLap(otherSession, other.id),
-                mp4Src: (() => {
-                  const video = pickVideoForLap(otherSession, other.id);
-                  if (!video || video.provider !== "mp4") return null;
-                  return (
-                    otherSession?.videoSrcById?.[video.id] ??
-                    (video.objectKey
-                      ? `/api/storage/download?key=${encodeURIComponent(video.objectKey)}`
-                      : null)
-                  );
-                })(),
-                label:
-                  otherSession && otherSession.name !== "This session"
-                    ? otherSession.name
-                    : `Lap ${other.lap_number}`,
-              }}
+              refSide={(() => {
+                const video = pickVideoForLap(refSession, reference.id);
+                const mp4Src =
+                  video?.provider === "mp4"
+                    ? (refSession?.videoSrcById?.[video.id] ??
+                      (video.objectKey &&
+                      !video.objectKey.startsWith("local/")
+                        ? `/api/storage/download?key=${encodeURIComponent(video.objectKey)}`
+                        : null))
+                    : null;
+                return {
+                  lap: lapAsSyncLap(reference),
+                  video,
+                  mp4Src,
+                  needsLocalFile: Boolean(
+                    video?.provider === "mp4" && !mp4Src,
+                  ),
+                  label:
+                    refSession && refSession.name !== "This session"
+                      ? refSession.name
+                      : `Lap ${reference.lap_number}`,
+                };
+              })()}
+              otherSide={(() => {
+                const video = pickVideoForLap(otherSession, other.id);
+                const mp4Src =
+                  video?.provider === "mp4"
+                    ? (otherSession?.videoSrcById?.[video.id] ??
+                      (video.objectKey &&
+                      !video.objectKey.startsWith("local/")
+                        ? `/api/storage/download?key=${encodeURIComponent(video.objectKey)}`
+                        : null))
+                    : null;
+                return {
+                  lap: lapAsSyncLap(other),
+                  video,
+                  mp4Src,
+                  needsLocalFile: Boolean(
+                    video?.provider === "mp4" && !mp4Src,
+                  ),
+                  label:
+                    otherSession && otherSession.name !== "This session"
+                      ? otherSession.name
+                      : `Lap ${other.lap_number}`,
+                };
+              })()}
               progress={progress}
               onProgress={setProgress}
             />

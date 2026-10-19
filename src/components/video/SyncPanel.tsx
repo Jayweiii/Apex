@@ -6,11 +6,18 @@ import {
   suggestOffsetFromVideoStart,
 } from "@/lib/video-sync";
 import {
+  findSyncEventLapTime,
+  offsetForSessionMoment,
+  sessionTimeForLapEvent,
+  SYNC_EVENT_LABELS,
+  type SyncEventKind,
+} from "@/lib/sync-events";
+import {
   predictNextCrossing,
   solveLapSequence,
   type LoggedLapStart,
 } from "@/lib/lap-estimator";
-import type { SessionVideo } from "@/lib/types";
+import type { SessionVideo, TelemetryPoint } from "@/lib/types";
 import { formatClock, formatLapTime } from "@/lib/format";
 import { useEffect, useMemo, useState } from "react";
 
@@ -23,8 +30,11 @@ export function SyncPanel({
   lapTimeMs,
   sessionStartedAtMs,
   loggedLaps,
+  chartLapTimeSec,
+  lapPoints,
   onChange,
   onSeek,
+  onSeekChartLapTime,
 }: {
   video: SessionVideo;
   videoTime: number;
@@ -32,16 +42,28 @@ export function SyncPanel({
   lapTimeMs: number;
   sessionStartedAtMs?: number;
   loggedLaps: LoggedLapStart[];
+  /** Current chart/map cursor as lap-relative seconds (independent when Follow is off). */
+  chartLapTimeSec?: number | null;
+  lapPoints?: TelemetryPoint[];
   onChange: (next: SessionVideo) => void;
   onSeek?: (videoTime: number) => void;
+  /** Jump chart/map to a lap-relative time (for snap-to-event). */
+  onSeekChartLapTime?: (lapTimeSec: number) => void;
 }) {
   const [markTimes, setMarkTimes] = useState<number[]>([]);
   const [clockInput, setClockInput] = useState("");
   const [message, setMessage] = useState<string | null>(null);
+  const [videoMark, setVideoMark] = useState<number | null>(null);
+  const [chartMark, setChartMark] = useState<number | null>(null);
 
   const suggestedTod =
     video.videoStartedAtMs != null && sessionStartedAtMs != null
       ? suggestOffsetFromVideoStart(video.videoStartedAtMs, sessionStartedAtMs)
+      : null;
+
+  const chartSessionTime =
+    chartLapTimeSec != null
+      ? sessionTimeForLapEvent(lapStartOffsetSec, chartLapTimeSec)
       : null;
 
   const estimator = useMemo(() => {
@@ -136,6 +158,59 @@ export function SyncPanel({
     }
   }
 
+  function markVideoHere() {
+    setVideoMark(videoTime);
+    setMessage(`Video mark @ ${formatClock(videoTime)}`);
+  }
+
+  function markChartHere() {
+    if (chartLapTimeSec == null) {
+      setMessage("Scrub the map or speed chart first");
+      return;
+    }
+    setChartMark(chartLapTimeSec);
+    setMessage(`Chart mark @ lap ${formatClock(chartLapTimeSec)}`);
+  }
+
+  function applyEventPair(kind: SyncEventKind) {
+    const v = videoMark ?? videoTime;
+    let lapT = chartMark;
+    if (lapT == null && chartLapTimeSec != null) lapT = chartLapTimeSec;
+    if (lapT == null && lapPoints?.length) {
+      lapT = findSyncEventLapTime(lapPoints, kind);
+      if (lapT != null) onSeekChartLapTime?.(lapT);
+    }
+    if (lapT == null) {
+      setMessage(
+        "Uncheck Follow scrub, scrub video to the visual event and chart to the matching GPS point, then click again.",
+      );
+      return;
+    }
+    const sessionTime = sessionTimeForLapEvent(lapStartOffsetSec, lapT);
+    const offsetSec = offsetForSessionMoment(v, sessionTime);
+    save({ offsetSec, syncSource: "manual" });
+    setMessage(
+      `${SYNC_EVENT_LABELS[kind]}: video ${formatClock(v)} ↔ session ${formatClock(sessionTime)} → offset ${offsetSec.toFixed(2)}s`,
+    );
+  }
+
+  function snapChartToEvent(kind: SyncEventKind) {
+    if (!lapPoints?.length) {
+      setMessage("No telemetry on this lap");
+      return;
+    }
+    const lapT = findSyncEventLapTime(lapPoints, kind);
+    if (lapT == null) {
+      setMessage(`Could not detect ${SYNC_EVENT_LABELS[kind]} in telemetry`);
+      return;
+    }
+    setChartMark(lapT);
+    onSeekChartLapTime?.(lapT);
+    setMessage(
+      `Chart snapped to ${SYNC_EVENT_LABELS[kind]} @ ${formatClock(lapT)} — scrub video to match, then Set`,
+    );
+  }
+
   function applyClock() {
     if (sessionStartedAtMs == null) {
       setMessage("Session has no startedAt — re-process the CSV to keep UTC Time.");
@@ -161,9 +236,6 @@ export function SyncPanel({
       setMessage("Could not parse clock time");
       return;
     }
-    const day = new Date(sessionStartedAtMs);
-    day.setUTCHours(hours, minutes, Math.floor(seconds), Math.round((seconds % 1) * 1000));
-    // Prefer local wall clock relative to session date
     const local = new Date(sessionStartedAtMs);
     local.setHours(hours, minutes, Math.floor(seconds), Math.round((seconds % 1) * 1000));
     const clockMs = local.getTime();
@@ -186,16 +258,76 @@ export function SyncPanel({
             {video.syncSource}
           </p>
         </div>
-        <p className="font-mono text-sm text-zinc-300">
-          video {formatClock(videoTime)}
+        <div className="text-right font-mono text-sm text-zinc-300">
+          <p>video {formatClock(videoTime)}</p>
+          {chartSessionTime != null ? (
+            <p className="text-xs text-zinc-500">
+              chart session {formatClock(chartSessionTime)}
+            </p>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="mt-4 space-y-2">
+        <p className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">
+          Event pair (video + chart)
         </p>
+        <p className="text-xs text-zinc-600">
+          Uncheck Follow scrub. Scrub video to a visual cue and the map/speed
+          chart to the matching GPS moment, then set the event — or snap the
+          chart to a detected telemetry landmark first.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={markVideoHere}
+            className="min-h-10 rounded-lg border border-zinc-800 px-3 text-sm text-zinc-300 hover:border-zinc-600"
+          >
+            Mark video{videoMark != null ? ` (${formatClock(videoMark)})` : ""}
+          </button>
+          <button
+            type="button"
+            onClick={markChartHere}
+            className="min-h-10 rounded-lg border border-zinc-800 px-3 text-sm text-zinc-300 hover:border-zinc-600"
+          >
+            Mark chart
+            {chartMark != null ? ` (${formatClock(chartMark)})` : ""}
+          </button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {(
+            [
+              "lap_start",
+              "straight_start",
+              "first_brake",
+            ] as SyncEventKind[]
+          ).map((kind) => (
+            <div key={kind} className="flex gap-1">
+              <button
+                type="button"
+                onClick={() => snapChartToEvent(kind)}
+                className="min-h-10 rounded-l-lg border border-zinc-800 px-2 text-xs text-zinc-400 hover:border-zinc-600"
+                title={`Snap chart to detected ${SYNC_EVENT_LABELS[kind]}`}
+              >
+                Snap
+              </button>
+              <button
+                type="button"
+                onClick={() => applyEventPair(kind)}
+                className="min-h-10 rounded-r-lg bg-orange-500 px-3 text-sm font-semibold text-black hover:bg-orange-400"
+              >
+                Set {SYNC_EVENT_LABELS[kind]}
+              </button>
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
         <button
           type="button"
           onClick={markCrossing}
-          className="min-h-10 rounded-lg bg-orange-500 px-3 text-sm font-semibold text-black hover:bg-orange-400"
+          className="min-h-10 rounded-lg border border-zinc-800 px-3 text-sm text-zinc-300 hover:border-zinc-600"
         >
           Mark start/finish
         </button>
@@ -232,7 +364,7 @@ export function SyncPanel({
           className="mt-3 block text-sm text-orange-400 hover:text-orange-300"
         >
           Apply suggested offset ({suggestedTod >= 0 ? "+" : ""}
-          {suggestedTod.toFixed(1)} s) from time of day
+          {suggestedTod.toFixed(1)} s) from video creation_time
         </button>
       ) : null}
 
@@ -267,6 +399,9 @@ export function SyncPanel({
         </p>
       ) : null}
       {message ? <p className="mt-2 text-sm text-zinc-400">{message}</p> : null}
+      <p className="mt-3 text-xs text-zinc-600">
+        Audio-based sync is planned for a later pass.
+      </p>
     </div>
   );
 }

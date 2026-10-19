@@ -694,6 +694,7 @@ export function LocalLap({
         {lap.telemetry.length ? (
           activeVideo || videoSrc ? (
             <SyncedLapView
+              sessionId={session.id}
               lap={{
                 id: lap.id,
                 lap_number: lap.lap_number,
@@ -713,6 +714,27 @@ export function LocalLap({
               sessionStartedAtMs={session.startedAtMs}
               bestLapMs={bestMs}
               trackId={session.trackId}
+              onAttachLocalMp4={
+                activeVideo?.provider === "mp4"
+                  ? async (file) => {
+                      const { putLocalBlob } = await import("@/lib/blob-store");
+                      const { localVideoBlobKey } = await import(
+                        "@/lib/mp4-creation-time"
+                      );
+                      const key =
+                        activeVideo.localKey ??
+                        localVideoBlobKey(session.id, activeVideo.id, file.name);
+                      await putLocalBlob(key, file);
+                      const nextVideos = (session.videos ?? []).map((item) =>
+                        item.id === activeVideo.id
+                          ? { ...item, localKey: key }
+                          : item,
+                      );
+                      updateLocalSession(session.id, { videos: nextVideos });
+                      window.location.reload();
+                    }
+                  : undefined
+              }
               onVideoChange={
                 activeVideo && session.kind === "upload"
                   ? (next) => {

@@ -36,7 +36,57 @@ import {
 import { progressFromIndex } from "@/lib/scrub";
 import { useCallback, useMemo, useRef, useState } from "react";
 
+function LocalMp4Missing({
+  sessionId,
+  onAttachLocalMp4,
+}: {
+  sessionId?: string;
+  onAttachLocalMp4?: (file: File) => void | Promise<void>;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  return (
+    <div className="flex aspect-video flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-zinc-800 bg-zinc-950/80 px-4 text-center">
+      <p className="text-sm text-zinc-300">
+        Local-only video — attach the MP4 on this device to play.
+      </p>
+      <p className="text-xs text-zinc-500">
+        Sync offset is already saved on the session for everyone; the file
+        itself stays in IndexedDB unless object storage (R2) is configured.
+      </p>
+      {onAttachLocalMp4 ? (
+        <>
+          <input
+            ref={inputRef}
+            type="file"
+            accept="video/mp4,.mp4"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void onAttachLocalMp4(file);
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            className="min-h-10 rounded-lg bg-orange-500 px-4 text-sm font-semibold text-black hover:bg-orange-400"
+          >
+            Attach MP4 here
+          </button>
+        </>
+      ) : sessionId ? (
+        <a
+          href={`/sessions/${sessionId}`}
+          className="text-xs uppercase tracking-[0.16em] text-orange-400"
+        >
+          Open session to attach
+        </a>
+      ) : null}
+    </div>
+  );
+}
+
 export function SyncedLapView({
+  sessionId,
   lap,
   siblingLaps,
   video,
@@ -46,7 +96,9 @@ export function SyncedLapView({
   followCharts = true,
   onVideoChange,
   trackId,
+  onAttachLocalMp4,
 }: {
+  sessionId?: string;
   lap: {
     id: string;
     lap_number: number;
@@ -68,6 +120,8 @@ export function SyncedLapView({
   followCharts?: boolean;
   onVideoChange?: (next: SessionVideo) => void;
   trackId?: string | null;
+  /** When local-only MP4 is missing in this browser. */
+  onAttachLocalMp4?: (file: File) => void | Promise<void>;
 }) {
   const centerline = useMemo(
     () =>
@@ -170,40 +224,45 @@ export function SyncedLapView({
     (next: number | null) => {
       const nextProgress = progressFromIndex(next, chartData.length);
       setProgress(nextProgress);
-      if (nextProgress == null || !activeVideo) return;
-      const paused = player?.isPaused() ?? true;
-      if (follow || paused) {
-        const t = videoTimeFromLapProgress(
-          currentSyncLap,
-          nextProgress,
-          activeVideo,
-        );
-        seek(t);
-        setVideoTime(t);
-      }
+      // Only drive video when Follow is on — off lets you pair video+chart for sync.
+      if (!follow || nextProgress == null || !activeVideo) return;
+      const t = videoTimeFromLapProgress(
+        currentSyncLap,
+        nextProgress,
+        activeVideo,
+      );
+      seek(t);
+      setVideoTime(t);
     },
-    [
-      chartData.length,
-      activeVideo,
-      player,
-      follow,
-      currentSyncLap,
-      seek,
-    ],
+    [chartData.length, activeVideo, follow, currentSyncLap, seek],
   );
 
   const onMapProgress = useCallback(
     (next: number | null) => {
       setProgress(next);
-      if (next == null || !activeVideo) return;
-      const paused = player?.isPaused() ?? true;
-      if (follow || paused) {
-        const t = videoTimeFromLapProgress(currentSyncLap, next, activeVideo);
-        seek(t);
-        setVideoTime(t);
-      }
+      if (!follow || next == null || !activeVideo) return;
+      const t = videoTimeFromLapProgress(currentSyncLap, next, activeVideo);
+      seek(t);
+      setVideoTime(t);
     },
-    [activeVideo, player, follow, currentSyncLap, seek],
+    [activeVideo, follow, currentSyncLap, seek],
+  );
+
+  const chartLapTimeSec =
+    progress == null
+      ? null
+      : progress *
+        (chartData[chartData.length - 1]?.t ??
+          lap.lap_time_ms / 1000);
+
+  const seekChartLapTime = useCallback(
+    (lapTimeSec: number) => {
+      const lastT =
+        chartData[chartData.length - 1]?.t ?? lap.lap_time_ms / 1000;
+      if (lastT <= 0) return;
+      setProgress(Math.max(0, Math.min(1, lapTimeSec / lastT)));
+    },
+    [chartData, lap.lap_time_ms],
   );
 
   const mapProps = {
@@ -237,7 +296,10 @@ export function SyncedLapView({
                 ref={(instance) => bindPlayer(instance)}
               />
             ) : (
-              <p className="text-sm text-zinc-500">Video source missing.</p>
+              <LocalMp4Missing
+                sessionId={sessionId}
+                onAttachLocalMp4={onAttachLocalMp4}
+              />
             )}
             <div className="flex flex-wrap items-center gap-3 text-sm text-zinc-400">
               <span className="font-mono text-zinc-200">
@@ -312,8 +374,11 @@ export function SyncedLapView({
             startOffsetSec: item.startOffsetSec,
             lapTimeMs: item.lapTimeMs,
           }))}
+          chartLapTimeSec={chartLapTimeSec}
+          lapPoints={chartData}
           onChange={onVideoChange}
           onSeek={seek}
+          onSeekChartLapTime={seekChartLapTime}
         />
       ) : null}
 
