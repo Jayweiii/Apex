@@ -318,6 +318,7 @@ export function TrackDetail({ id }: { id: string }) {
         <TrackOverviewMap track={track} local={local} />
         <SessionUpload trackId={track.id} />
         <LeaderboardPanel trackId={track.id} />
+        <PublicCloudSessions trackId={track.id} />
         <div className="flex flex-col gap-6">
           {loading ? (
             <p className="text-sm text-zinc-500">Loading sessions…</p>
