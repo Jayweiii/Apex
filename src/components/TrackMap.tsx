@@ -35,6 +35,10 @@ type MapProps = {
   centerline?: Array<{ lat: number; lon: number }> | null;
   /** Prefer this trace as chase follow default (e.g. reference lap). */
   defaultFollowId?: string;
+  /** Shorter map for home/hero embeds. */
+  compact?: boolean;
+  /** Hide chase/overview camera chrome (hero embeds). */
+  hideCameraControls?: boolean;
 };
 
 const mapLoading = (
@@ -208,7 +212,10 @@ export function TrackMap(props: MapProps) {
 
   if (!hasDrawable) return null;
 
-  if (prefs.mode === "chase") {
+  const hideChrome = Boolean(props.hideCameraControls || props.compact);
+  const useChase = !hideChrome && prefs.mode === "chase";
+
+  if (useChase) {
     return (
       <div className="relative overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950/40 p-4">
         <div className="mb-3 flex flex-wrap items-center gap-3">
@@ -252,12 +259,15 @@ export function TrackMap(props: MapProps) {
   return (
     <LeafletTrackMap
       {...(props as ComponentProps<typeof LeafletTrackMap>)}
+      compact={props.compact}
       headerSlot={
-        <CameraControls
-          prefs={prefs}
-          traces={props.traces}
-          onChange={updatePrefs}
-        />
+        hideChrome ? null : (
+          <CameraControls
+            prefs={prefs}
+            traces={props.traces}
+            onChange={updatePrefs}
+          />
+        )
       }
     />
   );

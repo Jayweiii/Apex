@@ -184,6 +184,11 @@ function separateScrubPositions(
   });
 }
 
+const MAP_HEIGHT = {
+  default: "h-[65vh] min-h-[320px] sm:min-h-[420px]",
+  compact: "h-[220px] min-h-[180px] sm:h-[280px]",
+} as const;
+
 export function LeafletTrackMap({
   traces,
   activeProgress = null,
@@ -195,6 +200,7 @@ export function LeafletTrackMap({
   analysisDisabled = false,
   centerline,
   embedded = false,
+  compact = false,
   headerSlot,
 }: {
   traces: TrackTrace[];
@@ -208,6 +214,8 @@ export function LeafletTrackMap({
   centerline?: Array<{ lat: number; lon: number }> | null;
   /** When true, omit outer card chrome (parent provides it). */
   embedded?: boolean;
+  /** Shorter map for home/hero embeds. */
+  compact?: boolean;
   headerSlot?: ReactNode;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -618,7 +626,7 @@ export function LeafletTrackMap({
       {headerSlot}
       <div
         ref={containerRef}
-        className="h-[65vh] min-h-[320px] w-full touch-none overflow-hidden rounded-xl sm:min-h-[420px] [&_.leaflet-control-attribution]:bg-zinc-950/80 [&_.leaflet-control-attribution]:text-[10px] [&_.leaflet-control-attribution]:text-zinc-400 [&_.leaflet-container]:cursor-crosshair"
+        className={`${compact ? MAP_HEIGHT.compact : MAP_HEIGHT.default} w-full touch-none overflow-hidden rounded-xl [&_.leaflet-control-attribution]:bg-zinc-950/80 [&_.leaflet-control-attribution]:text-[10px] [&_.leaflet-control-attribution]:text-zinc-400 [&_.leaflet-container]:cursor-crosshair`}
         data-apex-map="fixed-scrub"
       />
       {tooltipMarkers.length ? (
