@@ -8,7 +8,11 @@ Apex prefers **GoPro GPS** over phone CSV for speed, laps, and the track map (Dr
 |--------|--------|--------|
 | GoPro Hero5+ MP4 | `.mp4` | GPMF extracted client-side (`gpmf-extract` + `gopro-telemetry`). Uses **GPS9** when present, else **GPS5**. Filters by GPS precision (DOP×100) and fix type. ACCL/GYRO read when present. |
 | Quik / Telemetry Overlay | `.gpx`, `.json`, `.csv` | Export GPS track separately; no MP4 required. |
-| Phone / TrackAddict | `.csv` | Still supported; ranked below GoPro in compare. |
+| GPX (any logger) | `.gpx` | Track points with time + speed/extensions. |
+| VBO (RaceLogic / Dragy) | `.vbo` | `[column names]` + `[data]`; lat/lon in minutes converted to degrees. |
+| Dragy CSV | `.csv` | Autodetects time, lat, lon, speed, heading, altitude columns. |
+| Phone / TrackAddict | `.csv` | Still supported; ranked below GoPro / dedicated loggers in compare. |
+| Dragy `.dlap` | `.dlap` | **Not supported** — zip with PNG map + encrypted `.group`. Export CSV/GPX/VBO from Dragy instead. |
 
 ## How to export from Quik
 
@@ -39,6 +43,10 @@ Laps are auto-detected from the GPS trace using the track’s **start/finish** (
 
 Each GoPro session stores a quality summary (stream, DOP, fix). Compare lists **prefer GoPro** sessions over phone CSV.
 
+## Dragy `.dlap`
+
+Jason’s native Dragy `.dlap` is a zip containing a PNG track map and an encrypted `.group` blob. Apex **cannot** decrypt the lap data. In Dragy: Share / Export → **CSV**, **GPX**, or **VBO**, then upload that file. If you drop a `.dlap` anyway, Apex shows a clear message and may suggest the track name/date from the PNG filename (e.g. `ThunderhillRacewayParkWest_20261017161829.png`).
+
 ## Troubleshooting
 
 | Message | What to do |
@@ -47,5 +55,6 @@ Each GoPro session stores a quality summary (stream, DOP, fix). Compare lists **
 | No GPS samples after quality filtering | Enable GPS on the camera, wait for a 3D lock outdoors before recording. |
 | Laps could not be detected | Drive a full lap past start/finish, or select the correct track. |
 | Could not parse GPMF | Confirm Hero5+ with GPS; try Quik/Telemetry Overlay export instead. |
+| `.dlap` / encrypted `.group` | Export CSV, GPX, or VBO from Dragy — do not upload the native `.dlap`. |
 
 Real Hero5+ clips are not required for CI — synthetic GPMF fixtures exercise the parse path (`npm run test:gopro`).

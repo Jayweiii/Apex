@@ -5,18 +5,27 @@ export function GpsQualityBadge({
   sourceKind,
 }: {
   quality?: GpsQuality | null;
-  sourceKind?: "csv" | "gopro" | null;
+  sourceKind?: "csv" | "gopro" | "logger" | null;
 }) {
   if (!quality && !sourceKind) return null;
-  const isGoPro =
+  const isDedicated =
     sourceKind === "gopro" ||
+    sourceKind === "logger" ||
     quality?.stream === "GPS5" ||
     quality?.stream === "GPS9" ||
     quality?.stream === "GPS" ||
     quality?.stream === "GPX" ||
-    quality?.stream === "JSON";
-  const label = quality?.label ?? (isGoPro ? "GoPro GPS" : "Phone/CSV GPS");
-  const tone = isGoPro
+    quality?.stream === "JSON" ||
+    quality?.stream === "VBO" ||
+    quality?.stream === "DRAGY";
+  const label =
+    quality?.label ??
+    (sourceKind === "logger"
+      ? "GPS logger"
+      : isDedicated
+        ? "GoPro GPS"
+        : "Phone/CSV GPS");
+  const tone = isDedicated
     ? "border-sky-500/40 bg-sky-500/10 text-sky-200"
     : "border-zinc-600/50 bg-zinc-800/60 text-zinc-400";
 

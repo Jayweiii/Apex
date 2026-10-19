@@ -39,10 +39,35 @@ export default function GoProImportDocsPage() {
               — GPX, JSON, or CSV export without the original MP4.
             </li>
             <li>
+              <strong className="text-zinc-200">GPX / VBO / Dragy CSV</strong> —
+              general GPS-logger imports (RaceLogic VBO, Dragy CSV with
+              time/lat/lon/speed/heading/altitude).
+            </li>
+            <li>
               <strong className="text-zinc-200">Phone / TrackAddict CSV</strong> —
-              still supported; ranked below GoPro in compare.
+              still supported; ranked below GoPro and dedicated loggers in
+              compare.
+            </li>
+            <li>
+              <strong className="text-zinc-200">Dragy .dlap</strong> — not
+              supported (encrypted). Export CSV/GPX/VBO from Dragy instead.
             </li>
           </ul>
+        </section>
+
+        <section className="space-y-3">
+          <h2 className="text-lg font-medium text-zinc-100">Dragy .dlap</h2>
+          <p className="text-sm text-zinc-400">
+            Native <code className="text-zinc-300">.dlap</code> files are a zip
+            with a PNG track map and an encrypted <code className="text-zinc-300">.group</code>{" "}
+            blob Apex cannot read. In Dragy use Share / Export → CSV, GPX, or
+            VBO. Dropping a <code className="text-zinc-300">.dlap</code> shows a
+            clear message and may hint the track/date from the PNG name (e.g.{" "}
+            <code className="text-zinc-300">
+              ThunderhillRacewayParkWest_20261017161829.png
+            </code>
+            ).
+          </p>
         </section>
 
         <section className="space-y-3">

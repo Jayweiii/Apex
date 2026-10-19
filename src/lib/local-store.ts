@@ -14,7 +14,7 @@ export type StoredLap = {
   started_at_ms?: number;
 };
 
-export type SessionSourceKind = "csv" | "gopro";
+export type SessionSourceKind = "csv" | "gopro" | "logger";
 
 export type StoredSession = {
   id: string;

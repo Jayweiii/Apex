@@ -10,9 +10,12 @@ import {
 } from "@/lib/local-store";
 import { parseGoProChapters } from "@/lib/parse-gopro";
 import {
-  detectGoProExportKind,
-  parseGoProExportFile,
-} from "@/lib/parse-gopro-export";
+  detectGpsLoggerFormat,
+  inspectDlap,
+  isZipBytes,
+  parseGpsLoggerFile,
+  type DlapHints,
+} from "@/lib/parse-gps-logger";
 import { parseTelemetryCsv } from "@/lib/parse-telemetry";
 import { SessionVisibilityControl } from "@/components/SessionVisibilityControl";
 import { assertFileWithinLimits } from "@/lib/abuse-limits";
@@ -23,6 +26,7 @@ import {
   isAnonymousUser,
 } from "@/lib/guest-auth";
 import { saveSessionToCloud } from "@/lib/save-session-cloud";
+import type { SessionSourceKind } from "@/lib/local-store";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
 import { resolveTrackStartFinish } from "@/lib/track-start-finish";
 import {
@@ -51,9 +55,15 @@ const NEW_CAR = "__new_car__";
 
 type Destination = "checking" | "cloud" | "local" | "unavailable";
 
-function isGoProTelemetryFile(name: string): boolean {
-  const kind = detectGoProExportKind(name);
-  return kind === "mp4" || kind === "gpx" || kind === "json";
+function extensionKind(name: string): string {
+  const lower = name.toLowerCase();
+  if (lower.endsWith(".mp4")) return "mp4";
+  if (lower.endsWith(".dlap")) return "dlap";
+  if (lower.endsWith(".vbo")) return "vbo";
+  if (lower.endsWith(".gpx")) return "gpx";
+  if (lower.endsWith(".json")) return "json";
+  if (lower.endsWith(".csv")) return "csv";
+  return "unknown";
 }
 
 export function SessionUpload({
@@ -86,6 +96,7 @@ export function SessionUpload({
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [csvAsGoProExport, setCsvAsGoProExport] = useState(false);
   const [previewQuality, setPreviewQuality] = useState<GpsQuality | null>(null);
+  const [dlapHints, setDlapHints] = useState<DlapHints | null>(null);
   const [visibility, setVisibility] =
     useState<SessionVisibility>(DEFAULT_VISIBILITY);
   const [visibilityTouched, setVisibilityTouched] = useState(false);
@@ -179,13 +190,15 @@ export function SessionUpload({
   );
 
   const primary = files[0] ?? null;
-  const primaryKind = primary ? detectGoProExportKind(primary.name) : "unknown";
+  const primaryKind = primary ? extensionKind(primary.name) : "unknown";
   const isMp4 = primaryKind === "mp4";
-  const isGoProExport =
+  const isDlap = primaryKind === "dlap";
+  const isLoggerExport =
     primaryKind === "gpx" ||
+    primaryKind === "vbo" ||
     primaryKind === "json" ||
     (primaryKind === "csv" && csvAsGoProExport);
-  const isGoPro = isMp4 || isGoProExport;
+  const isDedicatedGps = isMp4 || isLoggerExport;
   const creatingTrack = !trackId && pickedTrack === NEW_TRACK;
   const creatingCar = carChoice === NEW_CAR;
   const useCloud = destination === "cloud";
@@ -196,16 +209,39 @@ export function SessionUpload({
     setError(null);
     setSavedBanner(null);
     setPreviewQuality(null);
+    setDlapHints(null);
     const first = next[0];
     if (first && !name) {
       setName(
         first.name
-          .replace(/\.(csv|mp4|gpx|json)$/i, "")
+          .replace(/\.(csv|mp4|gpx|json|vbo|dlap)$/i, "")
           .replace(/[_-]+/g, " "),
       );
     }
-    if (first && isGoProTelemetryFile(first.name)) {
+    if (first && /\.(mp4|gpx|json|vbo)$/i.test(first.name)) {
       setCsvAsGoProExport(false);
+    }
+    if (first && /\.dlap$/i.test(first.name)) {
+      void (async () => {
+        try {
+          const bytes = new Uint8Array(await first.arrayBuffer());
+          const hints = inspectDlap(bytes);
+          setDlapHints(hints);
+          setError(hints.message);
+          if (hints.trackNameHint && creatingTrack && !newTrackName) {
+            setNewTrackName(hints.trackNameHint);
+          }
+          if (hints.trackNameHint && !name) {
+            setName(
+              hints.sessionDateHint
+                ? `${hints.trackNameHint} — ${hints.sessionDateHint}`
+                : hints.trackNameHint,
+            );
+          }
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Could not read .dlap");
+        }
+      })();
     }
   }
 
@@ -225,17 +261,19 @@ export function SessionUpload({
     let videoLocalKey: string | null = null;
     let storageBackend: "r2" | "local" | "idb" = "local";
 
-    const kind = detectGoProExportKind(mainFile.name);
+    const kind = extensionKind(mainFile.name);
     // Never upload large MP4s as "raw" — telemetry is parsed client-side.
-    // Small exports (GPX/JSON/CSV) can be stored for re-process.
-    if (kind === "csv" || kind === "gpx" || kind === "json") {
+    // Small exports (GPX/JSON/CSV/VBO) can be stored for re-process.
+    if (kind === "csv" || kind === "gpx" || kind === "json" || kind === "vbo") {
       try {
-        const contentType =
+        const           contentType =
           kind === "json"
             ? "application/json"
             : kind === "gpx"
               ? "application/gpx+xml"
-              : mainFile.type || "text/csv";
+              : kind === "vbo"
+                ? "text/plain"
+                : mainFile.type || "text/csv";
         const target = await presignUpload({
           filename: mainFile.name,
           contentType,
@@ -331,7 +369,16 @@ export function SessionUpload({
       return;
     }
     if (!files.length) {
-      setError("Choose a CSV, GoPro MP4, or Quik/Telemetry Overlay GPX/JSON/CSV");
+      setError(
+        "Choose a GoPro MP4, GPX, VBO, Dragy CSV, Quik JSON/CSV, or TrackAddict CSV",
+      );
+      return;
+    }
+    if (isDlap) {
+      setError(
+        dlapHints?.message ??
+          "Dragy .dlap can’t be imported — export CSV, GPX, or VBO from Dragy instead.",
+      );
       return;
     }
     if (creatingTrack && !newTrackName.trim()) {
@@ -343,7 +390,7 @@ export function SessionUpload({
     setProgress("Parsing…");
     try {
       for (const file of files) {
-        const kind = detectGoProExportKind(file.name);
+        const kind = extensionKind(file.name);
         assertFileWithinLimits(file, kind === "mp4" ? "video" : "csv");
       }
 
@@ -355,7 +402,7 @@ export function SessionUpload({
       let laps: ParsedLap[];
       let startedAtMs: number | undefined;
       let sessionDate: string | undefined;
-      let sourceKind: "csv" | "gopro" = "csv";
+      let sourceKind: SessionSourceKind = "csv";
       let gpsQuality: GpsQuality | null = null;
 
       if (isMp4) {
@@ -373,23 +420,67 @@ export function SessionUpload({
         sessionDate = parsed.sessionDate;
         sourceKind = "gopro";
         gpsQuality = parsed.gpsQuality;
-      } else if (isGoProExport) {
-        setProgress("Parsing GoPro export…");
-        const parsed = await parseGoProExportFile(files[0], files[0].name, {
-          startFinish,
-        });
-        laps = parsed.laps;
-        startedAtMs = parsed.startedAtMs;
-        sessionDate = parsed.sessionDate;
-        sourceKind = "gopro";
-        gpsQuality = parsed.gpsQuality;
       } else {
-        const csv = await files[0].text();
-        const parsed = parseTelemetryCsv(csv);
-        laps = parsed.laps;
-        startedAtMs = parsed.startedAtMs;
-        sessionDate = parsed.sessionDate;
-        sourceKind = "csv";
+        setProgress("Detecting GPS log format…");
+        const peek = await files[0].slice(0, 4).arrayBuffer();
+        if (isZipBytes(new Uint8Array(peek))) {
+          const bytes = new Uint8Array(await files[0].arrayBuffer());
+          const hints = inspectDlap(bytes);
+          setDlapHints(hints);
+          throw new Error(hints.message);
+        }
+
+        const textPeek = await files[0].slice(0, 12000).text();
+        const detected = csvAsGoProExport
+          ? "gopro-csv"
+          : detectGpsLoggerFormat(files[0].name, textPeek);
+
+        if (detected === "trackaddict-csv" && !csvAsGoProExport) {
+          setProgress("Parsing TrackAddict / RaceRender CSV…");
+          const csv = await files[0].text();
+          const parsed = parseTelemetryCsv(csv);
+          laps = parsed.laps;
+          startedAtMs = parsed.startedAtMs;
+          sessionDate = parsed.sessionDate;
+          sourceKind = "csv";
+        } else {
+          setProgress(
+            detected === "vbo"
+              ? "Parsing VBO…"
+              : detected === "dragy-csv"
+                ? "Parsing Dragy CSV…"
+                : detected === "gpx"
+                  ? "Parsing GPX…"
+                  : "Parsing GPS export…",
+          );
+          try {
+            const parsed = await parseGpsLoggerFile(files[0], files[0].name, {
+              startFinish,
+            });
+            laps = parsed.laps;
+            startedAtMs = parsed.startedAtMs;
+            sessionDate = parsed.sessionDate;
+            sourceKind =
+              parsed.format === "gopro-json" || parsed.format === "gopro-csv"
+                ? "gopro"
+                : "logger";
+            gpsQuality = parsed.gpsQuality;
+          } catch (err) {
+            if (
+              err instanceof Error &&
+              err.message === "TRACKADDICT_CSV"
+            ) {
+              const csv = await files[0].text();
+              const parsed = parseTelemetryCsv(csv);
+              laps = parsed.laps;
+              startedAtMs = parsed.startedAtMs;
+              sessionDate = parsed.sessionDate;
+              sourceKind = "csv";
+            } else {
+              throw err;
+            }
+          }
+        }
       }
       setPreviewQuality(gpsQuality);
 
@@ -415,7 +506,10 @@ export function SessionUpload({
           youtubeId: ytId,
           offsetSec: 0,
           rate: 1,
-          syncSource: sourceKind === "gopro" ? "auto" : "unsynced",
+          syncSource:
+            sourceKind === "gopro" || sourceKind === "logger"
+              ? "auto"
+              : "unsynced",
         });
       }
       if (stored.videoObjectKey || stored.videoLocalKey) {
@@ -426,7 +520,10 @@ export function SessionUpload({
           localKey: stored.videoLocalKey ?? undefined,
           offsetSec: 0,
           rate: 1,
-          syncSource: sourceKind === "gopro" ? "auto" : "unsynced",
+          syncSource:
+            sourceKind === "gopro" || sourceKind === "logger"
+              ? "auto"
+              : "unsynced",
         });
       }
 
@@ -543,14 +640,16 @@ export function SessionUpload({
         <div>
           <h2 className="text-sm font-medium text-zinc-200">Upload telemetry</h2>
           <p className="mt-1 max-w-xl text-sm text-zinc-500">
-            Prefer GoPro GPS (MP4 GPMF or Quik/Telemetry Overlay GPX/JSON/CSV) —
-            parsed in-browser so large videos stay off the server. Phone CSV
-            still works. See{" "}
+            Prefer GoPro or dedicated GPS loggers (GPX, VBO, Dragy CSV) —
+            parsed in-browser so large videos stay off the server. TrackAddict
+            phone CSV still works. Native Dragy{" "}
+            <code className="text-zinc-400">.dlap</code> is not supported —
+            export CSV/GPX/VBO instead. See{" "}
             <Link
               href="/docs/gopro-import"
               className="text-sky-300 underline underline-offset-2"
             >
-              GoPro import guide
+              import guide
             </Link>
             .
           </p>
@@ -748,7 +847,9 @@ export function SessionUpload({
             />
           </label>
           <label className="flex cursor-pointer flex-col gap-1.5 text-sm">
-            <span className="text-zinc-400">CSV · GoPro MP4 · GPX · JSON</span>
+            <span className="text-zinc-400">
+              CSV · MP4 · GPX · VBO · JSON · DLAP
+            </span>
             <span className="flex min-h-12 items-center rounded-lg border border-dashed border-zinc-700 px-3 py-3 text-zinc-300 hover:border-orange-500/60 sm:min-h-10 sm:py-2">
               {files.length
                 ? files.map((file) => file.name).join(", ")
@@ -756,13 +857,29 @@ export function SessionUpload({
             </span>
             <input
               type="file"
-              accept=".csv,text/csv,video/mp4,.mp4,.gpx,application/gpx+xml,.json,application/json"
+              accept=".csv,text/csv,video/mp4,.mp4,.gpx,application/gpx+xml,.json,application/json,.vbo,.dlap"
               multiple
               onChange={onFile}
               className="sr-only"
             />
           </label>
         </div>
+        {isDlap && dlapHints ? (
+          <p
+            role="alert"
+            className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-3 text-sm text-amber-100"
+          >
+            {dlapHints.message}
+            {dlapHints.trackNameHint ? (
+              <span className="mt-1 block text-amber-200/80">
+                Hint from map PNG: {dlapHints.trackNameHint}
+                {dlapHints.sessionDateHint
+                  ? ` · ${dlapHints.sessionDateHint}`
+                  : ""}
+              </span>
+            ) : null}
+          </p>
+        ) : null}
         {primaryKind === "csv" ? (
           <label className="flex items-start gap-3 rounded-xl border border-zinc-800/80 px-3 py-3 text-sm text-zinc-400">
             <input
@@ -772,9 +889,9 @@ export function SessionUpload({
               className="mt-1"
             />
             <span>
-              This CSV is a GoPro Quik / Telemetry Overlay export (auto-detect
-              laps from track start/finish). Leave unchecked for TrackAddict /
-              RaceRender phone CSV.
+              Force Quik / Telemetry Overlay CSV (auto-detect laps from track
+              start/finish). Leave unchecked to auto-detect Dragy vs TrackAddict
+              / RaceRender.
             </span>
           </label>
         ) : null}
@@ -794,7 +911,7 @@ export function SessionUpload({
             </span>
           </label>
         ) : null}
-        {isGoPro || isMp4 ? (
+        {isDedicatedGps || isMp4 ? (
           <label className="flex flex-col gap-1.5 text-sm">
             <span className="text-zinc-400">
               YouTube URL for sync (optional)
@@ -811,12 +928,14 @@ export function SessionUpload({
             </span>
           </label>
         ) : null}
-        {previewQuality || isGoPro ? (
+        {previewQuality || isDedicatedGps ? (
           <div className="flex flex-wrap items-center gap-2 text-sm text-zinc-400">
             <span>GPS source:</span>
             <GpsQualityBadge
               quality={previewQuality}
-              sourceKind={isGoPro ? "gopro" : "csv"}
+              sourceKind={
+                isMp4 ? "gopro" : isLoggerExport ? "logger" : "csv"
+              }
             />
           </div>
         ) : null}
