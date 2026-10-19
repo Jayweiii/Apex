@@ -41,7 +41,6 @@ import {
   splitLapAtProgress,
 } from "@/lib/lap-trim";
 import { parseTelemetryCsv } from "@/lib/parse-telemetry";
-import { sessionLapHref } from "@/lib/session-lap-url";
 import { pickSessionVideoForLap } from "@/lib/pick-session-video";
 import type { SessionVideo } from "@/lib/types";
 import { getTrack } from "@/lib/tracks";
@@ -243,10 +242,10 @@ export function LocalCompare({
       : [];
 
   return (
-    <>
+    <div className="flex h-dvh flex-col overflow-hidden">
       <AppHeader />
-      <main className="mx-auto flex h-[calc(100dvh-3.5rem)] w-full max-w-[90rem] flex-1 flex-col overflow-hidden px-3 py-2 sm:px-4 lg:h-[calc(100dvh-3.75rem)]">
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 pb-2">
+      <main className="mx-auto flex min-h-0 w-full max-w-[90rem] flex-1 flex-col overflow-hidden px-3 py-1.5 sm:px-4">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 pb-1.5">
           <div className="min-w-0">
             <Link
               href={`/sessions/${session.id}`}
@@ -301,7 +300,7 @@ export function LocalCompare({
           />
         </div>
       </main>
-    </>
+    </div>
   );
 }
 
@@ -498,12 +497,6 @@ export function LocalSession({ id }: { id: string }) {
   const selectedLap =
     session.laps.find((lap) => lap.id === selected?.id) ?? null;
   const track = session.trackId ? getTrack(session.trackId) : null;
-  const comparePath = compareHref(session.id, laps);
-  const shareLapPath = selectedLap
-    ? sessionLapHref(session.id, selectedLap, {
-        videoId: videoParam ?? undefined,
-      })
-    : `/sessions/${session.id}`;
   const current = session;
 
   async function reprocess() {
@@ -658,10 +651,10 @@ export function LocalSession({ id }: { id: string }) {
   );
 
   return (
-    <>
+    <div className="flex h-dvh flex-col overflow-hidden">
       <AppHeader />
-      <main className="mx-auto flex h-[calc(100dvh-3.5rem)] w-full max-w-[90rem] flex-1 flex-col overflow-hidden px-3 py-2 sm:px-4 sm:py-2.5 lg:h-[calc(100dvh-3.75rem)]">
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 pb-2">
+      <main className="mx-auto flex min-h-0 w-full max-w-[90rem] flex-1 flex-col overflow-hidden px-3 py-1.5 sm:px-4">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 pb-1.5">
           <div className="min-w-0">
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
               <Link
@@ -681,11 +674,6 @@ export function LocalSession({ id }: { id: string }) {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
-            <ShareLinkButton path={shareLapPath} label="Copy lap link" />
-            <ShareLinkButton path={`/sessions/${session.id}`} />
-            {comparePath ? (
-              <ShareLinkButton path={comparePath} label="Copy compare link" />
-            ) : null}
             <CompareLink
               sessionId={session.id}
               laps={laps}
@@ -774,7 +762,7 @@ export function LocalSession({ id }: { id: string }) {
           )}
         </div>
       </main>
-    </>
+    </div>
   );
 }
 
