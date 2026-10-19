@@ -1,16 +1,23 @@
 "use client";
 
+import { PlaybackControls } from "@/components/PlaybackControls";
 import { Mp4Player } from "@/components/video/Mp4Player";
 import { YouTubePlayer } from "@/components/video/YouTubePlayer";
 import type { VideoPlayerHandle } from "@/components/video/useVideoSync";
 import {
-  advanceSharedProgress,
   dualVideoTimeAtProgress,
   sideHasPlayableVideo,
   sideHasVideoMeta,
   type DualVideoSide,
 } from "@/lib/dual-video-sync";
-import { formatClock, formatLapTime } from "@/lib/format";
+import { formatLapTime } from "@/lib/format";
+import {
+  advancePlaybackProgress,
+  isPlaybackSpeed,
+  PLAYBACK_SPEEDS,
+  scrubPlaybackProgress,
+  type PlaybackSpeed,
+} from "@/lib/playback";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export type MultiVideoSide = DualVideoSide & { color: string };
@@ -71,15 +78,13 @@ function SidePlayer({
 function gridClass(count: number) {
   if (count <= 1) return "grid gap-3";
   if (count === 2) return "grid gap-3 lg:grid-cols-2";
-  // 3–4: 2×2 on desktop; stacked on mobile (swipe via overflow).
   return "grid gap-3 sm:grid-cols-2";
 }
 
 /**
  * Up to 4 onboard videos lockstepped by shared lap-relative progress (0..1).
- * Play/pause/scrub here drive all players; parent map/charts share `progress`.
- *
- * Legacy `refSide`/`otherSide` still work; prefer `sides` for 3–4 laps.
+ * Our RAF clock (speed-aware) drives players; parent map/charts share `progress`.
+ * Respects each video's saved offset. Play only on explicit click (no hover).
  */
 export function DualSessionVideos({
   sides,
@@ -106,10 +111,14 @@ export function DualSessionVideos({
       : [];
 
   const playersRef = useRef<(VideoPlayerHandle | null)[]>([]);
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const [playing, setPlaying] = useState(false);
+  const [speed, setSpeed] = useState<PlaybackSpeed>(1);
   const progressRef = useRef(progress ?? 0);
   progressRef.current = progress ?? 0;
   const lapMs = resolved.map((side) => side.lap.lapTimeMs);
+  const positiveMs = lapMs.filter((ms) => ms > 0);
+  const sharedMs = Math.max(1, positiveMs.length ? Math.min(...positiveMs) : 1);
 
   const seekAll = useCallback(
     (next: number) => {
@@ -120,7 +129,11 @@ export function DualSessionVideos({
       });
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- seek by current sides snapshot
-    [resolved.map((s) => `${s.lap.id}:${s.video?.id ?? ""}:${s.video?.offsetSec ?? 0}`).join("|")],
+    [
+      resolved
+        .map((s) => `${s.lap.id}:${s.video?.id ?? ""}:${s.video?.offsetSec ?? 0}`)
+        .join("|"),
+    ],
   );
 
   useEffect(() => {
@@ -129,18 +142,20 @@ export function DualSessionVideos({
   }, [progress, seekAll]);
 
   useEffect(() => {
-    if (!playing) {
-      playersRef.current.forEach((p) => p?.pause());
-      return;
-    }
     playersRef.current.forEach((p) => p?.pause());
+    if (!playing) return;
     let raf = 0;
     let last = performance.now();
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
       const dt = (now - last) / 1000;
       last = now;
-      const next = advanceSharedProgress(progressRef.current, dt, ...lapMs);
+      const next = advancePlaybackProgress(
+        progressRef.current,
+        dt,
+        sharedMs,
+        speed,
+      );
       progressRef.current = next;
       onProgress(next);
       seekAll(next);
@@ -148,51 +163,84 @@ export function DualSessionVideos({
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [playing, onProgress, seekAll, lapMs.join(",")]);
+  }, [playing, onProgress, seekAll, sharedMs, speed]);
 
-  const positiveMs = lapMs.filter((ms) => ms > 0);
-  const sharedMs = Math.max(1, positiveMs.length ? Math.min(...positiveMs) : 1);
-  const lapTimeSec = ((progress ?? 0) * sharedMs) / 1000;
+  useEffect(() => {
+    if (!resolved.length) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      const root = rootRef.current;
+      if (root && document.activeElement && !root.contains(document.activeElement)) {
+        // Still allow when the event originates inside our region.
+        if (!root.contains(target)) return;
+      }
+
+      if (event.code === "Space" || event.key === " ") {
+        event.preventDefault();
+        setPlaying((was) => {
+          if (was) return false;
+          if ((progressRef.current ?? 0) >= 1) onProgress(0);
+          return true;
+        });
+        return;
+      }
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        setPlaying(false);
+        const next = scrubPlaybackProgress(progressRef.current, -1);
+        onProgress(next);
+        seekAll(next);
+        return;
+      }
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        setPlaying(false);
+        const next = scrubPlaybackProgress(progressRef.current, 1);
+        onProgress(next);
+        seekAll(next);
+        return;
+      }
+      if (event.key >= "1" && event.key <= "4") {
+        const next = PLAYBACK_SPEEDS[Number(event.key) - 1];
+        if (next != null && isPlaybackSpeed(next)) setSpeed(next);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [resolved.length, onProgress, seekAll]);
+
   const canPlay = resolved.some(sideHasPlayableVideo);
   const hasMeta = resolved.some(sideHasVideoMeta);
 
   if (!resolved.length || (!canPlay && !hasMeta)) return null;
 
   const count = resolved.length;
+  const at = progress ?? 0;
 
   return (
-    <div className="w-full space-y-3 rounded-2xl border border-zinc-800/80 bg-zinc-950/40 p-3 sm:p-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
-            {count > 2 ? `${count}-way` : "Dual"} onboard · lap-relative sync
-          </p>
-          <p className="mt-1 text-sm text-zinc-400">
-            Shared cursor from lap start — play only on explicit click (no hover
-            autoplay).
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            disabled={!canPlay}
-            onClick={() => {
-              const at = progress ?? 0;
-              if (at >= 1) onProgress(0);
-              setPlaying((p) => !p);
-            }}
-            className="min-h-10 rounded-lg bg-orange-500 px-3 py-2 text-sm font-semibold text-black hover:bg-orange-400 disabled:opacity-40"
-          >
-            {playing ? "Pause" : count > 2 ? "Play all" : "Play both"}
-          </button>
-          <span className="font-mono text-sm text-zinc-300">
-            {formatClock(lapTimeSec)}
-            <span className="text-zinc-600">
-              {" "}
-              / {formatClock(sharedMs / 1000)}
-            </span>
-          </span>
-        </div>
+    <div
+      ref={rootRef}
+      tabIndex={0}
+      className="w-full space-y-3 rounded-2xl border border-zinc-800/80 bg-zinc-950/40 p-3 outline-none focus-visible:ring-1 focus-visible:ring-orange-500/40 sm:p-4"
+    >
+      <div>
+        <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
+          {count > 2 ? `${count}-way` : "Dual"} onboard · lap-relative sync
+        </p>
+        <p className="mt-1 text-sm text-zinc-400">
+          Shared cursor from lap start — driven by our clock (not hover). Each
+          side keeps its saved YouTube offset.
+        </p>
       </div>
 
       <div className={`${gridClass(count)} w-full`}>
@@ -208,22 +256,24 @@ export function DualSessionVideos({
         ))}
       </div>
 
-      <label className="flex flex-col gap-1.5 text-sm">
-        <span className="text-zinc-500">Scrub (lap-relative)</span>
-        <input
-          type="range"
-          min={0}
-          max={1000}
-          value={Math.round((progress ?? 0) * 1000)}
-          onChange={(event) => {
-            setPlaying(false);
-            const next = Number(event.target.value) / 1000;
-            onProgress(next);
-            seekAll(next);
-          }}
-          className="w-full accent-orange-500"
-        />
-      </label>
+      <PlaybackControls
+        progress={at}
+        onProgress={(next) => {
+          setPlaying(false);
+          onProgress(next);
+          seekAll(next);
+        }}
+        playing={playing}
+        onTogglePlay={() => {
+          if (at >= 1) onProgress(0);
+          setPlaying((p) => !p);
+        }}
+        speed={speed}
+        onSpeed={setSpeed}
+        durationMs={sharedMs}
+        disabled={!canPlay && !hasMeta}
+        label={count > 2 ? "Play all" : "Play both"}
+      />
     </div>
   );
 }

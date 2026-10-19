@@ -61,6 +61,8 @@ export function CloudSessionView({ id }: { id: string }) {
   const [visibilityBusy, setVisibilityBusy] = useState(false);
   const [excludeError, setExcludeError] = useState<string | null>(null);
   const [excludeBusyId, setExcludeBusyId] = useState<string | null>(null);
+  const [trimError, setTrimError] = useState<string | null>(null);
+  const [trimBusy, setTrimBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -158,9 +160,158 @@ export function CloudSessionView({ id }: { id: string }) {
         start_offset_sec: lap.start_offset_sec,
         telemetry: (lap.telemetry ?? []) as TelemetryPoint[],
         excluded: lap.excluded ?? false,
+        exclude_reason: lap.exclude_reason ?? null,
+        start_offset_override: lap.start_offset_override ?? null,
+        end_offset_override: lap.end_offset_override ?? null,
       })),
     [laps],
   );
+
+  async function reloadLaps() {
+    if (!session) return;
+    const supabase = createClient();
+    const { data: lapRows } = await supabase
+      .from("laps")
+      .select("*")
+      .eq("session_id", session.id)
+      .order("lap_number", { ascending: true });
+    setLaps((lapRows ?? []) as LapRow[]);
+  }
+
+  async function onTrimChange(change: {
+    lapId: string;
+    start_offset_override: number | null;
+    end_offset_override: number | null;
+  }) {
+    if (!session || !userId || session.user_id !== userId || trimBusy) return;
+    setTrimError(null);
+    setTrimBusy(true);
+    setLaps((rows) =>
+      rows.map((lap) =>
+        lap.id === change.lapId
+          ? {
+              ...lap,
+              start_offset_override: change.start_offset_override,
+              end_offset_override: change.end_offset_override,
+            }
+          : lap,
+      ),
+    );
+    try {
+      const response = await fetch(
+        `/api/sessions/${session.id}/laps/${change.lapId}/trim`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({
+            start_offset_override: change.start_offset_override,
+            end_offset_override: change.end_offset_override,
+          }),
+        },
+      );
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        lap_time_ms?: number;
+        start_offset_override?: number | null;
+        end_offset_override?: number | null;
+      };
+      if (!response.ok) {
+        setTrimError(
+          payload.error ??
+            "Could not save lap trim. Run 20261019_lap_trim_overrides.sql if columns are missing.",
+        );
+        await reloadLaps();
+        return;
+      }
+      setLaps((rows) =>
+        rows.map((lap) =>
+          lap.id === change.lapId
+            ? {
+                ...lap,
+                lap_time_ms: payload.lap_time_ms ?? lap.lap_time_ms,
+                start_offset_override: payload.start_offset_override ?? null,
+                end_offset_override: payload.end_offset_override ?? null,
+              }
+            : lap,
+        ),
+      );
+      // Reload videos in case dedicated offsets shifted.
+      try {
+        const supabase = createClient();
+        const cloudVideos = await fetchSessionVideos(supabase, session.id);
+        setVideos(
+          cloudVideos.filter((v) => v.provider === "youtube" && v.youtubeId),
+        );
+      } catch {
+        // keep existing videos
+      }
+    } finally {
+      setTrimBusy(false);
+    }
+  }
+
+  async function onTrimReset(lapId: string) {
+    await onTrimChange({
+      lapId,
+      start_offset_override: null,
+      end_offset_override: null,
+    });
+  }
+
+  async function onMergeNext(lapId: string) {
+    if (!session || !userId || session.user_id !== userId || trimBusy) return;
+    setTrimBusy(true);
+    setTrimError(null);
+    try {
+      const response = await fetch(
+        `/api/sessions/${session.id}/laps/${lapId}/trim`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ merge_next: true }),
+        },
+      );
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        setTrimError(payload.error ?? "Merge failed");
+        return;
+      }
+      await reloadLaps();
+    } finally {
+      setTrimBusy(false);
+    }
+  }
+
+  async function onSplit(lapId: string, progress: number) {
+    if (!session || !userId || session.user_id !== userId || trimBusy) return;
+    setTrimBusy(true);
+    setTrimError(null);
+    try {
+      const response = await fetch(
+        `/api/sessions/${session.id}/laps/${lapId}/trim`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ split_progress: progress }),
+        },
+      );
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        setTrimError(payload.error ?? "Split failed");
+        return;
+      }
+      await reloadLaps();
+    } finally {
+      setTrimBusy(false);
+    }
+  }
 
   async function onVisibility(next: SessionVisibility) {
     if (!session || !userId || session.user_id !== userId || visibilityBusy) {
@@ -508,6 +659,14 @@ export function CloudSessionView({ id }: { id: string }) {
                     {excludeError}
                   </p>
                 ) : null}
+                {trimError ? (
+                  <p
+                    role="alert"
+                    className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100"
+                  >
+                    {trimError}
+                  </p>
+                ) : null}
               </div>
             ) : (
               <p className="text-xs uppercase tracking-[0.16em] text-zinc-600">
@@ -575,6 +734,11 @@ export function CloudSessionView({ id }: { id: string }) {
                   lap_time_ms: selectedRow.lap_time_ms,
                   start_offset_sec: selectedRow.start_offset_sec,
                   telemetry: (selectedRow.telemetry ?? []) as TelemetryPoint[],
+                  excluded: selectedRow.excluded ?? false,
+                  exclude_reason: selectedRow.exclude_reason ?? null,
+                  start_offset_override:
+                    selectedRow.start_offset_override ?? null,
+                  end_offset_override: selectedRow.end_offset_override ?? null,
                 }}
                 siblingLaps={detailLaps}
                 videos={videos}
@@ -583,15 +747,35 @@ export function CloudSessionView({ id }: { id: string }) {
                 sessionStartedAtMs={
                   Number.isFinite(startedAtMs) ? startedAtMs : undefined
                 }
+                canEdit={mine}
+                onExcludeChange={mine ? onExcludeChange : undefined}
+                excludeBusy={excludeBusyId === selectedRow.id}
+                onTrimChange={mine ? onTrimChange : undefined}
+                onTrimReset={mine ? onTrimReset : undefined}
+                onMergeNext={mine ? onMergeNext : undefined}
+                onSplit={mine ? onSplit : undefined}
+                trimBusy={trimBusy}
                 onVideoChange={
                   mine
                     ? async (next) => {
-                        setVideos((prev) =>
-                          prev.map((v) => (v.id === next.id ? next : v)),
-                        );
+                        setVideos((prev) => {
+                          const exists = prev.some((v) => v.id === next.id);
+                          return exists
+                            ? prev.map((v) => (v.id === next.id ? next : v))
+                            : [...prev, next];
+                        });
                         try {
                           const supabase = createClient();
-                          await updateSessionVideoSync(supabase, next);
+                          if (userId) {
+                            await upsertSessionVideo(
+                              supabase,
+                              session.id,
+                              userId,
+                              next,
+                            );
+                          } else {
+                            await updateSessionVideoSync(supabase, next);
+                          }
                         } catch {
                           // keep local UI state
                         }

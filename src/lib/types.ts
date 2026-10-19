@@ -89,4 +89,8 @@ export type LapRow = {
   /** When true, ignored for best-lap stats / leaderboards / default compare. */
   excluded?: boolean | null;
   exclude_reason?: string | null;
+  /** Absolute session-time start override (seconds); null = auto. */
+  start_offset_override?: number | null;
+  /** Absolute session-time end override (seconds); null = auto. */
+  end_offset_override?: number | null;
 };

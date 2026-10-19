@@ -132,6 +132,19 @@ export function videoTimeFromLapProgress(
   return videoTimeFromSession(sessionTimeForLapPoint(lap, lapTime), video);
 }
 
+/** Inverse of videoTimeFromLapProgress — lap progress from a video clock. */
+export function lapProgressFromVideoTime(
+  lap: SyncLap,
+  videoTime: number,
+  video: Pick<SessionVideo, "offsetSec" | "rate">,
+) {
+  const sessionTime = sessionTimeFromVideo(videoTime, video);
+  const lastT = lap.points[lap.points.length - 1]?.t ?? lap.lapTimeMs / 1000;
+  if (lastT <= 0) return 0;
+  const lapTime = Math.max(0, sessionTime - lap.startOffsetSec);
+  return Math.max(0, Math.min(1, lapTime / lastT));
+}
+
 export function suggestOffsetFromClocks(
   videoTime: number,
   clockAtFrameMs: number,

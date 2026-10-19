@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { PlayerSyncEvent } from "@/lib/playback-sync";
 
 export type VideoPlayerHandle = {
   getTime: () => number;
@@ -8,7 +9,12 @@ export type VideoPlayerHandle = {
   isPaused: () => boolean;
   play: () => void;
   pause: () => void;
+  /** Playback rate when the underlying player supports it (YouTube / HTML5). */
+  getRate?: () => number;
+  setRate?: (rate: number) => void;
 };
+
+export type VideoPlayerEventHandler = (event: PlayerSyncEvent) => void;
 
 /**
  * Polls a player handle while playing and reports video time (~15 Hz).

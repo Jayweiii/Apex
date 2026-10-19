@@ -27,26 +27,40 @@ export function GChart({
   activeIndex = null,
   onHoverIndex,
   syncId = "lap",
+  compact = false,
 }: {
   points: { t: number; latG: number; lonG: number }[];
   activeIndex?: number | null;
   onHoverIndex?: (index: number | null) => void;
   syncId?: string;
+  /** Short height for stacked telemetry columns. */
+  compact?: boolean;
 }) {
   const active = activeIndex != null ? points[activeIndex] : null;
   const scrub = bindChartScrub(points.length, onHoverIndex);
 
   return (
-    <div className="h-[260px] w-full max-w-full overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950/40 p-3 sm:h-[320px] sm:p-4">
-      <div className="mb-2 flex items-baseline justify-between gap-3">
-        <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">G</p>
-        <p className="font-mono text-xs text-zinc-300">
+    <div
+      className={`w-full max-w-full overflow-hidden border border-zinc-800/80 bg-zinc-950/40 ${
+        compact
+          ? "rounded-xl px-2.5 py-2"
+          : "h-[260px] rounded-2xl p-3 sm:h-[320px] sm:p-4"
+      }`}
+    >
+      <div className="mb-1 flex items-baseline justify-between gap-2">
+        <p className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">
+          G-force
+        </p>
+        <p className="truncate font-mono text-[10px] text-zinc-400">
           {active
-            ? `${formatG(active.latG, true)} lat · ${formatG(active.lonG, true)} long`
-            : "Lateral and longitudinal"}
+            ? `${formatG(active.latG, true)} · ${formatG(active.lonG, true)}`
+            : "lat · long"}
         </p>
       </div>
-      <div className="h-[200px] touch-none sm:h-[260px]" {...scrub}>
+      <div
+        className={`touch-none ${compact ? "h-[88px]" : "h-[200px] sm:h-[260px]"}`}
+        {...scrub}
+      >
         <ResponsiveContainer width="100%" height="100%">
           <LineChart
             data={points}
