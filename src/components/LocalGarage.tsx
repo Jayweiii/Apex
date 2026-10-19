@@ -105,11 +105,13 @@ export function LocalCompare({
   initialRef,
   initialOther,
   initialOtherSession,
+  initialLaps,
 }: {
   id: string;
   initialRef?: string;
   initialOther?: string;
   initialOtherSession?: string;
+  initialLaps?: string;
 }) {
   const session = useLocalSession(id);
   const [peerSessions, setPeerSessions] = useState<StoredSession[]>([]);
@@ -214,6 +216,7 @@ export function LocalCompare({
   if (initialRef) shareParams.set("ref", initialRef);
   if (initialOther) shareParams.set("other", initialOther);
   if (initialOtherSession) shareParams.set("otherSession", initialOtherSession);
+  if (initialLaps) shareParams.set("laps", initialLaps);
   const href = shareParams.size
     ? `/sessions/${session.id}/compare?${shareParams.toString()}`
     : compareHref(session.id, laps);
@@ -291,6 +294,7 @@ export function LocalCompare({
           initialRef={initialRef}
           initialOther={initialOther}
           initialOtherSession={initialOtherSession}
+          initialLaps={initialLaps}
           initialTrackId={session.trackId}
         />
         {corners.length ? (

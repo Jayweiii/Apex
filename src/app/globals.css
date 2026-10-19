@@ -69,6 +69,15 @@ video {
   box-shadow: 0 0 0 1px #fafafa;
 }
 
+.apex-car-marker__dot--square {
+  border-radius: 2px;
+}
+
+.apex-car-marker__dot--diamond {
+  border-radius: 1px;
+  transform: rotate(45deg);
+}
+
 .apex-car-marker__gap {
   display: inline-block;
   padding: 1px 4px;

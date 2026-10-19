@@ -153,11 +153,13 @@ export function CloudCompareView({
   initialRef,
   initialOther,
   initialOtherSession,
+  initialLaps,
 }: {
   id: string;
   initialRef?: string;
   initialOther?: string;
   initialOtherSession?: string;
+  initialLaps?: string;
 }) {
   const [email, setEmail] = useState<string | undefined>();
   const [userId, setUserId] = useState<string | null>(null);
@@ -381,6 +383,7 @@ export function CloudCompareView({
           initialRef={initialRef}
           initialOther={initialOther}
           initialOtherSession={initialOtherSession}
+          initialLaps={initialLaps}
           initialTrackId={session.track_id ?? undefined}
         />
       </main>

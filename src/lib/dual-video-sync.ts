@@ -50,16 +50,18 @@ export function dualVideoTimeAtProgress(
 }
 
 /**
- * Advance shared lap progress by wall-clock delta using the shorter lap
- * as the shared timeline (lockstep ends when either lap finishes).
+ * Advance shared lap progress by wall-clock delta using the shortest lap
+ * as the shared timeline (lockstep ends when any lap finishes).
+ *
+ * Accepts either `(progress, dt, refMs, otherMs)` or `(progress, dt, ...lapMs)`.
  */
 export function advanceSharedProgress(
   progress: number,
   deltaSec: number,
-  refLapMs: number,
-  otherLapMs: number,
+  ...lapMs: number[]
 ): number {
-  const sharedMs = Math.max(1, Math.min(refLapMs, otherLapMs));
+  const positive = lapMs.filter((ms) => Number.isFinite(ms) && ms > 0);
+  const sharedMs = Math.max(1, positive.length ? Math.min(...positive) : 1);
   const next = progress + deltaSec / (sharedMs / 1000);
   return Math.max(0, Math.min(1, next));
 }

@@ -23,6 +23,23 @@ export type ComparedPoint = {
   snapped?: boolean;
 };
 
+/** Up to 4 distinct colors for multi-lap compare (ref first). */
+export const COMPARE_COLORS = [
+  "#f97316", // orange — reference
+  "#38bdf8", // sky
+  "#a3e635", // lime
+  "#e879f9", // fuchsia
+] as const;
+
+export const MAX_COMPARE_LAPS = 4;
+
+/** Flat multi-lap series for Recharts (`speed0` = ref, `delta1` = other[0]−ref, …). */
+export type MultiComparedPoint = {
+  dist: number;
+  snapped?: boolean;
+  [key: string]: number | boolean | undefined;
+};
+
 export function hasGps(points: TelemetryPoint[]): boolean {
   return points.some((point) => point.lat != null && point.lon != null);
 }
@@ -33,6 +50,104 @@ export function defaultLapPair(laps: { id: string; lap_time_ms: number }[]) {
     ref: sorted[0]?.id ?? "",
     other: (sorted[1] ?? sorted[0])?.id ?? "",
   };
+}
+
+/** Fastest up to `count` unique lap ids (for seeding a multi-lap compare). */
+export function defaultLapIds(
+  laps: { id: string; lap_time_ms: number }[],
+  count = 2,
+): string[] {
+  const sorted = [...laps].sort((a, b) => a.lap_time_ms - b.lap_time_ms);
+  const ids: string[] = [];
+  for (const lap of sorted) {
+    if (ids.includes(lap.id)) continue;
+    ids.push(lap.id);
+    if (ids.length >= count) break;
+  }
+  return ids;
+}
+
+export type CompareSlotParam = {
+  sessionId: string;
+  lapId: string;
+};
+
+/**
+ * Parse `laps=session:lap,session:lap` query (plus legacy `ref`/`other`/`otherSession`).
+ * First slot is the reference when `ref` is omitted.
+ */
+export function parseCompareSlots(query: {
+  ref?: string;
+  other?: string;
+  otherSession?: string;
+  laps?: string;
+  baseSessionId: string;
+}): CompareSlotParam[] {
+  const slots: CompareSlotParam[] = [];
+  const seen = new Set<string>();
+  const push = (sessionId: string, lapId: string) => {
+    if (!sessionId || !lapId) return;
+    const key = `${sessionId}:${lapId}`;
+    if (seen.has(key)) return;
+    if (slots.length >= MAX_COMPARE_LAPS) return;
+    seen.add(key);
+    slots.push({ sessionId, lapId });
+  };
+
+  if (query.laps) {
+    for (const part of query.laps.split(",")) {
+      const trimmed = part.trim();
+      if (!trimmed) continue;
+      const colon = trimmed.indexOf(":");
+      if (colon > 0) {
+        push(trimmed.slice(0, colon), trimmed.slice(colon + 1));
+      } else {
+        push(query.baseSessionId, trimmed);
+      }
+    }
+  }
+
+  if (query.ref) {
+    // Ensure ref is first when present.
+    const existing = slots.findIndex(
+      (s) => s.lapId === query.ref && s.sessionId === query.baseSessionId,
+    );
+    if (existing > 0) {
+      const [slot] = slots.splice(existing, 1);
+      slots.unshift(slot);
+    } else if (existing < 0) {
+      slots.unshift({ sessionId: query.baseSessionId, lapId: query.ref });
+      while (slots.length > MAX_COMPARE_LAPS) slots.pop();
+    }
+  }
+
+  if (query.other) {
+    push(query.otherSession || query.baseSessionId, query.other);
+  }
+
+  return slots.slice(0, MAX_COMPARE_LAPS);
+}
+
+export function serializeCompareSlots(
+  slots: CompareSlotParam[],
+  refLapId?: string,
+): string {
+  if (!slots.length) return "";
+  const params = new URLSearchParams();
+  const ref = refLapId ?? slots[0]?.lapId;
+  if (ref) params.set("ref", ref);
+  params.set(
+    "laps",
+    slots.map((s) => `${s.sessionId}:${s.lapId}`).join(","),
+  );
+  // Legacy pair for older clients when exactly 2 slots.
+  if (slots.length === 2) {
+    params.set("other", slots[1].lapId);
+    if (slots[1].sessionId !== slots[0].sessionId) {
+      params.set("otherSession", slots[1].sessionId);
+    }
+  }
+  return params.toString();
 }
 
 export function compareHref(
@@ -62,6 +177,18 @@ export function compareHref(
   }
 
   if (other) params.set("other", other);
+  // Also emit multi-lap form for forward compatibility.
+  const slots: CompareSlotParam[] = [{ sessionId, lapId: ref }];
+  if (other) {
+    slots.push({
+      sessionId: otherSessionId || sessionId,
+      lapId: other,
+    });
+  }
+  params.set(
+    "laps",
+    slots.map((s) => `${s.sessionId}:${s.lapId}`).join(","),
+  );
   return `/sessions/${sessionId}/compare?${params.toString()}`;
 }
 
@@ -186,4 +313,52 @@ export function compareLaps(
     });
   }
   return points;
+}
+
+/**
+ * Compare 2–4 laps against a selected reference.
+ * Flat keys: speed0/g0 = reference; speed{i}/g{i}/delta{i} for each other (i≥1).
+ * Also mirrors legacy refSpeed/otherSpeed/delta when exactly one other.
+ */
+export function compareMany(
+  reference: TelemetryPoint[],
+  others: TelemetryPoint[][],
+  steps = 180,
+): MultiComparedPoint[] {
+  if (!others.length) return [];
+  const pairs = others.map((other) => compareLaps(reference, other, steps));
+  const n = pairs.reduce((min, series) => Math.min(min, series.length), pairs[0]?.length ?? 0);
+  if (n < 2) return [];
+
+  const out: MultiComparedPoint[] = [];
+  for (let i = 0; i < n; i += 1) {
+    const first = pairs[0][i];
+    const row: MultiComparedPoint = {
+      dist: first.dist,
+      snapped: first.snapped,
+      speed0: first.refSpeed,
+      g0: first.refG,
+      latG0: first.refLatG,
+      lonG0: first.refLonG,
+    };
+    pairs.forEach((series, j) => {
+      const point = series[i];
+      const idx = j + 1;
+      row[`speed${idx}`] = point.otherSpeed;
+      row[`g${idx}`] = point.otherG;
+      row[`latG${idx}`] = point.otherLatG;
+      row[`lonG${idx}`] = point.otherLonG;
+      row[`delta${idx}`] = point.delta;
+    });
+    // Legacy aliases for 2-lap tooltips / older charts.
+    if (others.length === 1) {
+      row.refSpeed = first.refSpeed;
+      row.otherSpeed = first.otherSpeed;
+      row.refG = first.refG;
+      row.otherG = first.otherG;
+      row.delta = first.delta;
+    }
+    out.push(row);
+  }
+  return out;
 }
