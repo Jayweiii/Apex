@@ -10,7 +10,7 @@ import {
 } from "@/lib/scrub";
 import type { TelemetryPoint } from "@/lib/types";
 import L from "leaflet";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import "leaflet/dist/leaflet.css";
 
 export type TrackTrace = {
@@ -194,6 +194,8 @@ export function LeafletTrackMap({
   onAnalysisModeChange,
   analysisDisabled = false,
   centerline,
+  embedded = false,
+  headerSlot,
 }: {
   traces: TrackTrace[];
   activeProgress?: number | null;
@@ -204,6 +206,9 @@ export function LeafletTrackMap({
   onAnalysisModeChange?: (mode: GpsDisplayMode) => void;
   analysisDisabled?: boolean;
   centerline?: Array<{ lat: number; lon: number }> | null;
+  /** When true, omit outer card chrome (parent provides it). */
+  embedded?: boolean;
+  headerSlot?: ReactNode;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -529,8 +534,12 @@ export function LeafletTrackMap({
           point: sampleAtProgress(trace.points, activeProgress),
         }));
 
+  const shellClass = embedded
+    ? "relative"
+    : "relative overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950/40 p-4";
+
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950/40 p-4">
+    <div className={shellClass}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
           {gpsMode && onGpsModeChange ? (
@@ -606,6 +615,7 @@ export function LeafletTrackMap({
           </div>
         ) : null}
       </div>
+      {headerSlot}
       <div
         ref={containerRef}
         className="h-[65vh] min-h-[320px] w-full touch-none overflow-hidden rounded-xl sm:min-h-[420px] [&_.leaflet-control-attribution]:bg-zinc-950/80 [&_.leaflet-control-attribution]:text-[10px] [&_.leaflet-control-attribution]:text-zinc-400 [&_.leaflet-container]:cursor-crosshair"
