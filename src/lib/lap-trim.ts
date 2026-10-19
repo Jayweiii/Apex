@@ -143,6 +143,219 @@ export function nudgeTrimBound(
   return roundSec(Math.min(max, Math.max(min, current + deltaSec)));
 }
 
+/** Session-time span covered by stitched lap telemetry. */
+export function sessionDataRange(
+  laps: Array<{
+    start_offset_sec?: number | null;
+    lap_time_ms?: number;
+    telemetry?: TelemetryPoint[] | null;
+  }>,
+): { min: number; max: number } {
+  let min = Infinity;
+  let max = -Infinity;
+  for (const lap of laps) {
+    const base = lap.start_offset_sec ?? 0;
+    const telemetry = lap.telemetry ?? [];
+    if (telemetry.length) {
+      for (const point of telemetry) {
+        const t = base + point.t;
+        if (t < min) min = t;
+        if (t > max) max = t;
+      }
+    } else {
+      const end = base + Math.max(0, (lap.lap_time_ms ?? 0) / 1000);
+      if (base < min) min = base;
+      if (end > max) max = end;
+    }
+  }
+  if (!Number.isFinite(min) || !Number.isFinite(max)) {
+    return { min: 0, max: 0 };
+  }
+  return { min: roundSec(min), max: roundSec(max) };
+}
+
+/**
+ * Clamp a proposed trim handle move. Handles move freely both ways;
+ * only session data range and start < end (minGap) apply.
+ */
+export function clampTrimDrag(
+  which: "start" | "end",
+  proposedSessionT: number,
+  current: { start: number; end: number },
+  session: { min: number; max: number },
+  minGap = 1,
+): { start: number; end: number } {
+  const gap = Math.max(0.05, minGap);
+  if (which === "start") {
+    const maxStart = Math.min(session.max, current.end - gap);
+    const start = roundSec(
+      Math.min(maxStart, Math.max(session.min, proposedSessionT)),
+    );
+    return { start, end: roundSec(current.end) };
+  }
+  const minEnd = Math.max(session.min, current.start + gap);
+  const end = roundSec(
+    Math.min(session.max, Math.max(minEnd, proposedSessionT)),
+  );
+  return { start: roundSec(current.start), end };
+}
+
+/** Stitch sibling laps into session-time telemetry (sorted). */
+export function stitchSessionTelemetry(
+  laps: Array<{
+    start_offset_sec?: number | null;
+    telemetry?: TelemetryPoint[] | null;
+  }>,
+): TelemetryPoint[] {
+  const out: TelemetryPoint[] = [];
+  for (const lap of laps) {
+    const base = lap.start_offset_sec ?? 0;
+    for (const point of lap.telemetry ?? []) {
+      out.push({ ...point, t: roundSec(base + point.t) });
+    }
+  }
+  out.sort((a, b) => a.t - b.t);
+  return out;
+}
+
+export type TrimChartPoint = TelemetryPoint & {
+  /** False for neighbor padding — render greyed on the speed chart. */
+  inLap: boolean;
+  /** Null outside the effective trim window (optional orange overlay). */
+  speedInTrim?: number | null;
+};
+
+/**
+ * Build a padded chart series so trim handles have room to drag outward
+ * into neighboring session data. Chart-local t starts at 0 = chartOriginSessionT.
+ */
+export function buildTrimChartContext(
+  lap: TrimableLap,
+  siblings: Array<{
+    id?: string;
+    start_offset_sec?: number | null;
+    lap_time_ms?: number;
+    telemetry?: TelemetryPoint[] | null;
+  }>,
+  options?: { padSec?: number; minGap?: number },
+): {
+  points: TrimChartPoint[];
+  chartOriginSessionT: number;
+  trimStartT: number;
+  trimEndT: number;
+  sessionMin: number;
+  sessionMax: number;
+  bounds: LapTrimBounds;
+} {
+  const bounds = resolveLapTrimBounds(lap);
+  const range = sessionDataRange(
+    siblings.length ? siblings : [lap],
+  );
+  const duration = Math.max(1, bounds.autoEnd - bounds.autoStart);
+  const pad = options?.padSec ?? Math.max(5, duration * 0.15);
+  const windowStart = Math.min(bounds.autoStart, bounds.effectiveStart);
+  const windowEnd = Math.max(bounds.autoEnd, bounds.effectiveEnd);
+  const chartStart = Math.max(range.min, windowStart - pad);
+  const chartEnd = Math.min(range.max, windowEnd + pad);
+  const sessionPoints = stitchSessionTelemetry(
+    siblings.length ? siblings : [lap],
+  );
+  const points: TrimChartPoint[] = [];
+  for (const point of sessionPoints) {
+    if (point.t + 1e-9 < chartStart) continue;
+    if (point.t - 1e-9 > chartEnd) continue;
+    const inLap =
+      point.t + 1e-9 >= bounds.autoStart && point.t - 1e-9 <= bounds.autoEnd;
+    const inTrim =
+      point.t + 1e-9 >= bounds.effectiveStart &&
+      point.t - 1e-9 <= bounds.effectiveEnd;
+    points.push({
+      ...point,
+      t: roundSec(point.t - chartStart),
+      inLap,
+      speedInTrim: inTrim ? point.speed : null,
+    });
+  }
+  // Ensure at least two points for the chart domain.
+  if (points.length < 2) {
+    const span = Math.max(0.1, chartEnd - chartStart);
+    points.push(
+      {
+        t: 0,
+        speed: lap.telemetry[0]?.speed ?? 0,
+        inLap: true,
+        speedInTrim: lap.telemetry[0]?.speed ?? 0,
+      },
+      {
+        t: roundSec(span),
+        speed: lap.telemetry[lap.telemetry.length - 1]?.speed ?? 0,
+        inLap: true,
+        speedInTrim: lap.telemetry[lap.telemetry.length - 1]?.speed ?? 0,
+      },
+    );
+  }
+  return {
+    points,
+    chartOriginSessionT: roundSec(chartStart),
+    trimStartT: roundSec(bounds.effectiveStart - chartStart),
+    trimEndT: roundSec(bounds.effectiveEnd - chartStart),
+    sessionMin: range.min,
+    sessionMax: range.max,
+    bounds,
+  };
+}
+
+/**
+ * Apply trim using full session telemetry when the window extends past the
+ * stored lap samples (neighbor padding).
+ */
+export function applyLapTrimWithSession(
+  lap: TrimableLap,
+  siblings: Array<{
+    start_offset_sec?: number | null;
+    telemetry?: TelemetryPoint[] | null;
+  }>,
+): ReturnType<typeof applyLapTrim> {
+  const bounds = resolveLapTrimBounds(lap);
+  const { autoStart, autoEnd, effectiveStart, effectiveEnd } = bounds;
+  const needsNeighbors =
+    effectiveStart + 1e-6 < autoStart || effectiveEnd - 1e-6 > autoEnd;
+  if (!needsNeighbors || !siblings.length) {
+    return applyLapTrim(lap);
+  }
+  const sessionPoints = stitchSessionTelemetry(siblings);
+  const span = Math.max(0, effectiveEnd - effectiveStart);
+  const filtered: TelemetryPoint[] = [];
+  for (const point of sessionPoints) {
+    if (point.t + 1e-9 < effectiveStart) continue;
+    if (point.t - 1e-9 > effectiveEnd) continue;
+    filtered.push({
+      ...point,
+      t: roundSec(point.t - effectiveStart),
+    });
+  }
+  if (filtered.length === 0) {
+    return applyLapTrim(lap);
+  }
+  if (filtered[0].t > 0.05) {
+    filtered.unshift({ ...filtered[0], t: 0 });
+  } else {
+    filtered[0] = { ...filtered[0], t: 0 };
+  }
+  const last = filtered[filtered.length - 1];
+  if (Math.abs(last.t - span) > 0.05) {
+    filtered.push({ ...last, t: roundSec(span) });
+  } else {
+    filtered[filtered.length - 1] = { ...last, t: roundSec(span) };
+  }
+  return {
+    telemetry: filtered,
+    lap_time_ms: Math.max(1, Math.round(span * 1000)),
+    start_offset_sec: effectiveStart,
+    bounds,
+  };
+}
+
 /**
  * When the effective lap start shifts by `deltaSec`, keep dedicated lap
  * videos showing the same frame at progress 0 by shifting offsetSec.

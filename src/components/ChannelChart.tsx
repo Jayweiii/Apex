@@ -2,6 +2,9 @@
 
 import { hoverIndex, isSeekPointer } from "@/components/chart-hover";
 import { bindChartScrub } from "@/components/chart-scrub";
+import { HoverCursorLine, useHoverCursor } from "@/components/HoverCursor";
+import { type PlotPad } from "@/components/hover-cursor";
+import { useCallback, useRef } from "react";
 import {
   CartesianGrid,
   Legend,
@@ -20,6 +23,8 @@ const tooltipStyle = {
   borderRadius: 12,
   color: "#fafafa",
 };
+
+export const CHANNEL_PLOT_PAD: PlotPad = { left: 36, right: 4 };
 
 type Series = {
   dataKey: string;
@@ -63,10 +68,27 @@ export function ChannelChart({
   showXAxis?: boolean;
   compact?: boolean;
 }) {
+  const hoverCursor = useHoverCursor();
+  const plotRef = useRef<HTMLDivElement | null>(null);
   const scrub = bindChartScrub(points.length, {
-    onPreviewIndex,
+    onPreviewIndex: hoverCursor ? undefined : onPreviewIndex,
     onSeekIndex,
   });
+
+  const driveHover = useCallback(
+    (clientX: number) => {
+      const plot = plotRef.current;
+      if (!plot || !hoverCursor || points.length < 1) return;
+      hoverCursor.move({
+        clientX,
+        plotEl: plot,
+        pad: CHANNEL_PLOT_PAD,
+        length: points.length,
+      });
+    },
+    [hoverCursor, points.length],
+  );
+
   if (!points.length || !series.length) return null;
 
   return (
@@ -83,18 +105,33 @@ export function ChannelChart({
           <p className="truncate font-mono text-[10px] text-zinc-400">{hint}</p>
         ) : null}
       </div>
-      <div className={`touch-none ${heightClass}`} {...scrub}>
+      <div
+        ref={plotRef}
+        className={`relative touch-none ${heightClass}`}
+        data-apex-chart-plot="channel"
+        {...scrub}
+        onPointerMove={(event) => {
+          scrub.onPointerMove?.(event);
+          if ((event.buttons ?? 0) === 0) driveHover(event.clientX);
+        }}
+        onMouseLeave={() => {
+          if (!hoverCursor) scrub.onMouseLeave?.();
+        }}
+      >
         <ResponsiveContainer width="100%" height="100%">
           <LineChart
             data={points}
             syncId={syncId}
             margin={{ top: 4, right: 4, left: 0, bottom: 0 }}
             onMouseMove={(state) => {
+              if (hoverCursor) return;
               const index = hoverIndex(state);
               if (isSeekPointer(state)) onSeekIndex?.(index);
               else onPreviewIndex?.(index);
             }}
-            onMouseLeave={() => onPreviewIndex?.(null)}
+            onMouseLeave={() => {
+              if (!hoverCursor) onPreviewIndex?.(null);
+            }}
           >
             <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
             <XAxis
@@ -130,7 +167,7 @@ export function ChannelChart({
               <ReferenceLine
                 x={activeX}
                 stroke="#e4e4e7"
-                strokeDasharray="3 3"
+                strokeWidth={1.5}
               />
             ) : null}
             {series.map((item) => (
@@ -148,6 +185,7 @@ export function ChannelChart({
             ))}
           </LineChart>
         </ResponsiveContainer>
+        <HoverCursorLine plotRef={plotRef} pad={CHANNEL_PLOT_PAD} />
       </div>
     </div>
   );

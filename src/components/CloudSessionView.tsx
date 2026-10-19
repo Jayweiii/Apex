@@ -4,9 +4,15 @@ import { AppHeader } from "@/components/AppHeader";
 import { GpsQualityBadge } from "@/components/GpsQualityBadge";
 import { LapChips, LapList, type LapExcludeChange } from "@/components/LapList";
 import { UnsplitLapsBanner } from "@/components/ReparseLapsCallout";
+import { SessionDetailsEditor } from "@/components/SessionDetailsEditor";
 import { SessionLapDetail } from "@/components/SessionLapDetail";
-import { SessionReparsePanel } from "@/components/SessionReparsePanel";
+import {
+  SessionReparsePanel,
+  type ReparseStagePayload,
+} from "@/components/SessionReparsePanel";
 import type { SessionToolTab } from "@/components/SessionToolsPanel";
+import { ShareLinkButton } from "@/components/ShareLinkButton";
+import { UnsavedChangesBar } from "@/components/UnsavedChangesBar";
 import { videoCoverage } from "@/lib/pick-session-video";
 import { SessionVideosCard } from "@/components/SessionVideosCard";
 import { SessionVisibilityControl } from "@/components/SessionVisibilityControl";
@@ -14,13 +20,13 @@ import { useSessionLapSelection } from "@/components/useSessionLapSelection";
 import { compareHref } from "@/lib/compare";
 import { formatLapTime } from "@/lib/format";
 import type { GpsQuality } from "@/lib/gps-quality";
+import { applyLapTrim } from "@/lib/lap-trim";
 import { bestLapTimeMs } from "@/lib/lap-quality";
 import { isSessionOwner } from "@/lib/session-owner";
 import { looksLikeUnsplitLaps } from "@/lib/session-reparse";
 import {
   deleteSessionVideo,
   fetchSessionVideos,
-  updateSessionVideoSync,
   upsertSessionVideo,
 } from "@/lib/session-videos-cloud";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
@@ -31,7 +37,7 @@ import {
   type SessionVisibility,
 } from "@/lib/visibility";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type CloudSession = {
   id: string;
@@ -65,12 +71,32 @@ export function CloudSessionView({ id }: { id: string }) {
   const [videos, setVideos] = useState<SessionVideo[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [visibilityError, setVisibilityError] = useState<string | null>(null);
-  const [visibilityBusy, setVisibilityBusy] = useState(false);
   const [excludeError, setExcludeError] = useState<string | null>(null);
-  const [excludeBusyId, setExcludeBusyId] = useState<string | null>(null);
   const [trimError, setTrimError] = useState<string | null>(null);
-  const [trimBusy, setTrimBusy] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [reparseOpen, setReparseOpen] = useState(false);
+  const [pendingReparse, setPendingReparse] =
+    useState<ReparseStagePayload | null>(null);
+  const [toolsOpenRequest, setToolsOpenRequest] = useState<{
+    tab: string;
+    nonce: number;
+  } | null>(null);
+  const savedLapsRef = useRef<LapRow[]>([]);
+  const savedVideosRef = useRef<SessionVideo[]>([]);
+  const savedSessionRef = useRef<CloudSession | null>(null);
+  const markDirty = useCallback(() => {
+    setDirty(true);
+    setSaveError(null);
+  }, []);
+  const openTool = useCallback((tab: string) => {
+    setToolsOpenRequest((prev) => ({
+      tab,
+      nonce: (prev?.nonce ?? 0) + 1,
+    }));
+  }, []);
 
   // Auth is independent of session load so owner UI appears even if getUser
   // resolves after the public row (or via onAuthStateChange on iOS Safari).
@@ -98,10 +124,14 @@ export function CloudSessionView({ id }: { id: string }) {
   useEffect(() => {
     let cancelled = false;
     async function load() {
+      setLoading(true);
+      setDirty(false);
+      setPendingReparse(null);
       if (!hasSupabaseConfig()) {
         if (!cancelled) {
           setSession(null);
           setError("Supabase is not configured in this environment.");
+          setLoading(false);
         }
         return;
       }
@@ -123,41 +153,54 @@ export function CloudSessionView({ id }: { id: string }) {
         if (sessionError) {
           setError(sessionError.message);
           setSession(null);
+          setLoading(false);
           return;
         }
         if (!row) {
           // Public rows load via anon RLS. Missing ⇒ not found or private/friends.
           setSession(null);
           setError("not-found");
+          setLoading(false);
           return;
         }
-        setSession(row as CloudSession);
+        const cloud = row as CloudSession;
+        setSession(cloud);
+        savedSessionRef.current = cloud;
 
         const { data: lapRows } = await supabase
           .from("laps")
           .select("*")
           .eq("session_id", id)
           .order("lap_number", { ascending: true });
-        if (!cancelled) setLaps((lapRows ?? []) as LapRow[]);
+        if (!cancelled) {
+          const nextLaps = (lapRows ?? []) as LapRow[];
+          setLaps(nextLaps);
+          savedLapsRef.current = nextLaps;
+        }
 
         try {
           const cloudVideos = await fetchSessionVideos(supabase, id);
           // YouTube-only UI — keep YouTube rows (legacy mp4 rows ignored in card).
           if (!cancelled) {
-            setVideos(
-              cloudVideos.filter(
-                (v) => v.provider === "youtube" && v.youtubeId,
-              ),
+            const nextVideos = cloudVideos.filter(
+              (v) => v.provider === "youtube" && v.youtubeId,
             );
+            setVideos(nextVideos);
+            savedVideosRef.current = nextVideos;
           }
         } catch {
-          if (!cancelled) setVideos([]);
+          if (!cancelled) {
+            setVideos([]);
+            savedVideosRef.current = [];
+          }
         }
       } catch (err) {
         if (!cancelled) {
           setSession(null);
           setError(err instanceof Error ? err.message : "Could not load session");
         }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     }
     void load();
@@ -198,7 +241,7 @@ export function CloudSessionView({ id }: { id: string }) {
     [laps],
   );
 
-  async function reloadLaps() {
+  async function reloadFromServer() {
     if (!session) return;
     const supabase = createClient();
     const { data: lapRows } = await supabase
@@ -206,84 +249,63 @@ export function CloudSessionView({ id }: { id: string }) {
       .select("*")
       .eq("session_id", session.id)
       .order("lap_number", { ascending: true });
-    setLaps((lapRows ?? []) as LapRow[]);
+    const nextLaps = (lapRows ?? []) as LapRow[];
+    setLaps(nextLaps);
+    savedLapsRef.current = nextLaps;
+    try {
+      const cloudVideos = await fetchSessionVideos(supabase, session.id);
+      const nextVideos = cloudVideos.filter(
+        (v) => v.provider === "youtube" && v.youtubeId,
+      );
+      setVideos(nextVideos);
+      savedVideosRef.current = nextVideos;
+    } catch {
+      // keep
+    }
+    const { data: row } = await supabase
+      .from("sessions")
+      .select("*")
+      .eq("id", session.id)
+      .maybeSingle();
+    if (row) {
+      const cloud = row as CloudSession;
+      setSession(cloud);
+      savedSessionRef.current = cloud;
+    }
   }
 
-  async function onTrimChange(change: {
+  function onTrimChange(change: {
     lapId: string;
     start_offset_override: number | null;
     end_offset_override: number | null;
   }) {
-    if (!session || !userId || !isSessionOwner(session.user_id, userId) || trimBusy) return;
+    if (!session || !userId || !isSessionOwner(session.user_id, userId)) return;
     setTrimError(null);
-    setTrimBusy(true);
     setLaps((rows) =>
-      rows.map((lap) =>
-        lap.id === change.lapId
-          ? {
-              ...lap,
-              start_offset_override: change.start_offset_override,
-              end_offset_override: change.end_offset_override,
-            }
-          : lap,
-      ),
+      rows.map((lap) => {
+        if (lap.id !== change.lapId) return lap;
+        const next = {
+          ...lap,
+          start_offset_override: change.start_offset_override,
+          end_offset_override: change.end_offset_override,
+        };
+        const applied = applyLapTrim({
+          id: next.id,
+          lap_number: next.lap_number,
+          lap_time_ms: next.lap_time_ms,
+          start_offset_sec: next.start_offset_sec,
+          telemetry: (next.telemetry ?? []) as TelemetryPoint[],
+          start_offset_override: next.start_offset_override,
+          end_offset_override: next.end_offset_override,
+        });
+        return { ...next, lap_time_ms: applied.lap_time_ms };
+      }),
     );
-    try {
-      const response = await fetch(
-        `/api/sessions/${session.id}/laps/${change.lapId}/trim`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          credentials: "same-origin",
-          body: JSON.stringify({
-            start_offset_override: change.start_offset_override,
-            end_offset_override: change.end_offset_override,
-          }),
-        },
-      );
-      const payload = (await response.json().catch(() => ({}))) as {
-        error?: string;
-        lap_time_ms?: number;
-        start_offset_override?: number | null;
-        end_offset_override?: number | null;
-      };
-      if (!response.ok) {
-        setTrimError(
-          payload.error ??
-            "Could not save lap trim. Run 20261019_lap_trim_overrides.sql if columns are missing.",
-        );
-        await reloadLaps();
-        return;
-      }
-      setLaps((rows) =>
-        rows.map((lap) =>
-          lap.id === change.lapId
-            ? {
-                ...lap,
-                lap_time_ms: payload.lap_time_ms ?? lap.lap_time_ms,
-                start_offset_override: payload.start_offset_override ?? null,
-                end_offset_override: payload.end_offset_override ?? null,
-              }
-            : lap,
-        ),
-      );
-      // Reload videos in case dedicated offsets shifted.
-      try {
-        const supabase = createClient();
-        const cloudVideos = await fetchSessionVideos(supabase, session.id);
-        setVideos(
-          cloudVideos.filter((v) => v.provider === "youtube" && v.youtubeId),
-        );
-      } catch {
-        // keep existing videos
-      }
-    } finally {
-      setTrimBusy(false);
-    }
+    markDirty();
   }
 
-  async function onTrimReset(lapId: string) {
-    await onTrimChange({
+  function onTrimReset(lapId: string) {
+    onTrimChange({
       lapId,
       start_offset_override: null,
       end_offset_override: null,
@@ -291,9 +313,9 @@ export function CloudSessionView({ id }: { id: string }) {
   }
 
   async function onMergeNext(lapId: string) {
-    if (!session || !userId || !isSessionOwner(session.user_id, userId) || trimBusy) return;
-    setTrimBusy(true);
+    if (!session || !userId || !isSessionOwner(session.user_id, userId)) return;
     setTrimError(null);
+    setSaving(true);
     try {
       const response = await fetch(
         `/api/sessions/${session.id}/laps/${lapId}/trim`,
@@ -311,16 +333,18 @@ export function CloudSessionView({ id }: { id: string }) {
         setTrimError(payload.error ?? "Merge failed");
         return;
       }
-      await reloadLaps();
+      await reloadFromServer();
+      setDirty(false);
+      setPendingReparse(null);
     } finally {
-      setTrimBusy(false);
+      setSaving(false);
     }
   }
 
   async function onSplit(lapId: string, progress: number) {
-    if (!session || !userId || !isSessionOwner(session.user_id, userId) || trimBusy) return;
-    setTrimBusy(true);
+    if (!session || !userId || !isSessionOwner(session.user_id, userId)) return;
     setTrimError(null);
+    setSaving(true);
     try {
       const response = await fetch(
         `/api/sessions/${session.id}/laps/${lapId}/trim`,
@@ -338,106 +362,33 @@ export function CloudSessionView({ id }: { id: string }) {
         setTrimError(payload.error ?? "Split failed");
         return;
       }
-      await reloadLaps();
+      await reloadFromServer();
+      setDirty(false);
+      setPendingReparse(null);
     } finally {
-      setTrimBusy(false);
+      setSaving(false);
     }
   }
 
-  async function onVisibility(next: SessionVisibility) {
-    if (!session || !userId || !isSessionOwner(session.user_id, userId) || visibilityBusy) {
+  function onVisibility(next: SessionVisibility) {
+    if (!session || !userId || !isSessionOwner(session.user_id, userId)) {
       return;
     }
-    const previous = normalizeVisibility(
-      session.visibility ?? DEFAULT_VISIBILITY,
-    );
     setVisibilityError(null);
-    setVisibilityBusy(true);
     setSession({ ...session, visibility: next });
-
-    try {
-      const response = await fetch(`/api/sessions/${session.id}/visibility`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({ visibility: next }),
-      });
-      const payload = (await response.json().catch(() => ({}))) as {
-        error?: string;
-        visibility?: SessionVisibility;
-        code?: string;
-      };
-
-      if (response.ok && payload.visibility) {
-        setSession({ ...session, visibility: payload.visibility });
-        return;
-      }
-
-      if (response.status === 401) {
-        const supabase = createClient();
-        const { data, error: updateError } = await supabase
-          .from("sessions")
-          .update({ visibility: next })
-          .eq("id", session.id)
-          .eq("user_id", userId)
-          .select("id, visibility")
-          .maybeSingle();
-        if (updateError) {
-          setSession({ ...session, visibility: previous });
-          setVisibilityError(
-            /visibility/i.test(updateError.message)
-              ? "Run supabase/migrations/20261017_session_visibility.sql in the Supabase SQL editor, then retry."
-              : updateError.message,
-          );
-          return;
-        }
-        if (!data) {
-          setSession({ ...session, visibility: previous });
-          setVisibilityError("Update blocked — are you the session owner?");
-          return;
-        }
-        setSession({ ...session, visibility: data.visibility ?? next });
-        return;
-      }
-
-      setSession({ ...session, visibility: previous });
-      setVisibilityError(
-        payload.error ?? `Could not update visibility (${response.status})`,
-      );
-    } catch (err) {
-      setSession({ ...session, visibility: previous });
-      setVisibilityError(
-        err instanceof Error ? err.message : "Could not update visibility",
-      );
-    } finally {
-      setVisibilityBusy(false);
-    }
+    markDirty();
   }
 
-  async function onVideosChange(next: SessionVideo[]) {
+  function onVideosChange(next: SessionVideo[]) {
     setVideos(next);
-    if (!session || !userId || !isSessionOwner(session.user_id, userId)) return;
-    const supabase = createClient();
-    const prevIds = new Set(videos.map((v) => v.id));
-    const nextIds = new Set(next.map((v) => v.id));
-    for (const video of next) {
-      if (video.provider !== "youtube") continue;
-      await upsertSessionVideo(supabase, session.id, userId, video);
-    }
-    for (const id of prevIds) {
-      if (!nextIds.has(id)) {
-        await deleteSessionVideo(supabase, id);
-      }
-    }
+    markDirty();
   }
 
-  async function onExcludeChange(change: LapExcludeChange) {
-    if (!session || !userId || !isSessionOwner(session.user_id, userId) || excludeBusyId) {
+  function onExcludeChange(change: LapExcludeChange) {
+    if (!session || !userId || !isSessionOwner(session.user_id, userId)) {
       return;
     }
-    const previous = laps;
     setExcludeError(null);
-    setExcludeBusyId(change.lapId);
     setLaps((rows) =>
       rows.map((lap) =>
         lap.id === change.lapId
@@ -451,96 +402,182 @@ export function CloudSessionView({ id }: { id: string }) {
           : lap,
       ),
     );
+    markDirty();
+  }
 
+  function onStageReparse(payload: ReparseStagePayload) {
+    if (!session || !userId) return;
+    setPendingReparse(payload);
+    const staged: LapRow[] = payload.laps.map((lap) => {
+      const prev =
+        laps.find((row) => row.lap_number === lap.lapNumber) ??
+        savedLapsRef.current.find((row) => row.lap_number === lap.lapNumber);
+      return {
+        id: prev?.id ?? crypto.randomUUID(),
+        session_id: session.id,
+        user_id: session.user_id,
+        lap_number: lap.lapNumber,
+        lap_time_ms: lap.lapTimeMs,
+        telemetry: lap.points,
+        start_offset_sec: lap.startOffsetSec ?? null,
+        started_at_ms: lap.startedAtMs ?? null,
+        excluded: prev?.excluded ?? false,
+        exclude_reason: prev?.exclude_reason ?? null,
+        start_offset_override: prev?.start_offset_override ?? null,
+        end_offset_override: prev?.end_offset_override ?? null,
+      };
+    });
+    setLaps(staged);
+    markDirty();
+    setReparseOpen(false);
+  }
+
+  function discardEdits() {
+    setLaps(savedLapsRef.current.map((lap) => ({ ...lap })));
+    setVideos(savedVideosRef.current.map((video) => ({ ...video })));
+    if (savedSessionRef.current) {
+      setSession({ ...savedSessionRef.current });
+    }
+    setPendingReparse(null);
+    setDirty(false);
+    setSaveError(null);
+    setTrimError(null);
+    setExcludeError(null);
+    setVisibilityError(null);
+  }
+
+  async function saveEdits() {
+    if (!session || !userId || !isSessionOwner(session.user_id, userId)) return;
+    setSaving(true);
+    setSaveError(null);
     try {
-      const response = await fetch(
-        `/api/sessions/${session.id}/laps/${change.lapId}/exclude`,
-        {
+      const supabase = createClient();
+
+      if (pendingReparse) {
+        const response = await fetch(`/api/sessions/${session.id}/reparse`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify(pendingReparse),
+        });
+        const payload = (await response.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        if (!response.ok) {
+          throw new Error(payload.error ?? "Could not save re-parse");
+        }
+        setPendingReparse(null);
+        await reloadFromServer();
+      }
+
+      const savedSession = savedSessionRef.current;
+      if (
+        savedSession &&
+        (session.name !== savedSession.name ||
+          (session.car ?? "") !== (savedSession.car ?? "") ||
+          (session.driver_name ?? "") !== (savedSession.driver_name ?? "") ||
+          (session.notes ?? "") !== (savedSession.notes ?? "") ||
+          normalizeVisibility(session.visibility ?? DEFAULT_VISIBILITY) !==
+            normalizeVisibility(
+              savedSession.visibility ?? DEFAULT_VISIBILITY,
+            ))
+      ) {
+        const visibility = normalizeVisibility(
+          session.visibility ?? DEFAULT_VISIBILITY,
+        );
+        const { error: sessionError } = await supabase
+          .from("sessions")
+          .update({
+            name: session.name,
+            car: session.car?.trim() || null,
+            driver_name: session.driver_name?.trim() || null,
+            notes: session.notes?.trim() || null,
+            visibility,
+          })
+          .eq("id", session.id)
+          .eq("user_id", userId);
+        if (sessionError) {
+          throw new Error(sessionError.message);
+        }
+        await fetch(`/api/sessions/${session.id}/visibility`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           credentials: "same-origin",
-          body: JSON.stringify({
-            excluded: change.excluded,
-            exclude_reason: change.exclude_reason ?? null,
-          }),
-        },
-      );
-      const payload = (await response.json().catch(() => ({}))) as {
-        error?: string;
-        excluded?: boolean;
-        exclude_reason?: string | null;
-      };
-
-      if (response.ok) {
-        setLaps((rows) =>
-          rows.map((lap) =>
-            lap.id === change.lapId
-              ? {
-                  ...lap,
-                  excluded: Boolean(payload.excluded),
-                  exclude_reason: payload.exclude_reason ?? null,
-                }
-              : lap,
-          ),
-        );
-        return;
+          body: JSON.stringify({ visibility }),
+        });
       }
 
-      if (response.status === 401) {
-        const supabase = createClient();
-        const { data, error: updateError } = await supabase
-          .from("laps")
-          .update({
-            excluded: change.excluded,
-            exclude_reason: change.excluded
-              ? (change.exclude_reason ?? "manual")
-              : null,
-          })
-          .eq("id", change.lapId)
-          .eq("session_id", session.id)
-          .eq("user_id", userId)
-          .select("id, excluded, exclude_reason")
-          .maybeSingle();
-        if (updateError) {
-          setLaps(previous);
-          setExcludeError(
-            /excluded|exclude_reason/i.test(updateError.message)
-              ? "Run supabase/migrations/20261019_exclude_bad_laps.sql in the Supabase SQL editor, then retry."
-              : updateError.message,
+      for (const lap of laps) {
+        const baseline = savedLapsRef.current.find((row) => row.id === lap.id);
+        if (!baseline) continue;
+        const trimChanged =
+          (lap.start_offset_override ?? null) !==
+            (baseline.start_offset_override ?? null) ||
+          (lap.end_offset_override ?? null) !==
+            (baseline.end_offset_override ?? null);
+        if (trimChanged) {
+          const response = await fetch(
+            `/api/sessions/${session.id}/laps/${lap.id}/trim`,
+            {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              credentials: "same-origin",
+              body: JSON.stringify({
+                start_offset_override: lap.start_offset_override ?? null,
+                end_offset_override: lap.end_offset_override ?? null,
+              }),
+            },
           );
-          return;
+          if (!response.ok) {
+            const payload = (await response.json().catch(() => ({}))) as {
+              error?: string;
+            };
+            throw new Error(payload.error ?? "Could not save lap trim");
+          }
         }
-        if (!data) {
-          setLaps(previous);
-          setExcludeError("Update blocked — are you the session owner?");
-          return;
+        const excludeChanged =
+          Boolean(lap.excluded) !== Boolean(baseline.excluded) ||
+          (lap.exclude_reason ?? null) !== (baseline.exclude_reason ?? null);
+        if (excludeChanged) {
+          const response = await fetch(
+            `/api/sessions/${session.id}/laps/${lap.id}/exclude`,
+            {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              credentials: "same-origin",
+              body: JSON.stringify({
+                excluded: Boolean(lap.excluded),
+                exclude_reason: lap.exclude_reason ?? null,
+              }),
+            },
+          );
+          if (!response.ok) {
+            const payload = (await response.json().catch(() => ({}))) as {
+              error?: string;
+            };
+            throw new Error(payload.error ?? "Could not save exclude");
+          }
         }
-        setLaps((rows) =>
-          rows.map((lap) =>
-            lap.id === change.lapId
-              ? {
-                  ...lap,
-                  excluded: Boolean(data.excluded),
-                  exclude_reason:
-                    (data.exclude_reason as string | null) ?? null,
-                }
-              : lap,
-          ),
-        );
-        return;
       }
 
-      setLaps(previous);
-      setExcludeError(
-        payload.error ?? `Could not update lap (${response.status})`,
-      );
+      const prevIds = new Set(savedVideosRef.current.map((v) => v.id));
+      const nextIds = new Set(videos.map((v) => v.id));
+      for (const video of videos) {
+        if (video.provider !== "youtube") continue;
+        await upsertSessionVideo(supabase, session.id, userId, video);
+      }
+      for (const videoId of prevIds) {
+        if (!nextIds.has(videoId)) {
+          await deleteSessionVideo(supabase, videoId);
+        }
+      }
+
+      await reloadFromServer();
+      setDirty(false);
     } catch (err) {
-      setLaps(previous);
-      setExcludeError(
-        err instanceof Error ? err.message : "Could not update lap",
-      );
+      setSaveError(err instanceof Error ? err.message : "Could not save");
     } finally {
-      setExcludeBusyId(null);
+      setSaving(false);
     }
   }
 
@@ -621,20 +658,35 @@ export function CloudSessionView({ id }: { id: string }) {
   const sessionToolTabs: SessionToolTab[] = [
     {
       id: "session",
-      label: "Session",
+      label: "Edit details",
       content: (
         <div className="space-y-3">
           {mine ? (
             <>
+              <SessionDetailsEditor
+                value={{
+                  name: session.name,
+                  car: session.car,
+                  driver_name: session.driver_name,
+                  notes: session.notes,
+                }}
+                onChange={(next) => {
+                  setSession({
+                    ...session,
+                    name: next.name,
+                    car: next.car,
+                    driver_name: next.driver_name,
+                    notes: next.notes,
+                  });
+                  markDirty();
+                }}
+              />
               <SessionVisibilityControl
                 value={visibility}
                 onChange={onVisibility}
-                disabled={visibilityBusy}
+                disabled={saving}
                 compact
               />
-              {visibilityBusy ? (
-                <p className="text-xs text-zinc-500">Saving visibility…</p>
-              ) : null}
               {visibilityError ? (
                 <p
                   role="alert"
@@ -685,18 +737,6 @@ export function CloudSessionView({ id }: { id: string }) {
     },
   ];
 
-  if (session.notes?.trim()) {
-    sessionToolTabs.push({
-      id: "notes",
-      label: "Notes",
-      content: (
-        <p className="whitespace-pre-wrap text-sm text-zinc-300">
-          {session.notes}
-        </p>
-      ),
-    });
-  }
-
   if (mine || videos.length > 0) {
     sessionToolTabs.push({
       id: "videos",
@@ -728,7 +768,6 @@ export function CloudSessionView({ id }: { id: string }) {
   const unsplit = mine && looksLikeUnsplitLaps(laps);
   const openReparse = () => {
     setReparseOpen(true);
-    // Phone: lap list sits under the map — bring the panel into view.
     requestAnimationFrame(() => {
       document
         .getElementById("session-lap-list")
@@ -759,21 +798,10 @@ export function CloudSessionView({ id }: { id: string }) {
           startedAtMs={
             Number.isFinite(startedAtMs) ? startedAtMs : undefined
           }
-          onDone={async () => {
+          onStage={onStageReparse}
+          onDone={() => {
             setTrimError(null);
             setReparseOpen(false);
-            await reloadLaps();
-            try {
-              const supabase = createClient();
-              const { data: row } = await supabase
-                .from("sessions")
-                .select("*")
-                .eq("id", session.id)
-                .maybeSingle();
-              if (row) setSession(row as CloudSession);
-            } catch {
-              // laps already reloaded
-            }
           }}
         />
       </div>
@@ -791,7 +819,6 @@ export function CloudSessionView({ id }: { id: string }) {
           sessionVideo={Boolean(coverage.sessionLevel)}
           canEdit={mine}
           onExcludeChange={mine ? onExcludeChange : undefined}
-          excludeBusyId={excludeBusyId}
           onReparseLaps={mine ? openReparse : undefined}
           reparsePanel={reparsePanel}
         />
@@ -822,6 +849,16 @@ export function CloudSessionView({ id }: { id: string }) {
   return (
     <div className="flex h-dvh flex-col overflow-hidden">
       <AppHeader email={email} />
+      {mine ? (
+        <UnsavedChangesBar
+          dirty={dirty}
+          saving={saving}
+          loading={loading}
+          error={saveError}
+          onSave={() => void saveEdits()}
+          onDiscard={discardEdits}
+        />
+      ) : null}
       <main className="mx-auto flex min-h-0 w-full max-w-[90rem] flex-1 flex-col overflow-hidden px-3 py-1.5 sm:px-4">
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 pb-1.5">
           <div className="min-w-0">
@@ -844,24 +881,68 @@ export function CloudSessionView({ id }: { id: string }) {
               {!mine ? ` · ${visibility}` : ""}
             </p>
           </div>
-          {href ? (
-            <Link
-              href={href}
-              className="inline-flex min-h-8 items-center text-[11px] uppercase tracking-[0.16em] text-orange-400 hover:text-orange-300"
-            >
-              Compare
-            </Link>
-          ) : null}
+          <div className="flex flex-wrap items-center gap-2">
+            {mine ? (
+              <ShareLinkButton path={`/sessions/${session.id}`} label="Share" />
+            ) : null}
+            {href ? (
+              <Link
+                href={href}
+                className="inline-flex min-h-8 items-center text-[11px] uppercase tracking-[0.16em] text-orange-400 hover:text-orange-300"
+              >
+                Compare
+              </Link>
+            ) : null}
+          </div>
         </div>
 
-        {/* Phone: unsplit hint above chips — lap list sits under the map */}
+        {mine ? (
+          <div className="mb-2 flex shrink-0 flex-wrap gap-1.5" role="toolbar" aria-label="Session tools">
+            <button
+              type="button"
+              onClick={openReparse}
+              className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-orange-500/50 bg-orange-500/10 px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-orange-200"
+            >
+              <span aria-hidden>↻</span> Re-parse laps
+            </button>
+            <button
+              type="button"
+              onClick={() => openTool("trim")}
+              className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/80 px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-200"
+            >
+              <span aria-hidden>✂</span> Trim
+            </button>
+            <button
+              type="button"
+              onClick={() => openTool("sync")}
+              className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/80 px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-200"
+            >
+              <span aria-hidden>⏯</span> Sync video
+            </button>
+            <button
+              type="button"
+              onClick={() => openTool("exclude")}
+              className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/80 px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-200"
+            >
+              <span aria-hidden>⊘</span> Exclude
+            </button>
+            <button
+              type="button"
+              onClick={() => openTool("session")}
+              className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/80 px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-200"
+            >
+              <span aria-hidden>✎</span> Edit details
+            </button>
+            <ShareLinkButton path={`/sessions/${session.id}`} label="Share" />
+          </div>
+        ) : null}
+
         {unsplit && !reparseOpen ? (
           <div className="shrink-0 pb-2 lg:hidden">
             <UnsplitLapsBanner onClick={openReparse} />
           </div>
         ) : null}
 
-        {/* Mobile lap picker — desktop uses the left-column lap list */}
         {laps.length ? (
           <div className="shrink-0 pb-2 lg:hidden">
             <LapChips
@@ -882,6 +963,7 @@ export function CloudSessionView({ id }: { id: string }) {
               layout="workspace"
               sidebar={lapSidebar}
               extraToolTabs={sessionToolTabs}
+              toolsOpenRequest={toolsOpenRequest}
               lap={{
                 id: selectedRow.id,
                 lap_number: selectedRow.lap_number,
@@ -903,36 +985,20 @@ export function CloudSessionView({ id }: { id: string }) {
               }
               canEdit={mine}
               onExcludeChange={mine ? onExcludeChange : undefined}
-              excludeBusy={excludeBusyId === selectedRow.id}
               onTrimChange={mine ? onTrimChange : undefined}
               onTrimReset={mine ? onTrimReset : undefined}
               onMergeNext={mine ? onMergeNext : undefined}
               onSplit={mine ? onSplit : undefined}
-              trimBusy={trimBusy}
               onVideoChange={
                 mine
-                  ? async (next) => {
+                  ? (next) => {
                       setVideos((prev) => {
                         const exists = prev.some((v) => v.id === next.id);
                         return exists
                           ? prev.map((v) => (v.id === next.id ? next : v))
                           : [...prev, next];
                       });
-                      try {
-                        const supabase = createClient();
-                        if (userId) {
-                          await upsertSessionVideo(
-                            supabase,
-                            session.id,
-                            userId,
-                            next,
-                          );
-                        } else {
-                          await updateSessionVideoSync(supabase, next);
-                        }
-                      } catch {
-                        // keep local UI state
-                      }
+                      markDirty();
                     }
                   : undefined
               }

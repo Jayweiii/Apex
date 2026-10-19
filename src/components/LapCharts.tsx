@@ -56,11 +56,11 @@ export function LapCharts({
   const [progress, setProgress] = useState<number | null>(null);
   const [previewProgress, setPreviewProgress] = useState<number | null>(null);
   const chartPoints = analysis;
-  const displayProgress = previewProgress ?? progress;
-  const index =
-    displayProgress == null || chartPoints.length < 2
+  // Playback solid cursor only — hover dashed line is DOM/rAF.
+  const playbackIndex =
+    progress == null || chartPoints.length < 2
       ? null
-      : Math.round(displayProgress * (chartPoints.length - 1));
+      : Math.round(progress * (chartPoints.length - 1));
   const durationHint =
     chartPoints.length > 1
       ? chartPoints[chartPoints.length - 1].t - chartPoints[0].t
@@ -128,7 +128,7 @@ export function LapCharts({
       </div>
       <StackedLapTelemetry
         points={chartPoints}
-        activeIndex={index}
+        activeIndex={playbackIndex}
         onPreviewIndex={previewFromChart}
         onSeekIndex={seekFromChart}
         syncId="lap-detail"

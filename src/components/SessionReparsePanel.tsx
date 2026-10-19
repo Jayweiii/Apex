@@ -22,6 +22,22 @@ import { useRef, useState } from "react";
  * prompts for the original GoPro LRV/MP4 or GPS log (GPS only). BusyIndicator
  * only — no beforeunload.
  */
+export type ReparseStagePayload = {
+  laps: Array<{
+    lapNumber: number;
+    lapTimeMs: number;
+    points: TelemetryPoint[];
+    startOffsetSec?: number;
+    startedAtMs?: number;
+  }>;
+  sourceGps?: ReturnType<typeof compactSourceGps>;
+  trackId?: string | null;
+  startFinish?: { lat: number; lon: number } | null;
+  startedAtMs?: number;
+  sessionDate?: string;
+  gpsQuality?: GpsQuality;
+};
+
 export function SessionReparsePanel({
   sessionId,
   trackId,
@@ -29,6 +45,8 @@ export function SessionReparsePanel({
   laps,
   startedAtMs,
   onDone,
+  /** When set, re-parse stages results for explicit Save instead of POSTing. */
+  onStage,
 }: {
   sessionId: string;
   trackId?: string | null;
@@ -36,6 +54,7 @@ export function SessionReparsePanel({
   laps: LapRow[];
   startedAtMs?: number;
   onDone: (result: { lapCount: number }) => void;
+  onStage?: (payload: ReparseStagePayload) => void;
 }) {
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [busy, setBusy] = useState(false);
@@ -112,7 +131,11 @@ export function SessionReparsePanel({
           nextStartedAtMs = parsed.startedAtMs;
           sessionDate = parsed.sessionDate;
         }
-        setProgress(`Split ${clientLaps.length} laps — saving…`);
+        setProgress(
+          onStage
+            ? `Split ${clientLaps.length} laps — tap Save to keep`
+            : `Split ${clientLaps.length} laps — saving…`,
+        );
       } else {
         const resolved = resolveGpsForReparse({ sourceGps, laps });
         if (!resolved.density.ok) {
@@ -138,7 +161,26 @@ export function SessionReparsePanel({
           );
           return;
         }
-        setProgress(`Split ${clientLaps.length} laps — saving…`);
+        setProgress(
+          onStage
+            ? `Split ${clientLaps.length} laps — tap Save to keep`
+            : `Split ${clientLaps.length} laps — saving…`,
+        );
+      }
+
+      if (onStage) {
+        onStage({
+          laps: clientLaps,
+          sourceGps: nextSourceGps,
+          trackId: track,
+          startFinish,
+          startedAtMs: nextStartedAtMs ?? startedAtMs,
+          sessionDate,
+          gpsQuality,
+        });
+        setProgress(null);
+        onDone({ lapCount: clientLaps.length });
+        return;
       }
 
       const response = await fetch(`/api/sessions/${sessionId}/reparse`, {
@@ -182,6 +224,9 @@ export function SessionReparsePanel({
       <p className="text-sm text-zinc-400">
         Re-split laps from full GPS after upload. Session id, YouTube links,
         sync offsets, trims, and excludes are kept when lap numbers match.
+        {onStage
+          ? " Results stay unsaved until you tap Save on the session."
+          : null}
       </p>
 
       {!density.ok || needFile ? (

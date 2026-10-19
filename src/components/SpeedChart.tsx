@@ -2,17 +2,23 @@
 
 import { hoverIndex, isSeekPointer } from "@/components/chart-hover";
 import { bindChartScrub } from "@/components/chart-scrub";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { HoverCursorLine, useHoverCursor } from "@/components/HoverCursor";
+import { type PlotPad } from "@/components/hover-cursor";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Area,
   AreaChart,
   CartesianGrid,
+  ReferenceArea,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
+
+/** Plot pad matches YAxis width + right margin (hover line + scrub). */
+export const SPEED_PLOT_PAD: PlotPad = { left: 48, right: 8 };
 
 const tooltipStyle = {
   background: "#09090b",
@@ -43,6 +49,29 @@ export function speedAxisDomain(
   return [Math.max(0, Math.floor(min - pad)), Math.ceil(max + pad)];
 }
 
+/** Map client X to chart domain t (exported for pointer-drag tests). */
+export function chartTAtClientX(
+  clientX: number,
+  rect: { left: number; width: number },
+  firstT: number,
+  lastT: number,
+  leftPad = 48,
+  rightPad = 8,
+): number {
+  const usable = Math.max(1, rect.width - leftPad - rightPad);
+  const x = Math.min(usable, Math.max(0, clientX - rect.left - leftPad));
+  return firstT + (x / usable) * (lastT - firstT);
+}
+
+export type SpeedChartPoint = {
+  t: number;
+  speed: number;
+  /** Neighbor padding — drawn grey. Defaults true when omitted. */
+  inLap?: boolean;
+  /** Orange overlay for the effective trim window. */
+  speedInTrim?: number | null;
+};
+
 export function SpeedChart({
   points,
   activeIndex = null,
@@ -54,7 +83,7 @@ export function SpeedChart({
   compact = false,
   fill = false,
 }: {
-  points: { t: number; speed: number }[];
+  points: SpeedChartPoint[];
   activeIndex?: number | null;
   onPreviewIndex?: (index: number | null) => void;
   onSeekIndex?: (index: number | null) => void;
@@ -66,13 +95,36 @@ export function SpeedChart({
   fill?: boolean;
 }) {
   const active = activeIndex != null ? points[activeIndex] : null;
+  const hoverCursor = useHoverCursor();
   const scrub = bindChartScrub(points.length, {
-    onPreviewIndex,
+    // Hover preview is owned by HoverCursorScope (pointer-x + rAF).
+    // Only forward preview when no shared cursor (standalone chart).
+    onPreviewIndex: hoverCursor ? undefined : onPreviewIndex,
     onSeekIndex,
   });
   const [dragging, setDragging] = useState<"start" | "end" | null>(null);
   const chartWrapRef = useRef<HTMLDivElement | null>(null);
   const domain = useMemo(() => speedAxisDomain(points), [points]);
+
+  const driveHover = useCallback(
+    (clientX: number) => {
+      const plot = chartWrapRef.current;
+      if (!plot || points.length < 1) return;
+      if (hoverCursor) {
+        hoverCursor.move({
+          clientX,
+          plotEl: plot,
+          pad: SPEED_PLOT_PAD,
+          length: points.length,
+        });
+        return;
+      }
+      // Standalone fallback: parent still gets index via scrub/Recharts.
+    },
+    [hoverCursor, points.length],
+  );
+  const hasPad = points.some((p) => p.inLap === false);
+  const hasTrimOverlay = points.some((p) => p.speedInTrim != null);
 
   const bodyHeight = fill
     ? "h-full min-h-[120px]"
@@ -85,26 +137,39 @@ export function SpeedChart({
       const el = chartWrapRef.current;
       if (!el || points.length < 2) return null;
       const rect = el.getBoundingClientRect();
-      const leftPad = 48;
-      const rightPad = 8;
-      const usable = Math.max(1, rect.width - leftPad - rightPad);
-      const x = Math.min(usable, Math.max(0, clientX - rect.left - leftPad));
-      const firstT = points[0].t;
-      const lastT = points[points.length - 1].t;
-      return firstT + (x / usable) * (lastT - firstT);
+      return chartTAtClientX(
+        clientX,
+        rect,
+        points[0].t,
+        points[points.length - 1].t,
+      );
     },
     [points],
   );
 
-  const onTrimPointerMove = useCallback(
-    (event: React.PointerEvent) => {
-      if (!dragging || !onTrimBoundaryDrag) return;
+  // Window-level move/up so dragging works off the chart edge (pointer capture).
+  useEffect(() => {
+    if (!dragging || !onTrimBoundaryDrag) return;
+    function onMove(event: PointerEvent) {
       const t = tAtClientX(event.clientX);
       if (t == null) return;
-      onTrimBoundaryDrag(dragging, t);
-    },
-    [dragging, onTrimBoundaryDrag, tAtClientX],
-  );
+      onTrimBoundaryDrag?.(dragging!, t);
+    }
+    function onUp() {
+      setDragging(null);
+    }
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }, [dragging, onTrimBoundaryDrag, tAtClientX]);
+
+  const firstT = points[0]?.t ?? 0;
+  const lastT = points[points.length - 1]?.t ?? 1;
 
   return (
     <div
@@ -128,15 +193,18 @@ export function SpeedChart({
       <div
         ref={chartWrapRef}
         className={`relative min-h-0 flex-1 touch-none ${bodyHeight}`}
+        data-apex-chart-plot="speed"
         {...(dragging ? {} : scrub)}
         onPointerMove={(event) => {
-          if (dragging) onTrimPointerMove(event);
-          else scrub.onPointerMove?.(event);
+          if (dragging) return;
+          scrub.onPointerMove?.(event);
+          if ((event.buttons ?? 0) === 0) driveHover(event.clientX);
         }}
-        onPointerUp={() => setDragging(null)}
         onPointerLeave={() => {
-          setDragging(null);
-          if (!dragging) scrub.onMouseLeave?.();
+          // Do not clear trim dragging here — window listeners + pointer capture
+          // keep the drag alive off the chart edge.
+          // Stack HoverCursorScope clears hover; standalone still clears.
+          if (!dragging && !hoverCursor) scrub.onMouseLeave?.();
         }}
       >
         <ResponsiveContainer width="100%" height="100%">
@@ -145,19 +213,23 @@ export function SpeedChart({
             syncId={syncId}
             margin={{ top: 8, right: 8, left: 0, bottom: 4 }}
             onMouseMove={(state) => {
-              if (dragging) return;
+              if (dragging || hoverCursor) return;
               const index = hoverIndex(state);
               if (isSeekPointer(state)) onSeekIndex?.(index);
               else onPreviewIndex?.(index);
             }}
             onMouseLeave={() => {
-              if (!dragging) onPreviewIndex?.(null);
+              if (!dragging && !hoverCursor) onPreviewIndex?.(null);
             }}
           >
             <defs>
               <linearGradient id="speedFill" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="#f97316" stopOpacity={0.35} />
                 <stop offset="100%" stopColor="#f97316" stopOpacity={0} />
+              </linearGradient>
+              <linearGradient id="speedFillDim" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#71717a" stopOpacity={0.2} />
+                <stop offset="100%" stopColor="#71717a" stopOpacity={0} />
               </linearGradient>
             </defs>
             <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
@@ -184,8 +256,35 @@ export function SpeedChart({
               formatter={(value) => [`${Number(value).toFixed(1)} km/h`, "Speed"]}
               labelFormatter={(label) => `${Number(label).toFixed(1)}s`}
             />
+            {hasPad && trimMarkers ? (
+              <>
+                {trimMarkers.startT > firstT + 0.01 ? (
+                  <ReferenceArea
+                    x1={firstT}
+                    x2={trimMarkers.startT}
+                    fill="#3f3f46"
+                    fillOpacity={0.35}
+                    strokeOpacity={0}
+                  />
+                ) : null}
+                {trimMarkers.endT < lastT - 0.01 ? (
+                  <ReferenceArea
+                    x1={trimMarkers.endT}
+                    x2={lastT}
+                    fill="#3f3f46"
+                    fillOpacity={0.35}
+                    strokeOpacity={0}
+                  />
+                ) : null}
+              </>
+            ) : null}
+            {/* Playback cursor — solid. Hover is a separate dashed DOM line. */}
             {active ? (
-              <ReferenceLine x={active.t} stroke="#e4e4e7" strokeDasharray="3 3" />
+              <ReferenceLine
+                x={active.t}
+                stroke="#e4e4e7"
+                strokeWidth={1.5}
+              />
             ) : null}
             {trimMarkers ? (
               <>
@@ -204,22 +303,47 @@ export function SpeedChart({
             <Area
               type="monotone"
               dataKey="speed"
-              stroke="#f97316"
-              strokeWidth={2}
-              fill="url(#speedFill)"
+              stroke={hasPad || hasTrimOverlay ? "#71717a" : "#f97316"}
+              strokeWidth={hasPad || hasTrimOverlay ? 1.5 : 2}
+              fill={
+                hasPad || hasTrimOverlay ? "url(#speedFillDim)" : "url(#speedFill)"
+              }
               dot={false}
               isAnimationActive={false}
             />
+            {hasTrimOverlay ? (
+              <Area
+                type="monotone"
+                dataKey="speedInTrim"
+                stroke="#f97316"
+                strokeWidth={2}
+                fill="url(#speedFill)"
+                connectNulls={false}
+                dot={false}
+                isAnimationActive={false}
+              />
+            ) : null}
           </AreaChart>
         </ResponsiveContainer>
+        <HoverCursorLine plotRef={chartWrapRef} pad={SPEED_PLOT_PAD} />
         {trimMarkers && onTrimBoundaryDrag && points.length >= 2 ? (
           <TrimHandles
             startT={trimMarkers.startT}
             endT={trimMarkers.endT}
             firstT={points[0].t}
             lastT={points[points.length - 1].t}
-            onStartDrag={() => setDragging("start")}
-            onEndDrag={() => setDragging("end")}
+            onStartDrag={(event) => {
+              (event.currentTarget as HTMLElement).setPointerCapture?.(
+                event.pointerId,
+              );
+              setDragging("start");
+            }}
+            onEndDrag={(event) => {
+              (event.currentTarget as HTMLElement).setPointerCapture?.(
+                event.pointerId,
+              );
+              setDragging("end");
+            }}
           />
         ) : null}
       </div>
@@ -239,8 +363,8 @@ function TrimHandles({
   endT: number;
   firstT: number;
   lastT: number;
-  onStartDrag: () => void;
-  onEndDrag: () => void;
+  onStartDrag: (event: React.PointerEvent) => void;
+  onEndDrag: (event: React.PointerEvent) => void;
 }) {
   const span = Math.max(1e-6, lastT - firstT);
   const startFrac = (startT - firstT) / span;
@@ -257,8 +381,7 @@ function TrimHandles({
         onPointerDown={(event) => {
           event.preventDefault();
           event.stopPropagation();
-          (event.target as HTMLElement).setPointerCapture?.(event.pointerId);
-          onStartDrag();
+          onStartDrag(event);
         }}
       />
       <button
@@ -271,8 +394,7 @@ function TrimHandles({
         onPointerDown={(event) => {
           event.preventDefault();
           event.stopPropagation();
-          (event.target as HTMLElement).setPointerCapture?.(event.pointerId);
-          onEndDrag();
+          onEndDrag(event);
         }}
       />
     </>

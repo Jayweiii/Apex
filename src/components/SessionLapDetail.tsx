@@ -7,14 +7,16 @@ import type { SessionToolTab } from "@/components/SessionToolsPanel";
 import { SyncedLapView } from "@/components/video/SyncedLapView";
 import { formatLapTime } from "@/lib/format";
 import {
-  applyLapTrim,
+  applyLapTrimWithSession,
+  buildTrimChartContext,
+  clampTrimDrag,
   resolveLapTrimBounds,
   type TrimableLap,
 } from "@/lib/lap-trim";
 import { bestLapTimeMs, suspicionByLapId } from "@/lib/lap-quality";
 import { pickSessionVideoForLap } from "@/lib/pick-session-video";
 import type { SessionVideo, TelemetryPoint } from "@/lib/types";
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 
 export type SessionLapDetailLap = {
   id: string;
@@ -52,6 +54,7 @@ export function SessionLapDetail({
   layout = "workspace",
   sidebar,
   extraToolTabs,
+  toolsOpenRequest,
 }: {
   sessionId: string;
   lap: SessionLapDetailLap;
@@ -76,12 +79,9 @@ export function SessionLapDetail({
   layout?: "stack" | "workspace";
   sidebar?: ReactNode;
   extraToolTabs?: SessionToolTab[];
+  /** Toolbar requests opening a tools tab (trim / sync / exclude / …). */
+  toolsOpenRequest?: { tab: string; nonce: number } | null;
 }) {
-  const [draftTrim, setDraftTrim] = useState<{
-    start_offset_override: number | null;
-    end_offset_override: number | null;
-  } | null>(null);
-
   const trimable: TrimableLap = useMemo(
     () => ({
       id: lap.id,
@@ -89,32 +89,55 @@ export function SessionLapDetail({
       lap_time_ms: lap.lap_time_ms,
       start_offset_sec: lap.start_offset_sec,
       telemetry: lap.telemetry,
-      start_offset_override:
-        draftTrim?.start_offset_override ?? lap.start_offset_override ?? null,
-      end_offset_override:
-        draftTrim?.end_offset_override ?? lap.end_offset_override ?? null,
+      start_offset_override: lap.start_offset_override ?? null,
+      end_offset_override: lap.end_offset_override ?? null,
     }),
-    [lap, draftTrim],
+    [lap],
   );
 
-  const applied = useMemo(() => applyLapTrim(trimable), [trimable]);
+  const siblingTrimables = useMemo(
+    () =>
+      siblingLaps.map((item) => ({
+        id: item.id,
+        lap_number: item.lap_number,
+        lap_time_ms: item.lap_time_ms,
+        start_offset_sec: item.start_offset_sec,
+        telemetry: item.telemetry,
+        start_offset_override: item.start_offset_override,
+        end_offset_override: item.end_offset_override,
+      })),
+    [siblingLaps],
+  );
+
+  const applied = useMemo(
+    () => applyLapTrimWithSession(trimable, siblingTrimables),
+    [trimable, siblingTrimables],
+  );
   const bounds = applied.bounds;
   const points = applied.telemetry;
   const peak = points.reduce((max, point) => Math.max(max, point.speed), 0);
+
+  const trimChart = useMemo(() => {
+    if (!(canEdit && onTrimChange)) return null;
+    return buildTrimChartContext(trimable, siblingTrimables);
+  }, [canEdit, onTrimChange, trimable, siblingTrimables]);
 
   const siblingForBest = useMemo(
     () =>
       siblingLaps.map((item) => {
         if (item.id !== lap.id) {
-          const trimmed = applyLapTrim({
-            id: item.id,
-            lap_number: item.lap_number,
-            lap_time_ms: item.lap_time_ms,
-            start_offset_sec: item.start_offset_sec,
-            telemetry: item.telemetry,
-            start_offset_override: item.start_offset_override,
-            end_offset_override: item.end_offset_override,
-          });
+          const trimmed = applyLapTrimWithSession(
+            {
+              id: item.id,
+              lap_number: item.lap_number,
+              lap_time_ms: item.lap_time_ms,
+              start_offset_sec: item.start_offset_sec,
+              telemetry: item.telemetry,
+              start_offset_override: item.start_offset_override,
+              end_offset_override: item.end_offset_override,
+            },
+            siblingTrimables,
+          );
           return {
             ...item,
             lap_time_ms: trimmed.lap_time_ms,
@@ -127,7 +150,7 @@ export function SessionLapDetail({
           excluded: lap.excluded,
         };
       }),
-    [siblingLaps, lap, applied.lap_time_ms],
+    [siblingLaps, lap, applied.lap_time_ms, siblingTrimables],
   );
 
   const bestMs = bestLapTimeMs(siblingForBest);
@@ -146,24 +169,10 @@ export function SessionLapDetail({
     [videos, videoParam, lap.id],
   );
 
-  // Full auto telemetry for trim drag markers (lap-local seconds).
-  const autoTelemetry = lap.telemetry;
-  const trimMarkers =
-    canEdit && onTrimChange && autoTelemetry.length >= 2
-      ? {
-          startT: Math.max(0, bounds.effectiveStart - bounds.autoStart),
-          endT: Math.max(
-            0.1,
-            bounds.effectiveEnd - bounds.autoStart,
-          ),
-        }
-      : null;
-
   function commitTrim(next: {
     start_offset_override: number | null;
     end_offset_override: number | null;
   }) {
-    setDraftTrim(next);
     onTrimChange?.({
       lapId: lap.id,
       ...next,
@@ -185,35 +194,41 @@ export function SessionLapDetail({
   const canMergeNext = idx >= 0 && idx < orderedSiblings.length - 1;
   const canSplit = points.length >= 4;
 
-  // When editing trim, charts use full auto series so markers are visible;
-  // playback/map use applied trim for live recompute.
-  const chartLap = canEdit && onTrimChange
-    ? {
-        id: lap.id,
-        lap_number: lap.lap_number,
-        lap_time_ms: Math.round((bounds.autoEnd - bounds.autoStart) * 1000),
-        start_offset_sec: bounds.autoStart,
-        telemetry: autoTelemetry,
-      }
-    : {
-        id: lap.id,
-        lap_number: lap.lap_number,
-        lap_time_ms: applied.lap_time_ms,
-        start_offset_sec: applied.start_offset_sec,
-        telemetry: points,
-      };
+  const chartLap =
+    canEdit && onTrimChange && trimChart
+      ? {
+          id: lap.id,
+          lap_number: lap.lap_number,
+          lap_time_ms: Math.round(
+            (trimChart.points[trimChart.points.length - 1].t -
+              trimChart.points[0].t) *
+              1000,
+          ),
+          start_offset_sec: trimChart.chartOriginSessionT,
+          telemetry: trimChart.points,
+        }
+      : {
+          id: lap.id,
+          lap_number: lap.lap_number,
+          lap_time_ms: applied.lap_time_ms,
+          start_offset_sec: applied.start_offset_sec,
+          telemetry: points,
+        };
 
   const displaySiblingLaps = siblingLaps.map((item) => {
     if (item.id === lap.id) return chartLap;
-    const trimmed = applyLapTrim({
-      id: item.id,
-      lap_number: item.lap_number,
-      lap_time_ms: item.lap_time_ms,
-      start_offset_sec: item.start_offset_sec,
-      telemetry: item.telemetry,
-      start_offset_override: item.start_offset_override,
-      end_offset_override: item.end_offset_override,
-    });
+    const trimmed = applyLapTrimWithSession(
+      {
+        id: item.id,
+        lap_number: item.lap_number,
+        lap_time_ms: item.lap_time_ms,
+        start_offset_sec: item.start_offset_sec,
+        telemetry: item.telemetry,
+        start_offset_override: item.start_offset_override,
+        end_offset_override: item.end_offset_override,
+      },
+      siblingTrimables,
+    );
     return {
       id: item.id,
       lap_number: item.lap_number,
@@ -224,19 +239,17 @@ export function SessionLapDetail({
   });
 
   const trimTabContent =
-    canEdit && onTrimChange ? (
+    canEdit && onTrimChange && trimChart ? (
       <LapTrimControls
         lap={trimable}
+        sessionMin={trimChart.sessionMin}
+        sessionMax={trimChart.sessionMax}
         previewLapTimeMs={applied.lap_time_ms}
         canMergeNext={canMergeNext}
         canSplit={canSplit}
         busy={trimBusy}
         onChange={commitTrim}
         onReset={() => {
-          setDraftTrim({
-            start_offset_override: null,
-            end_offset_override: null,
-          });
           onTrimReset?.(lap.id);
         }}
         onMergeNext={onMergeNext ? () => onMergeNext(lap.id) : undefined}
@@ -364,6 +377,7 @@ export function SessionLapDetail({
           layout={layout}
           sidebar={sidebar}
           extraToolTabs={lapToolTabs}
+          toolsOpenRequest={toolsOpenRequest}
           lap={
             canEdit && onTrimChange
               ? {
@@ -374,6 +388,17 @@ export function SessionLapDetail({
                   telemetry: points,
                 }
               : chartLap
+          }
+          chartOverride={
+            canEdit && onTrimChange && trimChart
+              ? {
+                  points: trimChart.points,
+                  trimMarkers: {
+                    startT: trimChart.trimStartT,
+                    endT: trimChart.trimEndT,
+                  },
+                }
+              : undefined
           }
           siblingLaps={displaySiblingLaps}
           video={activeVideo}
@@ -402,37 +427,35 @@ export function SessionLapDetail({
                 }
               : undefined
           }
-          trimMarkers={
-            canEdit && onTrimChange && trimMarkers
-              ? { startT: 0, endT: applied.lap_time_ms / 1000 }
-              : undefined
-          }
           onTrimBoundaryDrag={
-            canEdit && onTrimChange
-              ? (which, lapLocalT) => {
-                  const sessionT = applied.start_offset_sec + lapLocalT;
-                  if (which === "start") {
-                    commitTrim({
-                      start_offset_override: sessionT,
-                      end_offset_override:
-                        trimable.end_offset_override ??
-                        (Math.abs(bounds.effectiveEnd - bounds.autoEnd) <
-                        0.0005
-                          ? null
-                          : bounds.effectiveEnd),
-                    });
-                  } else {
-                    commitTrim({
-                      start_offset_override:
-                        trimable.start_offset_override ??
-                        (Math.abs(
-                          bounds.effectiveStart - bounds.autoStart,
-                        ) < 0.0005
-                          ? null
-                          : bounds.effectiveStart),
-                      end_offset_override: sessionT,
-                    });
-                  }
+            canEdit && onTrimChange && trimChart
+              ? (which, chartLocalT) => {
+                  const sessionT =
+                    trimChart.chartOriginSessionT + chartLocalT;
+                  const next = clampTrimDrag(
+                    which,
+                    sessionT,
+                    {
+                      start: bounds.effectiveStart,
+                      end: bounds.effectiveEnd,
+                    },
+                    {
+                      min: trimChart.sessionMin,
+                      max: trimChart.sessionMax,
+                    },
+                  );
+                  const startOverride =
+                    Math.abs(next.start - bounds.autoStart) < 0.0005
+                      ? null
+                      : next.start;
+                  const endOverride =
+                    Math.abs(next.end - bounds.autoEnd) < 0.0005
+                      ? null
+                      : next.end;
+                  commitTrim({
+                    start_offset_override: startOverride,
+                    end_offset_override: endOverride,
+                  });
                 }
               : undefined
           }

@@ -15,6 +15,7 @@ import { SessionLapDetail } from "@/components/SessionLapDetail";
 import type { SessionToolTab } from "@/components/SessionToolsPanel";
 import { SessionVideosCard } from "@/components/SessionVideosCard";
 import { ShareLinkButton } from "@/components/ShareLinkButton";
+import { UnsavedChangesBar } from "@/components/UnsavedChangesBar";
 import { GpsModeToggle } from "@/components/GpsModeToggle";
 import { useSessionLapSelection } from "@/components/useSessionLapSelection";
 import { cornerBreakdown, theoreticalBestLap } from "@/lib/analysis";
@@ -38,6 +39,7 @@ import {
   type StoredSession,
 } from "@/lib/local-store";
 import {
+  applyLapTrim,
   mergeAdjacentLaps,
   splitLapAtProgress,
 } from "@/lib/lap-trim";
@@ -343,6 +345,22 @@ export function LocalSession({ id }: { id: string }) {
   const [reprocessMsg, setReprocessMsg] = useState<string | null>(null);
   const [reprocessBusy, setReprocessBusy] = useState(false);
   const [reparseOpen, setReparseOpen] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [draftLaps, setDraftLaps] = useState<StoredSession["laps"] | null>(
+    null,
+  );
+  const [draftVideos, setDraftVideos] = useState<SessionVideo[] | null>(null);
+  const [toolsOpenRequest, setToolsOpenRequest] = useState<{
+    tab: string;
+    nonce: number;
+  } | null>(null);
+
+  useEffect(() => {
+    setDraftLaps(null);
+    setDraftVideos(null);
+    setDirty(false);
+  }, [id, session?.id]);
 
   const centerline = useMemo(() => {
     if (!session) return null;
@@ -392,9 +410,11 @@ export function LocalSession({ id }: { id: string }) {
     return <MissingShell message="Session not found in this browser." />;
   }
 
-  const best = bestLapTimeMs(session.laps);
+  const workingLaps = draftLaps ?? session.laps;
+  const workingVideos = draftVideos ?? session.videos ?? [];
+  const best = bestLapTimeMs(workingLaps);
   const sessionId = session.id;
-  const laps = session.laps.map((lap) => ({
+  const laps = workingLaps.map((lap) => ({
     id: lap.id,
     session_id: sessionId,
     user_id: "local",
@@ -404,16 +424,26 @@ export function LocalSession({ id }: { id: string }) {
     excluded: lap.excluded ?? false,
     exclude_reason: lap.exclude_reason ?? null,
     start_offset_sec: lap.start_offset_sec,
+    start_offset_override: lap.start_offset_override ?? null,
+    end_offset_override: lap.end_offset_override ?? null,
   }));
 
   function onExcludeChange(change: LapExcludeChange) {
-    setLocalLapExcluded(
-      sessionId,
-      change.lapId,
-      change.excluded,
-      change.exclude_reason,
-    );
-    window.location.reload();
+    setDraftLaps((prev) => {
+      const base = prev ?? session.laps;
+      return base.map((lap) =>
+        lap.id === change.lapId
+          ? {
+              ...lap,
+              excluded: change.excluded,
+              exclude_reason: change.excluded
+                ? (change.exclude_reason ?? "manual")
+                : null,
+            }
+          : lap,
+      );
+    });
+    setDirty(true);
   }
 
   function onTrimChange(change: {
@@ -421,11 +451,20 @@ export function LocalSession({ id }: { id: string }) {
     start_offset_override: number | null;
     end_offset_override: number | null;
   }) {
-    setLocalLapTrim(sessionId, change.lapId, {
-      start_offset_override: change.start_offset_override,
-      end_offset_override: change.end_offset_override,
+    setDraftLaps((prev) => {
+      const base = prev ?? session.laps;
+      return base.map((lap) => {
+        if (lap.id !== change.lapId) return lap;
+        const next = {
+          ...lap,
+          start_offset_override: change.start_offset_override,
+          end_offset_override: change.end_offset_override,
+        };
+        const applied = applyLapTrim(next);
+        return { ...next, lap_time_ms: applied.lap_time_ms };
+      });
     });
-    window.location.reload();
+    setDirty(true);
   }
 
   function onTrimReset(lapId: string) {
@@ -434,6 +473,57 @@ export function LocalSession({ id }: { id: string }) {
       start_offset_override: null,
       end_offset_override: null,
     });
+  }
+
+  function discardEdits() {
+    setDraftLaps(null);
+    setDraftVideos(null);
+    setDirty(false);
+  }
+
+  function saveEdits() {
+    setSaving(true);
+    try {
+      if (draftLaps) {
+        for (const lap of draftLaps) {
+          const baseline = session.laps.find((row) => row.id === lap.id);
+          if (!baseline) continue;
+          if (
+            (lap.start_offset_override ?? null) !==
+              (baseline.start_offset_override ?? null) ||
+            (lap.end_offset_override ?? null) !==
+              (baseline.end_offset_override ?? null)
+          ) {
+            setLocalLapTrim(sessionId, lap.id, {
+              start_offset_override: lap.start_offset_override ?? null,
+              end_offset_override: lap.end_offset_override ?? null,
+            });
+          }
+          if (
+            Boolean(lap.excluded) !== Boolean(baseline.excluded) ||
+            (lap.exclude_reason ?? null) !== (baseline.exclude_reason ?? null)
+          ) {
+            setLocalLapExcluded(
+              sessionId,
+              lap.id,
+              Boolean(lap.excluded),
+              lap.exclude_reason,
+            );
+          }
+        }
+      }
+      if (draftVideos) {
+        updateLocalSession(sessionId, {
+          videos: draftVideos.filter((v) => v.provider === "youtube"),
+        });
+      }
+      setDraftLaps(null);
+      setDraftVideos(null);
+      setDirty(false);
+      window.location.reload();
+    } finally {
+      setSaving(false);
+    }
   }
 
   function onMergeNext(lapId: string) {

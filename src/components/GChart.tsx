@@ -2,8 +2,10 @@
 
 import { hoverIndex, isSeekPointer } from "@/components/chart-hover";
 import { bindChartScrub } from "@/components/chart-scrub";
+import { HoverCursorLine, useHoverCursor } from "@/components/HoverCursor";
+import { type PlotPad } from "@/components/hover-cursor";
 import { formatG } from "@/lib/format";
-import { useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import {
   CartesianGrid,
   Line,
@@ -21,6 +23,8 @@ const tooltipStyle = {
   borderRadius: 12,
   color: "#fafafa",
 };
+
+export const G_PLOT_PAD: PlotPad = { left: 40, right: 6 };
 
 function gDomain(
   points: { latG?: number; lonG?: number }[],
@@ -64,8 +68,27 @@ function AxisGChart({
   domain: [number, number];
 }) {
   const active = activeIndex != null ? points[activeIndex] : null;
-  const scrub = bindChartScrub(points.length, { onPreviewIndex, onSeekIndex });
+  const hoverCursor = useHoverCursor();
+  const plotRef = useRef<HTMLDivElement | null>(null);
+  const scrub = bindChartScrub(points.length, {
+    onPreviewIndex: hoverCursor ? undefined : onPreviewIndex,
+    onSeekIndex,
+  });
   const value = active ? active[dataKey] : null;
+
+  const driveHover = useCallback(
+    (clientX: number) => {
+      const plot = plotRef.current;
+      if (!plot || !hoverCursor || points.length < 1) return;
+      hoverCursor.move({
+        clientX,
+        plotEl: plot,
+        pad: G_PLOT_PAD,
+        length: points.length,
+      });
+    },
+    [hoverCursor, points.length],
+  );
 
   return (
     <div className="min-w-0">
@@ -77,18 +100,33 @@ function AxisGChart({
           {value != null ? formatG(value, true) : "g"}
         </p>
       </div>
-      <div className={`touch-none ${heightClass}`} {...scrub}>
+      <div
+        ref={plotRef}
+        className={`relative touch-none ${heightClass}`}
+        data-apex-chart-plot={`g-${dataKey}`}
+        {...scrub}
+        onPointerMove={(event) => {
+          scrub.onPointerMove?.(event);
+          if ((event.buttons ?? 0) === 0) driveHover(event.clientX);
+        }}
+        onMouseLeave={() => {
+          if (!hoverCursor) scrub.onMouseLeave?.();
+        }}
+      >
         <ResponsiveContainer width="100%" height="100%">
           <LineChart
             data={points}
             syncId={syncId}
             margin={{ top: 4, right: 6, left: 0, bottom: 0 }}
             onMouseMove={(state) => {
+              if (hoverCursor) return;
               const index = hoverIndex(state);
               if (isSeekPointer(state)) onSeekIndex?.(index);
               else onPreviewIndex?.(index);
             }}
-            onMouseLeave={() => onPreviewIndex?.(null)}
+            onMouseLeave={() => {
+              if (!hoverCursor) onPreviewIndex?.(null);
+            }}
           >
             <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
             <XAxis
@@ -111,7 +149,7 @@ function AxisGChart({
               <ReferenceLine
                 x={active.t}
                 stroke="#e4e4e7"
-                strokeDasharray="3 3"
+                strokeWidth={1.5}
               />
             ) : null}
             <Tooltip
@@ -131,6 +169,7 @@ function AxisGChart({
             />
           </LineChart>
         </ResponsiveContainer>
+        <HoverCursorLine plotRef={plotRef} pad={G_PLOT_PAD} />
       </div>
     </div>
   );

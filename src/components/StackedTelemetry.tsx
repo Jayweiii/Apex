@@ -2,6 +2,7 @@
 
 import { ChannelChart } from "@/components/ChannelChart";
 import { GChart } from "@/components/GChart";
+import { HoverCursorScope } from "@/components/HoverCursor";
 import { SpeedChart } from "@/components/SpeedChart";
 import {
   channelLabel,
@@ -10,7 +11,13 @@ import {
   type TelemetryChannelId,
 } from "@/lib/telemetry-channels";
 import type { TelemetryPoint } from "@/lib/types";
-import type { ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  type ReactNode,
+  type RefObject,
+} from "react";
+import { useHoverCursor } from "@/components/HoverCursor";
 
 const CHANNEL_COLORS = ["#f97316", "#38bdf8", "#a3e635", "#e879f9"] as const;
 
@@ -27,8 +34,12 @@ export function StackedLapTelemetry({
   onTrimBoundaryDrag,
   fallback,
   className,
+  hoverReadoutRef,
+  formatHoverReadout,
+  formatPlaybackReadout,
 }: {
   points: TelemetryPoint[];
+  /** Playback cursor index only — never hover (hover is DOM/rAF). */
   activeIndex?: number | null;
   onPreviewIndex?: (index: number | null) => void;
   onSeekIndex?: (index: number | null) => void;
@@ -38,6 +49,10 @@ export function StackedLapTelemetry({
   /** Used only if channel detection yields nothing (should not happen). */
   fallback?: ReactNode;
   className?: string;
+  /** External readout painted in the same rAF as hover lines. */
+  hoverReadoutRef?: RefObject<HTMLElement | null>;
+  formatHoverReadout?: (index: number) => string;
+  formatPlaybackReadout?: (index: number | null) => string;
 }) {
   const channels = detectLapChannels(points);
   if (!channels.length) return fallback ?? null;
@@ -51,14 +66,26 @@ export function StackedLapTelemetry({
   const hasSpeed = channels.includes("speed");
 
   // Speed ~40% of the panel; remaining channels shorter but readable.
+  // HoverCursorScope: pointer-x SoT, dashed hover lines via rAF, leave only
+  // clears when leaving the whole stack (no inter-chart flicker).
   return (
-    <div className={`flex min-h-0 flex-col gap-2 ${className ?? ""}`}>
+    <HoverCursorScope
+      className={`flex min-h-0 flex-col gap-2 ${className ?? ""}`}
+      playbackIndex={activeIndex}
+      onPreviewIndex={onPreviewIndex}
+    >
+      {hoverReadoutRef && formatHoverReadout && formatPlaybackReadout ? (
+        <HoverReadoutBridge
+          elRef={hoverReadoutRef}
+          formatHover={formatHoverReadout}
+          formatPlayback={formatPlaybackReadout}
+        />
+      ) : null}
       {hasSpeed ? (
         <div className="flex min-h-[140px] basis-[40%] flex-col overflow-hidden">
           <SpeedChart
             points={points}
             activeIndex={activeIndex}
-            onPreviewIndex={onPreviewIndex}
             onSeekIndex={onSeekIndex}
             syncId={syncId}
             trimMarkers={trimMarkers}
@@ -82,7 +109,6 @@ export function StackedLapTelemetry({
             points={points}
             activeIndex={activeIndex}
             activeT={activeT}
-            onPreviewIndex={onPreviewIndex}
             onSeekIndex={onSeekIndex}
             syncId={syncId}
             trimMarkers={trimMarkers}
@@ -90,8 +116,36 @@ export function StackedLapTelemetry({
           />
         ))}
       </div>
-    </div>
+    </HoverCursorScope>
   );
+}
+
+function HoverReadoutBridge({
+  elRef,
+  formatHover,
+  formatPlayback,
+}: {
+  elRef: RefObject<HTMLElement | null>;
+  formatHover: (index: number) => string;
+  formatPlayback: (index: number | null) => string;
+}) {
+  const cursor = useHoverCursor();
+  const hoverRef = useRef(formatHover);
+  const playRef = useRef(formatPlayback);
+  hoverRef.current = formatHover;
+  playRef.current = formatPlayback;
+
+  useEffect(() => {
+    const el = elRef.current;
+    if (!cursor || !el) return;
+    return cursor.attachReadout(
+      el,
+      (index) => hoverRef.current(index),
+      (index) => playRef.current(index),
+    );
+  }, [cursor, elRef]);
+
+  return null;
 }
 
 function LapChannel({
@@ -99,7 +153,6 @@ function LapChannel({
   points,
   activeIndex,
   activeT,
-  onPreviewIndex,
   onSeekIndex,
   syncId,
   trimMarkers,
@@ -109,7 +162,6 @@ function LapChannel({
   points: TelemetryPoint[];
   activeIndex?: number | null;
   activeT: number | null;
-  onPreviewIndex?: (index: number | null) => void;
   onSeekIndex?: (index: number | null) => void;
   syncId: string;
   trimMarkers?: { startT: number; endT: number };
@@ -120,8 +172,7 @@ function LapChannel({
       <SpeedChart
         points={points}
         activeIndex={activeIndex}
-        onPreviewIndex={onPreviewIndex}
-          onSeekIndex={onSeekIndex}
+        onSeekIndex={onSeekIndex}
         syncId={syncId}
         trimMarkers={trimMarkers}
         onTrimBoundaryDrag={onTrimBoundaryDrag}
@@ -134,8 +185,7 @@ function LapChannel({
       <GChart
         points={points as { t: number; latG: number; lonG: number }[]}
         activeIndex={activeIndex}
-        onPreviewIndex={onPreviewIndex}
-          onSeekIndex={onSeekIndex}
+        onSeekIndex={onSeekIndex}
         syncId={syncId}
         compact
       />
@@ -153,8 +203,7 @@ function LapChannel({
           { dataKey: "brake", name: "Brake", stroke: "#f87171" },
         ]}
         activeX={activeT}
-        onPreviewIndex={onPreviewIndex}
-          onSeekIndex={onSeekIndex}
+        onSeekIndex={onSeekIndex}
         syncId={syncId}
       />
     );
@@ -168,8 +217,7 @@ function LapChannel({
         xKey="t"
         series={[{ dataKey: "steering", name: "Steering", stroke: "#38bdf8" }]}
         activeX={activeT}
-        onPreviewIndex={onPreviewIndex}
-          onSeekIndex={onSeekIndex}
+        onSeekIndex={onSeekIndex}
         syncId={syncId}
       />
     );
@@ -185,8 +233,7 @@ function LapChannel({
           { dataKey: "gear", name: "Gear", stroke: "#fbbf24" },
         ]}
         activeX={activeT}
-        onPreviewIndex={onPreviewIndex}
-          onSeekIndex={onSeekIndex}
+        onSeekIndex={onSeekIndex}
         syncId={syncId}
       />
     );
@@ -200,8 +247,7 @@ function LapChannel({
         xKey="t"
         series={[{ dataKey: "heading", name: "Heading", stroke: "#94a3b8" }]}
         activeX={activeT}
-        onPreviewIndex={onPreviewIndex}
-          onSeekIndex={onSeekIndex}
+        onSeekIndex={onSeekIndex}
         syncId={syncId}
       />
     );

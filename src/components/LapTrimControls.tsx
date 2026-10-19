@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  nudgeTrimBound,
+  clampTrimDrag,
   resolveLapTrimBounds,
   type TrimableLap,
 } from "@/lib/lap-trim";
@@ -10,9 +10,12 @@ import { formatLapTime } from "@/lib/format";
 /**
  * Owner controls to nudge / type lap start & end (session-time seconds),
  * reset to auto, and optional merge/split with adjacent laps.
+ * Handles clamp to session data range only (start < end) — not auto bounds.
  */
 export function LapTrimControls({
   lap,
+  sessionMin,
+  sessionMax,
   canMergeNext,
   canSplit,
   previewLapTimeMs,
@@ -23,6 +26,10 @@ export function LapTrimControls({
   busy = false,
 }: {
   lap: TrimableLap;
+  /** Full session telemetry min (session seconds). */
+  sessionMin: number;
+  /** Full session telemetry max (session seconds). */
+  sessionMax: number;
   canMergeNext?: boolean;
   canSplit?: boolean;
   previewLapTimeMs: number;
@@ -37,43 +44,37 @@ export function LapTrimControls({
 }) {
   const bounds = resolveLapTrimBounds(lap);
   const minGap = 1; // seconds
+  const session = { min: sessionMin, max: sessionMax };
 
-  function setStart(next: number) {
-    const clamped = nudgeTrimBound(
-      next,
-      0,
-      bounds.autoStart,
-      bounds.effectiveEnd - minGap,
-    );
+  function publish(start: number, end: number) {
     onChange({
       start_offset_override:
-        Math.abs(clamped - bounds.autoStart) < 0.0005 ? null : clamped,
+        Math.abs(start - bounds.autoStart) < 0.0005 ? null : start,
       end_offset_override:
-        lap.end_offset_override != null
-          ? lap.end_offset_override
-          : Math.abs(bounds.effectiveEnd - bounds.autoEnd) < 0.0005
-            ? null
-            : bounds.effectiveEnd,
+        Math.abs(end - bounds.autoEnd) < 0.0005 ? null : end,
     });
   }
 
-  function setEnd(next: number) {
-    const clamped = nudgeTrimBound(
+  function setStart(next: number) {
+    const clamped = clampTrimDrag(
+      "start",
       next,
-      0,
-      bounds.effectiveStart + minGap,
-      bounds.autoEnd,
+      { start: bounds.effectiveStart, end: bounds.effectiveEnd },
+      session,
+      minGap,
     );
-    onChange({
-      start_offset_override:
-        lap.start_offset_override != null
-          ? lap.start_offset_override
-          : Math.abs(bounds.effectiveStart - bounds.autoStart) < 0.0005
-            ? null
-            : bounds.effectiveStart,
-      end_offset_override:
-        Math.abs(clamped - bounds.autoEnd) < 0.0005 ? null : clamped,
-    });
+    publish(clamped.start, clamped.end);
+  }
+
+  function setEnd(next: number) {
+    const clamped = clampTrimDrag(
+      "end",
+      next,
+      { start: bounds.effectiveStart, end: bounds.effectiveEnd },
+      session,
+      minGap,
+    );
+    publish(clamped.start, clamped.end);
   }
 
   return (
@@ -84,7 +85,7 @@ export function LapTrimControls({
             Lap trim
           </p>
           <p className="mt-1 text-sm text-zinc-400">
-            Adjust splitter start/end · live time{" "}
+            Drag either handle both ways · live time{" "}
             <span className="font-mono text-zinc-200">
               {formatLapTime(previewLapTimeMs)}
             </span>
@@ -93,6 +94,10 @@ export function LapTrimControls({
                 Override
               </span>
             ) : null}
+          </p>
+          <p className="mt-1 text-[11px] text-zinc-600">
+            Session {sessionMin.toFixed(1)}s – {sessionMax.toFixed(1)}s · grey
+            pads are neighbor data
           </p>
         </div>
         <button

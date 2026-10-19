@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 
 export type SessionToolTab = {
   id: string;
@@ -8,162 +8,160 @@ export type SessionToolTab = {
   content: ReactNode;
   /** Highlight when something needs attention (e.g. unsynced video). */
   badge?: string | null;
+  /** Optional short icon glyph (emoji-free text/symbol). */
+  icon?: string;
+};
+
+const DEFAULT_ICONS: Record<string, string> = {
+  reparse: "↻",
+  trim: "✂",
+  sync: "⏯",
+  exclude: "⊘",
+  session: "✎",
+  details: "✎",
+  share: "⇧",
+  notes: "¶",
+  videos: "▶",
 };
 
 /**
- * Secondary session panels (sync, notes, GPS, trim, videos) live here so the
- * core map/video/telemetry dashboard stays one screen. Desktop: side drawer.
- * Mobile: compact tab strip above stacked content.
+ * Clearly visible labeled toolbar on the session page — icon + text buttons
+ * (Re-parse, Trim, Sync video, Exclude, Edit details, Share). Real buttons,
+ * not a hidden drawer toggle. Works on iPhone widths.
  */
 export function SessionToolsPanel({
   tabs,
   defaultTab,
   className,
+  openRequest,
+  toolbarActions,
 }: {
   tabs: SessionToolTab[];
   defaultTab?: string;
   className?: string;
+  /** External toolbar / parent asks to open a tab. */
+  openRequest?: { tab: string; nonce: number } | null;
+  /**
+   * Extra always-visible labeled actions (e.g. Share, Re-parse) that may not
+   * have a panel — shown in the same toolbar row.
+   */
+  toolbarActions?: Array<{
+    id: string;
+    label: string;
+    icon?: string;
+    onClick: () => void;
+    badge?: string | null;
+    emphasize?: boolean;
+  }>;
 }) {
   const baseId = useId();
   const usable = tabs.filter((tab) => tab.content != null);
-  const [open, setOpen] = useState(false);
   const [active, setActive] = useState(
     defaultTab && usable.some((t) => t.id === defaultTab)
       ? defaultTab
       : (usable[0]?.id ?? ""),
   );
+  const [panelOpen, setPanelOpen] = useState(false);
 
-  if (!usable.length) return null;
+  useEffect(() => {
+    if (!openRequest?.tab) return;
+    const id = openRequest.tab === "details" ? "session" : openRequest.tab;
+    if (usable.some((t) => t.id === id)) {
+      setActive(id);
+      setPanelOpen(true);
+    }
+  }, [openRequest?.nonce, openRequest?.tab, usable]);
+
+  if (!usable.length && !(toolbarActions?.length)) return null;
 
   const current = usable.find((tab) => tab.id === active) ?? usable[0];
 
+  function selectTab(id: string) {
+    setActive(id);
+    setPanelOpen(true);
+  }
+
   return (
-    <>
-      {/* Mobile / narrow: inline collapsible tabs */}
-      <div className={`lg:hidden ${className ?? ""}`}>
-        <details className="rounded-xl border border-zinc-800/80 bg-zinc-950/40">
-          <summary className="cursor-pointer list-none px-3 py-2.5 text-[11px] uppercase tracking-[0.16em] text-zinc-400 marker:content-none [&::-webkit-details-marker]:hidden">
-            Tools
-            <span className="ml-2 font-normal normal-case tracking-normal text-zinc-600">
-              sync · trim · notes · video
-            </span>
-          </summary>
-          <div className="border-t border-zinc-900 px-2 pb-3 pt-2">
-            <ToolTabs
-              baseId={`${baseId}-m`}
-              tabs={usable}
-              active={current.id}
-              onChange={setActive}
-            />
-            <div className="mt-2 max-h-[50vh] overflow-y-auto px-1">
-              {current.content}
-            </div>
-          </div>
-        </details>
+    <div className={`shrink-0 ${className ?? ""}`}>
+      <div
+        role="toolbar"
+        aria-label="Session tools"
+        className="flex flex-wrap gap-1.5 rounded-xl border border-zinc-800/80 bg-zinc-950/70 p-1.5"
+      >
+        {usable.map((tab) => {
+          const selected = panelOpen && tab.id === active;
+          const icon = tab.icon ?? DEFAULT_ICONS[tab.id] ?? "·";
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              aria-pressed={selected}
+              onClick={() => selectTab(tab.id)}
+              className={`inline-flex min-h-10 min-w-[4.5rem] flex-1 items-center justify-center gap-1.5 rounded-lg px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] transition sm:flex-none ${
+                selected
+                  ? "bg-orange-500 text-black"
+                  : "border border-zinc-800 bg-zinc-900/80 text-zinc-200 hover:border-zinc-600 hover:text-zinc-50"
+              }`}
+            >
+              <span aria-hidden className="text-sm font-normal">
+                {icon}
+              </span>
+              <span>{tab.label}</span>
+              {tab.badge ? (
+                <span className="rounded bg-black/20 px-1 font-mono text-[10px] normal-case tracking-normal">
+                  {tab.badge}
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
+        {(toolbarActions ?? []).map((action) => {
+          const icon = action.icon ?? DEFAULT_ICONS[action.id] ?? "·";
+          return (
+            <button
+              key={action.id}
+              type="button"
+              onClick={action.onClick}
+              className={`inline-flex min-h-10 min-w-[4.5rem] flex-1 items-center justify-center gap-1.5 rounded-lg px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] transition sm:flex-none ${
+                action.emphasize
+                  ? "bg-orange-500 text-black hover:bg-orange-400"
+                  : "border border-zinc-800 bg-zinc-900/80 text-zinc-200 hover:border-zinc-600 hover:text-zinc-50"
+              }`}
+            >
+              <span aria-hidden className="text-sm font-normal">
+                {icon}
+              </span>
+              <span>{action.label}</span>
+              {action.badge ? (
+                <span className="rounded bg-black/20 px-1 font-mono text-[10px] normal-case tracking-normal">
+                  {action.badge}
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
       </div>
 
-      {/* Desktop: edge button + slide-over drawer */}
-      <div className={`hidden lg:block ${className ?? ""}`}>
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className="fixed right-3 top-1/2 z-30 -translate-y-1/2 rounded-l-lg border border-r-0 border-zinc-700 bg-zinc-950/95 px-2 py-3 text-[10px] uppercase tracking-[0.16em] text-zinc-300 shadow-lg hover:border-orange-500/50 hover:text-orange-300"
-          aria-expanded={open}
-          aria-controls={`${baseId}-drawer`}
+      {panelOpen && current ? (
+        <div
+          id={`${baseId}-panel`}
+          className="mt-2 max-h-[min(50vh,24rem)] overflow-y-auto rounded-xl border border-zinc-800/80 bg-zinc-950/80 p-3"
         >
-          Tools
-          {usable.some((t) => t.badge) ? (
-            <span className="mt-1 block h-1.5 w-1.5 rounded-full bg-orange-400" />
-          ) : null}
-        </button>
-
-        {open ? (
-          <button
-            type="button"
-            className="fixed inset-0 z-40 bg-black/50"
-            aria-label="Close tools"
-            onClick={() => setOpen(false)}
-          />
-        ) : null}
-
-        <aside
-          id={`${baseId}-drawer`}
-          className={`fixed right-0 top-0 z-50 flex h-full w-[min(100vw,22rem)] flex-col border-l border-zinc-800 bg-zinc-950 shadow-2xl transition-transform duration-200 ${
-            open ? "translate-x-0" : "translate-x-full"
-          }`}
-          aria-hidden={!open}
-        >
-          <div className="flex items-center justify-between border-b border-zinc-900 px-3 py-2.5">
+          <div className="mb-2 flex items-center justify-between gap-2">
             <p className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">
-              Session tools
+              {current.label}
             </p>
             <button
               type="button"
-              onClick={() => setOpen(false)}
+              onClick={() => setPanelOpen(false)}
               className="rounded-md px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"
             >
               Close
             </button>
           </div>
-          <div className="border-b border-zinc-900 px-2 py-2">
-            <ToolTabs
-              baseId={`${baseId}-d`}
-              tabs={usable}
-              active={current.id}
-              onChange={setActive}
-            />
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-            {current.content}
-          </div>
-        </aside>
-      </div>
-    </>
-  );
-}
-
-function ToolTabs({
-  baseId,
-  tabs,
-  active,
-  onChange,
-}: {
-  baseId: string;
-  tabs: SessionToolTab[];
-  active: string;
-  onChange: (id: string) => void;
-}) {
-  return (
-    <div
-      role="tablist"
-      aria-label="Session tools"
-      className="flex flex-wrap gap-1"
-    >
-      {tabs.map((tab) => {
-        const selected = tab.id === active;
-        return (
-          <button
-            key={tab.id}
-            type="button"
-            role="tab"
-            id={`${baseId}-${tab.id}`}
-            aria-selected={selected}
-            onClick={() => onChange(tab.id)}
-            className={`inline-flex min-h-8 items-center gap-1.5 rounded-md px-2.5 text-[11px] uppercase tracking-[0.12em] transition ${
-              selected
-                ? "bg-orange-500/20 text-orange-200"
-                : "text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300"
-            }`}
-          >
-            {tab.label}
-            {tab.badge ? (
-              <span className="rounded bg-orange-500/30 px-1 font-mono text-[10px] normal-case tracking-normal text-orange-200">
-                {tab.badge}
-              </span>
-            ) : null}
-          </button>
-        );
-      })}
+          {current.content}
+        </div>
+      ) : null}
     </div>
   );
 }

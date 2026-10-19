@@ -112,6 +112,8 @@ export function SyncedLapView({
   layout = "stack",
   sidebar,
   extraToolTabs,
+  chartOverride,
+  toolsOpenRequest,
 }: {
   sessionId?: string;
   lap: {
@@ -154,6 +156,16 @@ export function SyncedLapView({
   sidebar?: ReactNode;
   /** Secondary panels (trim, notes, GPS, videos) for the tools drawer. */
   extraToolTabs?: SessionToolTab[];
+  /**
+   * When trimming, chart uses padded session context (grey neighbors) while
+   * map/playback keep the effective trimmed lap.
+   */
+  chartOverride?: {
+    points: TelemetryPoint[];
+    trimMarkers?: { startT: number; endT: number };
+  } | null;
+  /** Toolbar requests opening a tools tab. */
+  toolsOpenRequest?: { tab: string; nonce: number } | null;
 }) {
   const centerline = useMemo(
     () =>
@@ -173,10 +185,17 @@ export function SyncedLapView({
     setMode: setAnalysisMode,
     hasSnap: hasAnalysisSnap,
   } = useAnalysisMode(Boolean(centerline));
-  const chartData = useMemo(
-    () => enrichTelemetry(analysisPoints(matched, lap.telemetry, analysisMode)),
-    [matched, lap.telemetry, analysisMode],
-  );
+  const chartData = useMemo(() => {
+    if (chartOverride?.points?.length) {
+      return enrichTelemetry(chartOverride.points);
+    }
+    return enrichTelemetry(
+      analysisPoints(matched, lap.telemetry, analysisMode),
+    );
+  }, [chartOverride, matched, lap.telemetry, analysisMode]);
+
+  const effectiveTrimMarkers =
+    chartOverride?.trimMarkers ?? trimMarkers ?? undefined;
   const data = useMemo(
     () =>
       enrichTelemetry(
@@ -404,15 +423,68 @@ export function SyncedLapView({
   );
 
   const [previewProgress, setPreviewProgress] = useState<number | null>(null);
-  const displayProgress = previewProgress ?? clock.progress;
-  const index =
-    chartData.length < 2
-      ? null
-      : Math.round(displayProgress * (chartData.length - 1));
-  const cursorPoint =
-    index != null && chartData[Math.round(index)]
-      ? chartData[Math.round(index)]
-      : null;
+  const hoverReadoutRef = useRef<HTMLSpanElement | null>(null);
+
+  /** Map playback 0..1 onto padded chart index when trim context is shown. */
+  const indexFromLapProgress = useCallback(
+    (progress: number) => {
+      if (chartData.length < 2) return null;
+      if (effectiveTrimMarkers) {
+        const span = Math.max(
+          1e-6,
+          effectiveTrimMarkers.endT - effectiveTrimMarkers.startT,
+        );
+        const targetT =
+          effectiveTrimMarkers.startT +
+          Math.min(1, Math.max(0, progress)) * span;
+        let best = 0;
+        let bestDist = Infinity;
+        for (let i = 0; i < chartData.length; i += 1) {
+          const dist = Math.abs(chartData[i].t - targetT);
+          if (dist < bestDist) {
+            bestDist = dist;
+            best = i;
+          }
+        }
+        return best;
+      }
+      return Math.round(progress * (chartData.length - 1));
+    },
+    [chartData, effectiveTrimMarkers],
+  );
+
+  const lapProgressFromChartIndex = useCallback(
+    (next: number | null) => {
+      if (next == null || chartData.length < 2) return null;
+      if (effectiveTrimMarkers) {
+        const point = chartData[Math.min(chartData.length - 1, Math.max(0, next))];
+        if (!point) return null;
+        const span = Math.max(
+          1e-6,
+          effectiveTrimMarkers.endT - effectiveTrimMarkers.startT,
+        );
+        return Math.min(
+          1,
+          Math.max(0, (point.t - effectiveTrimMarkers.startT) / span),
+        );
+      }
+      return progressFromIndex(next, chartData.length);
+    },
+    [chartData, effectiveTrimMarkers],
+  );
+
+  // Playback solid cursor only — hover dashed line is DOM/rAF (ignores
+  // clock/video timeupdate while the pointer is over the chart stack).
+  const playbackIndex = indexFromLapProgress(clock.progress);
+  const formatCursorReadout = useCallback(
+    (index: number | null) => {
+      if (index == null) return "";
+      const point = chartData[index];
+      if (!point) return "";
+      return `${formatMph(point.speed)} · ${formatKmh(point.speed)}`;
+    },
+    [chartData],
+  );
   const deltaVsBest =
     bestLapMs != null ? (lap.lap_time_ms - bestLapMs) / 1000 : null;
 
@@ -431,23 +503,22 @@ export function SyncedLapView({
 
   const previewFromChart = useCallback(
     (next: number | null) => {
-      setPreviewProgress(progressFromIndex(next, chartData.length));
+      setPreviewProgress(lapProgressFromChartIndex(next));
     },
-    [chartData.length],
+    [lapProgressFromChartIndex],
   );
 
   const seekFromChart = useCallback(
     (next: number | null) => {
-      const nextProgress = progressFromIndex(next, chartData.length);
+      const nextProgress = lapProgressFromChartIndex(next);
       if (nextProgress == null) return;
       setProgressFromUi(nextProgress);
     },
-    [chartData.length, setProgressFromUi],
+    [lapProgressFromChartIndex, setProgressFromUi],
   );
 
   const chartLapTimeSec =
-    clock.progress *
-    (chartData[chartData.length - 1]?.t ?? lap.lap_time_ms / 1000);
+    clock.progress * (lap.lap_time_ms / 1000);
 
   const mapProps = {
     centerline,
@@ -564,11 +635,11 @@ export function SyncedLapView({
       <span className="font-mono text-zinc-200">
         {formatLapTime(lap.lap_time_ms)}
       </span>
-      {cursorPoint ? (
-        <span>
-          {formatMph(cursorPoint.speed)} · {formatKmh(cursorPoint.speed)}
-        </span>
-      ) : null}
+      <span
+        ref={hoverReadoutRef}
+        data-apex-hover-readout="1"
+        className="font-mono"
+      />
       {deltaVsBest != null ? (
         <span>Δ best {formatGap(deltaVsBest)}</span>
       ) : null}
@@ -625,14 +696,17 @@ export function SyncedLapView({
   const telemetry = (
     <StackedLapTelemetry
       points={chartData}
-      activeIndex={index}
+      activeIndex={playbackIndex}
       onPreviewIndex={previewFromChart}
       onSeekIndex={seekFromChart}
       syncId="lap-detail"
-      trimMarkers={trimMarkers ?? undefined}
+      trimMarkers={effectiveTrimMarkers}
       onTrimBoundaryDrag={onTrimBoundaryDrag}
       fallback={null}
       className={workspace ? "h-full" : undefined}
+      hoverReadoutRef={hoverReadoutRef}
+      formatHoverReadout={(i) => formatCursorReadout(i)}
+      formatPlaybackReadout={formatCursorReadout}
     />
   );
 
@@ -640,7 +714,7 @@ export function SyncedLapView({
   if (syncPanel) {
     toolTabs.push({
       id: "sync",
-      label: "Sync",
+      label: "Sync video",
       content: syncPanel,
       badge: activeVideo && !locked ? "!" : null,
     });
@@ -675,7 +749,11 @@ export function SyncedLapView({
         </div>
 
         {toolTabs.length ? (
-          <SessionToolsPanel tabs={toolTabs} defaultTab="sync" />
+          <SessionToolsPanel
+            tabs={toolTabs}
+            defaultTab="sync"
+            openRequest={toolsOpenRequest}
+          />
         ) : null}
       </div>
     );
@@ -725,7 +803,11 @@ export function SyncedLapView({
       </div>
 
       {toolTabs.length ? (
-        <SessionToolsPanel tabs={toolTabs} defaultTab="sync" />
+        <SessionToolsPanel
+          tabs={toolTabs}
+          defaultTab="sync"
+          openRequest={toolsOpenRequest}
+        />
       ) : syncPanel ? (
         syncPanel
       ) : null}
