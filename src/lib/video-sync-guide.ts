@@ -7,7 +7,6 @@ const SYNCED_SOURCES: ReadonlySet<VideoSyncSource> = new Set([
   "manual",
   "auto",
   "time_of_day",
-  // lap_match is catalog attach-only — not a user point-match yet
 ]);
 
 /** True when the clip has a saved point-match (or other) sync, not only an attach. */

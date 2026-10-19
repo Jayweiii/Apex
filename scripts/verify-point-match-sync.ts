@@ -13,6 +13,8 @@ import {
 } from "../src/lib/video-sync-guide";
 import { offsetForSessionMoment } from "../src/lib/sync-events";
 import type { SessionVideo } from "../src/lib/types";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -42,6 +44,10 @@ const unsynced: SessionVideo = {
 };
 assert(!isVideoSynced(unsynced), "unsynced not locked");
 assert(syncBadgeForVideo(unsynced).label === "Not synced", "badge not synced");
+assert(
+  !isVideoSynced({ ...unsynced, syncSource: "lap_match" }),
+  "lap_match attach-only",
+);
 
 const synced: SessionVideo = {
   ...unsynced,
@@ -58,18 +64,9 @@ assert(
 
 // --- guide steps ---
 assert(SYNC_GUIDE_STEPS.length === 4, "four steps");
-assert(
-  SYNC_GUIDE_STEPS[0].label.includes("Pick lap"),
-  "step1 copy",
-);
-assert(
-  SYNC_GUIDE_STEPS[1].label.includes("speed chart"),
-  "step2 copy",
-);
-assert(
-  SYNC_GUIDE_STEPS[2].label.includes("Pause video"),
-  "step3 copy",
-);
+assert(SYNC_GUIDE_STEPS[0].label.includes("Pick lap"), "step1 copy");
+assert(SYNC_GUIDE_STEPS[1].label.includes("speed chart"), "step2 copy");
+assert(SYNC_GUIDE_STEPS[2].label.includes("Pause video"), "step3 copy");
 assert(SYNC_GUIDE_STEPS[3].label === "Sync here", "step4 copy");
 
 assert(syncGuideStepForVideo(null) === 1, "no clip → step 1");
@@ -88,9 +85,25 @@ assert(
 const guessed = guessOffsetFromClipLength(150, 120_000, 0);
 assert(guessed != null && Math.abs(guessed - 15) < 1e-9, `guess ${guessed}`);
 
-assert(
-  formatOffsetReadout(12, 0).includes("before"),
-  "readout before",
+assert(formatOffsetReadout(12, 0).includes("before"), "readout before");
+
+const guideSrc = readFileSync(
+  resolve(import.meta.dirname, "../src/components/video/LapVideoSyncGuide.tsx"),
+  "utf8",
 );
+assert(guideSrc.includes("Sync here"), "Sync here button");
+assert(guideSrc.includes("offsetFromPointMatch"), "point-match math");
+assert(guideSrc.includes("Auto-guess"), "auto-guess");
+assert(guideSrc.includes("How syncing works"), "help link");
+assert(!guideSrc.includes("Mark start line here"), "no mark-start CTA");
+
+const syncedSrc = readFileSync(
+  resolve(import.meta.dirname, "../src/components/video/SyncedLapView.tsx"),
+  "utf8",
+);
+assert(syncedSrc.includes("isVideoSynced"), "lock gate");
+assert(syncedSrc.includes("chartLapTimeSec"), "chart pin wiring");
+assert(syncedSrc.includes("Sync setup · video free"), "setup badge");
+assert(syncedSrc.includes("onStartsAtLapChange"), "starts-at-lap wiring");
 
 console.log("verify-point-match-sync: ok");

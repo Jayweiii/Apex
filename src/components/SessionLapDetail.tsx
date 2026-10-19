@@ -330,7 +330,7 @@ export function SessionLapDetail({
                   lapIndex: lap.lap_number,
                   offsetSec: 0,
                   rate: 1,
-                  // Fresh paste starts unsynced until Mark start line.
+                  // Fresh paste starts unsynced until point-match Sync here.
                   syncSource: "unsynced",
                 };
                 onVideoChange(next);

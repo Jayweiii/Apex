@@ -106,7 +106,7 @@ export function SyncedLapView({
   /** Optional trim markers on the speed chart (lap-local seconds). */
   trimMarkers?: { startT: number; endT: number } | null;
   onTrimBoundaryDrag?: (which: "start" | "end", lapLocalT: number) => void;
-  /** Paste a YouTube URL for this lap from the guided sync stepper. */
+  /** Paste a YouTube URL for this lap from the point-match stepper. */
   onAttachYouTube?: (input: {
     youtubeId: string;
     youtubeUrl: string;
@@ -572,6 +572,21 @@ export function SyncedLapView({
             lap_time_ms: item.lap_time_ms,
           }))}
           startsAtLapNumber={lap.lap_number}
+          onStartsAtLapChange={
+            sessionId
+              ? (lapNumber) => {
+                  const target = siblingLaps.find(
+                    (item) => item.lap_number === lapNumber,
+                  );
+                  if (!target || target.id === lap.id) return;
+                  window.location.assign(
+                    sessionLapHref(sessionId, target, {
+                      videoId: activeVideo?.id,
+                    }),
+                  );
+                }
+              : undefined
+          }
           onChange={onVideoChange ? handleVideoChange : undefined}
           onSeek={(t) => {
             // Independent seek during setup; after sync still allow fine nudge.

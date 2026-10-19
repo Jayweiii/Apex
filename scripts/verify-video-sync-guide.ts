@@ -1,5 +1,5 @@
 /**
- * Guided sync UI helpers — point-matching stepper (Jason).
+ * Point-match guide surface: badges, readout, stepper copy, Sync here CTA.
  */
 import {
   formatOffsetReadout,
@@ -88,10 +88,14 @@ const guideSrc = readFileSync(
   "utf8",
 );
 assert(guideSrc.includes("Sync here"), "big sync button");
-assert(!guideSrc.includes("Mark start line here"), "no start-line CTA");
+assert(!guideSrc.includes("Mark start line here"), "no mark-start");
 assert(guideSrc.includes("How syncing works"), "help link");
 assert(guideSrc.includes("Auto-guess"), "auto-guess");
-assert(guideSrc.includes("Play map + video"), "check play");
-assert(guideSrc.includes("offsetFromPointMatch") || guideSrc.includes("offset = video"), "point math");
+assert(guideSrc.includes("Play map + video"), "two-way play");
+assert(guideSrc.includes("This video starts at lap"), "session starts-at");
+assert(
+  guideSrc.includes("offsetFromPointMatch") || guideSrc.includes("offset = video"),
+  "point math",
+);
 
 console.log("verify-video-sync-guide: ok");
