@@ -23,6 +23,12 @@ assert(
   fixtureLaps.every((l) => l.points.some((p) => p.lat != null)),
   "fixture laps should keep GPS",
 );
+assert(
+  fixtureLaps.every((l) =>
+    l.points.some((p) => p.latG != null && p.lonG != null),
+  ),
+  "TrackAddict Accel X/Y should map to latG/lonG",
+);
 
 // Absolute UTC Time column must drive startedAtMs (not the elapsed Time column).
 assert(

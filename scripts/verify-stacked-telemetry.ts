@@ -118,6 +118,52 @@ assert(
   stackedSrc.includes("export function StackedCompareTelemetry"),
   "StackedCompareTelemetry must be exported",
 );
+assert(
+  stackedSrc.includes("basis-[40%]"),
+  "speed channel should claim ~40% of telemetry panel height",
+);
+assert(stackedSrc.includes("fill"), "speed chart should fill its flex slot");
+
+const gChartSrc = fs.readFileSync(
+  path.join(root, "src/components/GChart.tsx"),
+  "utf8",
+);
+assert(gChartSrc.includes("Lateral G"), "G chart stacks lateral");
+assert(gChartSrc.includes("Longitudinal G"), "G chart stacks longitudinal");
+
+const speedChartSrc = fs.readFileSync(
+  path.join(root, "src/components/SpeedChart.tsx"),
+  "utf8",
+);
+assert(
+  speedChartSrc.includes("speedAxisDomain"),
+  "speed chart auto-scales y domain",
+);
+
+// TrackAddict Accel X/Y → latG/lonG
+const taPath = path.join(root, "src/lib/fixtures/trackaddict-snippet.csv");
+const ta = parseTelemetryCsv(fs.readFileSync(taPath, "utf8"));
+assert(
+  ta.laps.some((lap) =>
+    lap.points.some((p) => p.latG != null && p.lonG != null),
+  ),
+  "TrackAddict Accel columns should populate G",
+);
+
+// Thunderhill GoPro GPS fixture: derive G when ACCL absent.
+const thPath = path.join(
+  root,
+  "src/lib/fixtures/gopro-thunderhill-west-session-gps.json",
+);
+if (fs.existsSync(thPath)) {
+  const th = JSON.parse(fs.readFileSync(thPath, "utf8")) as {
+    points: TelemetryPoint[];
+  };
+  const derived = enrichTelemetry(th.points.slice(200, 500));
+  assert(detectLapChannels(derived).includes("g"), "Thunderhill derived G");
+  const peakLon = Math.max(...derived.map((p) => Math.abs(p.lonG)));
+  assert(peakLon > 0.05, `Thunderhill long G should move (peak ${peakLon})`);
+}
 
 const synced = fs.readFileSync(
   path.join(root, "src/components/video/SyncedLapView.tsx"),

@@ -2,7 +2,7 @@
 
 import { hoverIndex, isSeekPointer } from "@/components/chart-hover";
 import { bindChartScrub } from "@/components/chart-scrub";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -21,6 +21,28 @@ const tooltipStyle = {
   color: "#fafafa",
 };
 
+/** Auto-scale speed axis to data min–max with padding (readable ticks). */
+export function speedAxisDomain(
+  points: { speed: number }[],
+  padFrac = 0.08,
+): [number, number] {
+  if (!points.length) return [0, 100];
+  let min = Infinity;
+  let max = -Infinity;
+  for (const point of points) {
+    if (!Number.isFinite(point.speed)) continue;
+    if (point.speed < min) min = point.speed;
+    if (point.speed > max) max = point.speed;
+  }
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return [0, 100];
+  if (max - min < 1) {
+    min = Math.max(0, min - 5);
+    max = max + 5;
+  }
+  const pad = Math.max(2, (max - min) * padFrac);
+  return [Math.max(0, Math.floor(min - pad)), Math.ceil(max + pad)];
+}
+
 export function SpeedChart({
   points,
   activeIndex = null,
@@ -30,17 +52,18 @@ export function SpeedChart({
   trimMarkers,
   onTrimBoundaryDrag,
   compact = false,
+  fill = false,
 }: {
   points: { t: number; speed: number }[];
   activeIndex?: number | null;
   onPreviewIndex?: (index: number | null) => void;
   onSeekIndex?: (index: number | null) => void;
   syncId?: string;
-  /** Lap-local time markers for start/end trim (drag when onTrimBoundaryDrag set). */
   trimMarkers?: { startT: number; endT: number };
   onTrimBoundaryDrag?: (which: "start" | "end", lapLocalT: number) => void;
-  /** Short height for stacked telemetry columns. */
   compact?: boolean;
+  /** Grow to fill flex parent (speed hero ~40% of stacked panel). */
+  fill?: boolean;
 }) {
   const active = activeIndex != null ? points[activeIndex] : null;
   const scrub = bindChartScrub(points.length, {
@@ -49,14 +72,20 @@ export function SpeedChart({
   });
   const [dragging, setDragging] = useState<"start" | "end" | null>(null);
   const chartWrapRef = useRef<HTMLDivElement | null>(null);
+  const domain = useMemo(() => speedAxisDomain(points), [points]);
+
+  const bodyHeight = fill
+    ? "h-full min-h-[120px]"
+    : compact
+      ? "h-[72px]"
+      : "h-[200px] sm:h-[260px]";
 
   const tAtClientX = useCallback(
     (clientX: number) => {
       const el = chartWrapRef.current;
       if (!el || points.length < 2) return null;
       const rect = el.getBoundingClientRect();
-      // Account for YAxis width (~42) + margin
-      const leftPad = 42;
+      const leftPad = 48;
       const rightPad = 8;
       const usable = Math.max(1, rect.width - leftPad - rightPad);
       const x = Math.min(usable, Math.max(0, clientX - rect.left - leftPad));
@@ -67,7 +96,7 @@ export function SpeedChart({
     [points],
   );
 
-  const onPointerMove = useCallback(
+  const onTrimPointerMove = useCallback(
     (event: React.PointerEvent) => {
       if (!dragging || !onTrimBoundaryDrag) return;
       const t = tAtClientX(event.clientX);
@@ -79,13 +108,13 @@ export function SpeedChart({
 
   return (
     <div
-      className={`w-full max-w-full overflow-hidden border border-zinc-800/80 bg-zinc-950/40 ${
+      className={`flex w-full max-w-full flex-col overflow-hidden border border-zinc-800/80 bg-zinc-950/40 ${
         compact
           ? "rounded-xl px-2.5 py-2"
           : "h-[260px] rounded-2xl p-3 sm:h-[320px] sm:p-4"
-      }`}
+      } ${fill ? "min-h-0 flex-1" : ""}`}
     >
-      <div className="mb-1 flex items-baseline justify-between gap-2">
+      <div className="mb-1 flex shrink-0 items-baseline justify-between gap-2">
         <p className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">
           Speed
         </p>
@@ -98,19 +127,23 @@ export function SpeedChart({
       </div>
       <div
         ref={chartWrapRef}
-        className={`relative touch-none ${
-          compact ? "h-[64px]" : "h-[200px] sm:h-[260px]"
-        }`}
+        className={`relative min-h-0 flex-1 touch-none ${bodyHeight}`}
         {...(dragging ? {} : scrub)}
-        onPointerMove={onPointerMove}
+        onPointerMove={(event) => {
+          if (dragging) onTrimPointerMove(event);
+          else scrub.onPointerMove?.(event);
+        }}
         onPointerUp={() => setDragging(null)}
-        onPointerLeave={() => setDragging(null)}
+        onPointerLeave={() => {
+          setDragging(null);
+          if (!dragging) scrub.onMouseLeave?.();
+        }}
       >
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart
             data={points}
             syncId={syncId}
-            margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
+            margin={{ top: 8, right: 8, left: 0, bottom: 4 }}
             onMouseMove={(state) => {
               if (dragging) return;
               const index = hoverIndex(state);
@@ -133,14 +166,17 @@ export function SpeedChart({
               type="number"
               tickFormatter={(value: number) => `${value.toFixed(0)}s`}
               stroke="#71717a"
-              tick={{ fill: "#71717a", fontSize: 12 }}
+              tick={{ fill: "#71717a", fontSize: 11 }}
+              height={18}
             />
             <YAxis
               dataKey="speed"
+              domain={domain}
               stroke="#71717a"
-              tick={{ fill: "#71717a", fontSize: 12 }}
+              tick={{ fill: "#71717a", fontSize: 11 }}
               tickFormatter={(value: number) => `${Math.round(value)}`}
-              width={42}
+              width={48}
+              allowDataOverflow
             />
             <Tooltip
               cursor={false}
@@ -207,7 +243,6 @@ function TrimHandles({
   onEndDrag: () => void;
 }) {
   const span = Math.max(1e-6, lastT - firstT);
-  // Approximate Recharts plot inset (Y-axis ~42px, right margin ~8px).
   const startFrac = (startT - firstT) / span;
   const endFrac = (endT - firstT) / span;
   return (
@@ -217,7 +252,7 @@ function TrimHandles({
         aria-label="Drag lap start"
         className="absolute top-0 z-10 h-full w-3 -translate-x-1/2 cursor-ew-resize bg-sky-400/20 hover:bg-sky-400/35"
         style={{
-          left: `calc(42px + (100% - 50px) * ${startFrac})`,
+          left: `calc(48px + (100% - 56px) * ${startFrac})`,
         }}
         onPointerDown={(event) => {
           event.preventDefault();
@@ -231,7 +266,7 @@ function TrimHandles({
         aria-label="Drag lap end"
         className="absolute top-0 z-10 h-full w-3 -translate-x-1/2 cursor-ew-resize bg-violet-400/20 hover:bg-violet-400/35"
         style={{
-          left: `calc(42px + (100% - 50px) * ${endFrac})`,
+          left: `calc(48px + (100% - 56px) * ${endFrac})`,
         }}
         onPointerDown={(event) => {
           event.preventDefault();

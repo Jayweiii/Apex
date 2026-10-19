@@ -6,6 +6,7 @@ import {
   type GpsQuality,
 } from "./gps-quality";
 import { detectNearestTrack } from "./detect-track";
+import { enrichTelemetry } from "./gforce";
 import type { LatLon } from "./map-match";
 import { splitLapsByStartFinish } from "./split-laps";
 import { resolveTrackCenterline } from "./cloud-tracks";
@@ -71,7 +72,9 @@ function readGpsStream(streams: Record<string, unknown>) {
 }
 
 function readAccelStream(streams: Record<string, unknown>) {
-  return (streams.ACCL || streams.ACCEL) as { samples?: AccelSample[] } | undefined;
+  return (streams.ACCL || streams.ACCLs || streams.ACCEL || streams.ACCE) as
+    | { samples?: AccelSample[] }
+    | undefined;
 }
 
 function readGyroStream(streams: Record<string, unknown>) {
@@ -445,11 +448,10 @@ export async function parseGoProRawData(
       });
     }) ?? [];
 
-  const { points, bestFix, avgPrecisionP100 } = pointsFromGpsSamples(
-    gpsSamples,
-    accelPoints,
-    fixMin,
-  );
+  const built = pointsFromGpsSamples(gpsSamples, accelPoints, fixMin);
+  // Bake lat/long G: ACCL when present, else d(v)/dt + v·yaw from GPS track.
+  const points = enrichTelemetry(built.points);
+  const { bestFix, avgPrecisionP100 } = built;
 
   if (points.length < 10) {
     throw new Error(GOPRO_NO_FIX_MESSAGE);

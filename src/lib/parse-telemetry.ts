@@ -37,8 +37,12 @@ const LAT_G_KEYS = [
   "lateral_g",
   "g_lat",
   "lateral_accel",
+  "lateral_acceleration",
+  "lat_accel",
+  "lat_acc",
   "gps_latacc",
   "accel_y",
+  "acc_y",
   "ay",
 ];
 const LON_G_KEYS = [
@@ -48,8 +52,13 @@ const LON_G_KEYS = [
   "longitudinal_g",
   "g_long",
   "long_accel",
+  "long_acceleration",
+  "longitudinal_accel",
+  "lon_accel",
+  "lon_acc",
   "gps_lonacc",
   "accel_x",
+  "acc_x",
   "ax",
 ];
 const THROTTLE_KEYS = [
