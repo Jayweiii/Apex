@@ -31,42 +31,49 @@ export function LeaderboardPanel({
           const {
             data: { user },
           } = await supabase.auth.getUser();
-          if (user) {
-            let query = supabase
-              .from("sessions")
-              .select("id, name, track_id, car, car_class, driver_name, tires, weather")
-              .order("created_at", { ascending: false })
-              .limit(100);
-            if (trackId) query = query.eq("track_id", trackId);
-            const { data: sessions } = await query;
-            const ids = (sessions ?? []).map((s) => s.id);
-            if (ids.length) {
-              const { data: laps } = await supabase
-                .from("laps")
-                .select("session_id, lap_time_ms")
-                .in("session_id", ids);
-              const bestBySession = new Map<string, number>();
-              for (const lap of laps ?? []) {
-                const current = bestBySession.get(lap.session_id);
-                if (current == null || lap.lap_time_ms < current) {
-                  bestBySession.set(lap.session_id, lap.lap_time_ms);
-                }
+          // RLS: signed-out sees public; signed-in sees own + friends + public.
+          let query = supabase
+            .from("sessions")
+            .select("id, name, track_id, car, car_class, driver_name, tires, weather")
+            .order("created_at", { ascending: false })
+            .limit(100);
+          if (trackId) query = query.eq("track_id", trackId);
+          const { data: sessions } = await query;
+          const ids = (sessions ?? []).map((s) => s.id);
+          if (ids.length) {
+            const { data: laps } = await supabase
+              .from("laps")
+              .select("session_id, lap_time_ms")
+              .in("session_id", ids);
+            const bestBySession = new Map<string, number>();
+            for (const lap of laps ?? []) {
+              const current = bestBySession.get(lap.session_id);
+              if (current == null || lap.lap_time_ms < current) {
+                bestBySession.set(lap.session_id, lap.lap_time_ms);
               }
-              cloud = (sessions ?? [])
-                .filter((session) => session.track_id && bestBySession.has(session.id))
-                .map((session) => ({
-                  trackId: session.track_id as string,
-                  carClass: session.car_class || "Open",
-                  driver: session.driver_name || "Unknown",
-                  car: session.car || "Unknown",
-                  bestMs: bestBySession.get(session.id)!,
-                  sessionId: session.id,
-                  sessionName: session.name,
-                  tires: session.tires ?? undefined,
-                  weather: session.weather ?? undefined,
-                }));
             }
-            if (!cancelled) setSourceNote("your account + this browser");
+            cloud = (sessions ?? [])
+              .filter((session) => session.track_id && bestBySession.has(session.id))
+              .map((session) => ({
+                trackId: session.track_id as string,
+                carClass: session.car_class || "Open",
+                driver: session.driver_name || "Unknown",
+                car: session.car || "Unknown",
+                bestMs: bestBySession.get(session.id)!,
+                sessionId: session.id,
+                sessionName: session.name,
+                tires: session.tires ?? undefined,
+                weather: session.weather ?? undefined,
+              }));
+          }
+          if (!cancelled) {
+            setSourceNote(
+              user
+                ? "your account + public + this browser"
+                : cloud.length
+                  ? "public sessions + this browser"
+                  : "this browser",
+            );
           }
         } catch {
           // keep local only

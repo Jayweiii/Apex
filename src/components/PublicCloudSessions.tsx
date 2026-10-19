@@ -17,10 +17,10 @@ type PublicRow = {
 };
 
 /**
- * Cloud sessions with visibility=public — visible signed-out once the
- * visibility RLS migration is applied.
+ * Cloud sessions with visibility=public — visible signed-out (anon RLS).
+ * Optional trackId filters the list for track detail pages.
  */
-export function PublicCloudSessions() {
+export function PublicCloudSessions({ trackId }: { trackId?: string }) {
   const [rows, setRows] = useState<PublicRow[] | null>(null);
   const [unavailable, setUnavailable] = useState(false);
 
@@ -33,12 +33,14 @@ export function PublicCloudSessions() {
       }
       try {
         const supabase = createClient();
-        const { data, error } = await supabase
+        let query = supabase
           .from("sessions")
           .select("id, name, track_id, car, driver_name, created_at")
           .eq("visibility", "public")
           .order("created_at", { ascending: false })
           .limit(20);
+        if (trackId) query = query.eq("track_id", trackId);
+        const { data, error } = await query;
         if (cancelled) return;
         if (error) {
           // Column / RLS not migrated yet — hide section quietly.
@@ -84,12 +86,9 @@ export function PublicCloudSessions() {
       cancelled = true;
       window.cancelAnimationFrame(frame);
     };
-  }, []);
+  }, [trackId]);
 
   if (unavailable || rows === null) {
-    if (rows === null) {
-      return null;
-    }
     return null;
   }
   if (rows.length === 0) return null;
@@ -97,9 +96,11 @@ export function PublicCloudSessions() {
   return (
     <section className="flex flex-col gap-3">
       <div>
-        <h2 className="text-sm font-medium text-zinc-200">Public sessions</h2>
+        <h2 className="text-sm font-medium text-zinc-200">
+          {trackId ? "Public sessions at this track" : "Public sessions"}
+        </h2>
         <p className="mt-1 text-sm text-zinc-500">
-          Shared by Apex drivers with a public link.
+          Shared by Apex drivers with a public link — no sign-in required.
         </p>
       </div>
       <ul className="grid gap-3">

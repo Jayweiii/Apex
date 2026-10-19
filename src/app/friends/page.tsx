@@ -25,8 +25,8 @@ export default async function FriendsSessionsPage() {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Signed-out visitors: RLS allows anon read of public rows. Signed-in:
-  // friends + public + own. Never require login just to browse public data.
+  // Signed-out: RLS allows anon read of public rows (also filter explicitly).
+  // Signed-in: friends + public + own. Never require login to browse public data.
   let sessionsQuery = supabase
     .from("sessions")
     .select("id, name, track_id, car, driver_name, created_at, user_id, visibility")
@@ -66,7 +66,10 @@ export default async function FriendsSessionsPage() {
           </p>
           {!user ? (
             <p className="mt-2 text-sm text-zinc-500">
-              <Link href="/login" className="text-orange-400 hover:text-orange-300">
+              <Link
+                href="/login?next=/friends"
+                className="text-orange-400 hover:text-orange-300"
+              >
                 Sign in
               </Link>{" "}
               when you want to upload, save, or change visibility.
@@ -75,7 +78,9 @@ export default async function FriendsSessionsPage() {
         </div>
         {!sessions?.length ? (
           <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-8 text-center text-sm text-zinc-500">
-            No sessions yet, upload one.
+            {user
+              ? "No sessions yet, upload one."
+              : "No public sessions yet. When drivers share with a Public link, they show up here."}
           </p>
         ) : (
           <ul className="grid gap-3">
