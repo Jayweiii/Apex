@@ -24,7 +24,8 @@
     "test:dual-video": "tsx scripts/verify-dual-video.ts",
     "test:gps-logger": "tsx scripts/verify-gps-logger.ts",
     "test:dragy-vbo": "tsx scripts/verify-dragy-vbo.ts",
-    "test": "tsx scripts/verify-parse.ts && tsx scripts/verify-storage.ts && tsx scripts/verify-analysis.ts && tsx scripts/verify-sync.ts && tsx scripts/verify-cloud-save.ts && tsx scripts/verify-visibility.ts && tsx scripts/verify-compare-sessions.ts && tsx scripts/verify-cloud-tracks.ts && tsx scripts/verify-guest-auth.ts && tsx scripts/verify-map-match.ts && tsx scripts/verify-satellite-map.ts && tsx scripts/verify-scrub-sync.ts && tsx scripts/verify-delta-align.ts && tsx scripts/verify-analysis-mode.ts && tsx scripts/verify-gopro.ts && tsx scripts/verify-dual-video.ts && tsx scripts/verify-gps-logger.ts && tsx scripts/verify-dragy-vbo.ts",
+    "test:video-gps-sync": "tsx scripts/verify-video-gps-sync.ts",
+    "test": "tsx scripts/verify-parse.ts && tsx scripts/verify-storage.ts && tsx scripts/verify-analysis.ts && tsx scripts/verify-sync.ts && tsx scripts/verify-cloud-save.ts && tsx scripts/verify-visibility.ts && tsx scripts/verify-compare-sessions.ts && tsx scripts/verify-cloud-tracks.ts && tsx scripts/verify-guest-auth.ts && tsx scripts/verify-map-match.ts && tsx scripts/verify-satellite-map.ts && tsx scripts/verify-scrub-sync.ts && tsx scripts/verify-delta-align.ts && tsx scripts/verify-analysis-mode.ts && tsx scripts/verify-gopro.ts && tsx scripts/verify-dual-video.ts && tsx scripts/verify-gps-logger.ts && tsx scripts/verify-dragy-vbo.ts && tsx scripts/verify-video-gps-sync.ts",
     "import:youtube": "tsx scripts/import-youtube.ts",
     "build:datasets": "tsx scripts/build-public-dataset.ts"
   },

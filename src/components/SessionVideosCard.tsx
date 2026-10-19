@@ -1,19 +1,20 @@
 "use client";
 
+import { formatLapTime } from "@/lib/format";
+import type { SessionVideo } from "@/lib/types";
 import {
   sessionVideoFromYouTube,
   suggestVideosForSession,
 } from "@/lib/youtube-match";
 import { YOUTUBE_CATALOG, YOUTUBE_CHANNEL } from "@/lib/youtube-catalog";
 import { parseTitleHints, parseYouTubeId } from "@/lib/youtube";
-import type { SessionVideo } from "@/lib/types";
-import { formatLapTime } from "@/lib/format";
 import { useMemo, useState } from "react";
 
 export function SessionVideosCard({
   session,
   videos,
   onChange,
+  readOnly = false,
 }: {
   session: {
     id: string;
@@ -24,12 +25,22 @@ export function SessionVideosCard({
     laps: Array<{ id: string; lap_number: number; lap_time_ms: number }>;
   };
   videos: SessionVideo[];
-  onChange: (videos: SessionVideo[]) => void;
+  onChange: (videos: SessionVideo[]) => void | Promise<void>;
+  /** Friends/public viewers: list only. */
+  readOnly?: boolean;
+  /** @deprecated Videos are YouTube-only; ignored. */
+  persistCloud?: boolean;
 }) {
   const [url, setUrl] = useState("");
   const [lapId, setLapId] = useState(session.laps[0]?.id ?? "");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+
+  const youtubeVideos = useMemo(
+    () => videos.filter((v) => v.provider === "youtube" && v.youtubeId),
+    [videos],
+  );
 
   const suggestions = useMemo(
     () =>
@@ -44,9 +55,9 @@ export function SessionVideosCard({
         YOUTUBE_CATALOG,
       ).filter(
         (item) =>
-          !videos.some((v) => v.youtubeId === item.entry.youtubeId),
+          !youtubeVideos.some((v) => v.youtubeId === item.entry.youtubeId),
       ),
-    [session, videos],
+    [session, youtubeVideos],
   );
 
   async function attachFromUrl() {
@@ -89,8 +100,10 @@ export function SessionVideosCard({
         lapMs: hints.lapMs ?? catalog?.lapMs,
         syncSource: "lap_match",
       });
-      onChange([...videos, video]);
+      // Drop any legacy local-mp4 rows when saving YouTube-only list.
+      await onChange([...youtubeVideos, video]);
       setUrl("");
+      setStatus("YouTube attached — open a lap to sync offset");
     } finally {
       setBusy(false);
     }
@@ -107,11 +120,11 @@ export function SessionVideosCard({
       lapMs: entry.lapMs,
       syncSource: "lap_match",
     });
-    onChange([...videos, video]);
+    void onChange([...youtubeVideos, video]);
   }
 
   function removeVideo(id: string) {
-    onChange(videos.filter((video) => video.id !== id));
+    void onChange(youtubeVideos.filter((video) => video.id !== id));
   }
 
   return (
@@ -120,13 +133,15 @@ export function SessionVideosCard({
         <div>
           <h2 className="text-sm font-medium text-zinc-200">Videos</h2>
           <p className="mt-1 text-sm text-zinc-500">
-            Attach YouTube onboards from {YOUTUBE_CHANNEL.handle} or paste any
-            link. Sync on the lap page.
+            Attach onboard clips by YouTube URL (or pick from{" "}
+            {YOUTUBE_CHANNEL.handle}). Sync offset is saved on the session so
+            friends see the same alignment. Local GoPro files are for GPS
+            telemetry only — upload the video to YouTube and paste the link.
           </p>
         </div>
       </div>
 
-      {suggestions.length ? (
+      {!readOnly && suggestions.length ? (
         <ul className="mt-4 grid gap-2">
           {suggestions.slice(0, 4).map((item) => (
             <li
@@ -151,39 +166,43 @@ export function SessionVideosCard({
         </ul>
       ) : null}
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto_auto]">
-        <input
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          placeholder="https://youtu.be/BI0ZwJiqYk8"
-          className="min-h-11 rounded-lg border border-zinc-800 bg-zinc-950 px-3 text-sm text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2"
-        />
-        <select
-          value={lapId}
-          onChange={(e) => setLapId(e.target.value)}
-          className="min-h-11 rounded-lg border border-zinc-800 bg-zinc-950 px-3 text-sm text-zinc-100"
-        >
-          <option value="">Whole session</option>
-          {session.laps.map((lap) => (
-            <option key={lap.id} value={lap.id}>
-              Lap {lap.lap_number} · {formatLapTime(lap.lap_time_ms)}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={attachFromUrl}
-          className="min-h-11 rounded-lg border border-zinc-800 px-4 text-sm text-zinc-200 hover:border-zinc-600 disabled:opacity-50"
-        >
-          {busy ? "…" : "Add YouTube"}
-        </button>
-      </div>
-      {error ? <p className="mt-2 text-sm text-red-300">{error}</p> : null}
+      {!readOnly ? (
+        <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto_auto]">
+          <input
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://youtu.be/BI0ZwJiqYk8"
+            className="min-h-11 rounded-lg border border-zinc-800 bg-zinc-950 px-3 text-sm text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2"
+          />
+          <select
+            value={lapId}
+            onChange={(e) => setLapId(e.target.value)}
+            className="min-h-11 rounded-lg border border-zinc-800 bg-zinc-950 px-3 text-sm text-zinc-100"
+          >
+            <option value="">Whole session</option>
+            {session.laps.map((lap) => (
+              <option key={lap.id} value={lap.id}>
+                Lap {lap.lap_number} · {formatLapTime(lap.lap_time_ms)}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={attachFromUrl}
+            className="min-h-11 rounded-lg bg-orange-500 px-4 text-sm font-semibold text-black hover:bg-orange-400 disabled:opacity-50"
+          >
+            {busy ? "…" : "Add YouTube"}
+          </button>
+        </div>
+      ) : null}
 
-      {videos.length ? (
+      {error ? <p className="mt-2 text-sm text-red-300">{error}</p> : null}
+      {status ? <p className="mt-2 text-sm text-zinc-400">{status}</p> : null}
+
+      {youtubeVideos.length ? (
         <ul className="mt-4 grid gap-2">
-          {videos.map((video) => {
+          {youtubeVideos.map((video) => {
             const lap = session.laps.find((item) => item.id === video.lapId);
             return (
               <li
@@ -192,10 +211,10 @@ export function SessionVideosCard({
               >
                 <div>
                   <p className="text-zinc-100">
-                    {video.title || video.youtubeId || video.provider}
+                    {video.title || video.youtubeId}
                   </p>
                   <p className="mt-1 text-xs text-zinc-500">
-                    {video.provider}
+                    youtube
                     {lap ? ` · lap ${lap.lap_number}` : ""}
                     {" · "}
                     {video.syncSource}
@@ -203,7 +222,7 @@ export function SessionVideosCard({
                     {video.offsetSec.toFixed(1)}s
                   </p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   {video.lapId ? (
                     <a
                       href={`/sessions/${session.id}/laps/${video.lapId}?v=${video.id}`}
@@ -211,21 +230,32 @@ export function SessionVideosCard({
                     >
                       Open synced
                     </a>
+                  ) : session.laps[0] ? (
+                    <a
+                      href={`/sessions/${session.id}/laps/${session.laps[0].id}?v=${video.id}`}
+                      className="min-h-10 inline-flex items-center text-xs uppercase tracking-[0.16em] text-orange-400"
+                    >
+                      Open synced
+                    </a>
                   ) : null}
-                  <button
-                    type="button"
-                    onClick={() => removeVideo(video.id)}
-                    className="min-h-10 text-xs uppercase tracking-[0.16em] text-zinc-500 hover:text-zinc-300"
-                  >
-                    Remove
-                  </button>
+                  {!readOnly ? (
+                    <button
+                      type="button"
+                      onClick={() => removeVideo(video.id)}
+                      className="min-h-10 text-xs uppercase tracking-[0.16em] text-zinc-500 hover:text-zinc-300"
+                    >
+                      Remove
+                    </button>
+                  ) : null}
                 </div>
               </li>
             );
           })}
         </ul>
       ) : (
-        <p className="mt-4 text-sm text-zinc-500">No videos attached yet.</p>
+        <p className="mt-4 text-sm text-zinc-500">
+          No YouTube videos attached yet.
+        </p>
       )}
     </section>
   );

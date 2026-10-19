@@ -29,11 +29,15 @@ type VideoRow = {
   offset_sec?: number | null;
   rate?: number | null;
   sync_source?: string | null;
+  video_started_at?: string | null;
 };
 
 function videosBySession(rows: VideoRow[]): Map<string, SessionVideo[]> {
   const map = new Map<string, SessionVideo[]>();
   for (const row of rows) {
+    const started = row.video_started_at
+      ? Date.parse(row.video_started_at)
+      : NaN;
     const video: SessionVideo = {
       id: row.id,
       provider: row.provider === "youtube" ? "youtube" : "mp4",
@@ -45,6 +49,7 @@ function videosBySession(rows: VideoRow[]): Map<string, SessionVideo[]> {
       rate: row.rate ?? 1,
       syncSource:
         (row.sync_source as SessionVideo["syncSource"] | null) ?? "unsynced",
+      videoStartedAtMs: Number.isFinite(started) ? started : undefined,
     };
     const list = map.get(row.session_id) ?? [];
     list.push(video);
@@ -259,7 +264,7 @@ export function CloudCompareView({
         const { data: videoRows } = await supabase
           .from("session_videos")
           .select(
-            "id, session_id, provider, youtube_id, object_key, title, lap_id, offset_sec, rate, sync_source",
+            "id, session_id, provider, youtube_id, object_key, title, lap_id, offset_sec, rate, sync_source, video_started_at",
           )
           .in("session_id", ids);
 
@@ -270,7 +275,9 @@ export function CloudCompareView({
           user?.id ?? null,
         ).map((option) => ({
           ...option,
-          videos: videosMap.get(option.id) ?? [],
+          videos: (videosMap.get(option.id) ?? []).filter(
+            (v) => v.provider === "youtube" && v.youtubeId,
+          ),
         }));
         const catalogOptions = (
           await catalogAsCompareOptions(current.track_id)

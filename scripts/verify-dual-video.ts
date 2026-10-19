@@ -47,8 +47,8 @@ const videoA: SessionVideo = {
 };
 const videoB: SessionVideo = {
   id: "vb",
-  provider: "mp4",
-  objectKey: "sessions/x/video.mp4",
+  provider: "youtube",
+  youtubeId: "BI0ZwJiqYk8",
   offsetSec: 0,
   rate: 1,
   syncSource: "auto",
@@ -62,13 +62,15 @@ const sideA: DualVideoSide = {
 const sideB: DualVideoSide = {
   lap: lapB,
   video: videoB,
-  mp4Src: "/api/storage/download?key=x",
   label: "Other",
 };
 
 assert(sideHasPlayableVideo(sideA), "youtube playable");
-assert(sideHasPlayableVideo(sideB), "mp4 playable");
-assert(!sideHasPlayableVideo({ ...sideB, mp4Src: null }), "mp4 needs src");
+assert(sideHasPlayableVideo(sideB), "youtube B playable");
+assert(
+  !sideHasPlayableVideo({ ...sideB, video: { ...videoB, youtubeId: undefined } }),
+  "youtube needs id",
+);
 
 const t0 = dualVideoTimeAtProgress(sideA, 0);
 assert(t0 === 10, `lap start video time = offset, got ${t0}`);

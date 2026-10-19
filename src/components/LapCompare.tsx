@@ -29,12 +29,12 @@ function pickVideoForLap(
   session: CompareSessionOption | null | undefined,
   lapId: string | undefined,
 ): SessionVideo | null {
-  const videos = session?.videos ?? [];
+  const videos = (session?.videos ?? []).filter(
+    (video) => video.provider === "youtube" && video.youtubeId,
+  );
   if (!videos.length) return null;
   return (
     videos.find((video) => video.lapId === lapId) ??
-    videos.find((video) => video.provider === "youtube") ??
-    videos.find((video) => video.provider === "mp4") ??
     videos[0] ??
     null
   );
@@ -430,16 +430,6 @@ export function LapCompare({
               refSide={{
                 lap: lapAsSyncLap(reference),
                 video: pickVideoForLap(refSession, reference.id),
-                mp4Src: (() => {
-                  const video = pickVideoForLap(refSession, reference.id);
-                  if (!video || video.provider !== "mp4") return null;
-                  return (
-                    refSession?.videoSrcById?.[video.id] ??
-                    (video.objectKey
-                      ? `/api/storage/download?key=${encodeURIComponent(video.objectKey)}`
-                      : null)
-                  );
-                })(),
                 label:
                   refSession && refSession.name !== "This session"
                     ? refSession.name
@@ -448,16 +438,6 @@ export function LapCompare({
               otherSide={{
                 lap: lapAsSyncLap(other),
                 video: pickVideoForLap(otherSession, other.id),
-                mp4Src: (() => {
-                  const video = pickVideoForLap(otherSession, other.id);
-                  if (!video || video.provider !== "mp4") return null;
-                  return (
-                    otherSession?.videoSrcById?.[video.id] ??
-                    (video.objectKey
-                      ? `/api/storage/download?key=${encodeURIComponent(video.objectKey)}`
-                      : null)
-                  );
-                })(),
                 label:
                   otherSession && otherSession.name !== "This session"
                     ? otherSession.name

@@ -3,12 +3,18 @@
 import { AppHeader } from "@/components/AppHeader";
 import { GpsQualityBadge } from "@/components/GpsQualityBadge";
 import { LapList } from "@/components/LapList";
+import { SessionVideosCard } from "@/components/SessionVideosCard";
 import { SessionVisibilityControl } from "@/components/SessionVisibilityControl";
 import { compareHref } from "@/lib/compare";
 import { formatLapTime } from "@/lib/format";
 import type { GpsQuality } from "@/lib/gps-quality";
+import {
+  deleteSessionVideo,
+  fetchSessionVideos,
+  upsertSessionVideo,
+} from "@/lib/session-videos-cloud";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
-import type { LapRow } from "@/lib/types";
+import type { LapRow, SessionVideo } from "@/lib/types";
 import {
   DEFAULT_VISIBILITY,
   normalizeVisibility,
@@ -27,6 +33,8 @@ type CloudSession = {
   visibility?: string | null;
   source_kind?: string | null;
   gps_quality?: GpsQuality | null;
+  started_at?: string | null;
+  session_date?: string | null;
   created_at: string;
 };
 
@@ -41,6 +49,7 @@ export function CloudSessionView({ id }: { id: string }) {
     undefined,
   );
   const [laps, setLaps] = useState<LapRow[]>([]);
+  const [videos, setVideos] = useState<SessionVideo[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [visibilityError, setVisibilityError] = useState<string | null>(null);
   const [visibilityBusy, setVisibilityBusy] = useState(false);
@@ -90,6 +99,20 @@ export function CloudSessionView({ id }: { id: string }) {
           .eq("session_id", id)
           .order("lap_number", { ascending: true });
         if (!cancelled) setLaps((lapRows ?? []) as LapRow[]);
+
+        try {
+          const cloudVideos = await fetchSessionVideos(supabase, id);
+          // YouTube-only UI — keep YouTube rows (legacy mp4 rows ignored in card).
+          if (!cancelled) {
+            setVideos(
+              cloudVideos.filter(
+                (v) => v.provider === "youtube" && v.youtubeId,
+              ),
+            );
+          }
+        } catch {
+          if (!cancelled) setVideos([]);
+        }
       } catch (err) {
         if (!cancelled) {
           setSession(null);
@@ -110,13 +133,11 @@ export function CloudSessionView({ id }: { id: string }) {
     const previous = normalizeVisibility(
       session.visibility ?? DEFAULT_VISIBILITY,
     );
-    // Optimistic UI so clicks feel instant; roll back on failure.
     setVisibilityError(null);
     setVisibilityBusy(true);
     setSession({ ...session, visibility: next });
 
     try {
-      // Prefer same-origin API (clear missing-column errors), then browser client.
       const response = await fetch(`/api/sessions/${session.id}/visibility`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -134,7 +155,6 @@ export function CloudSessionView({ id }: { id: string }) {
         return;
       }
 
-      // If API auth cookies missed, fall back to browser Supabase client.
       if (response.status === 401) {
         const supabase = createClient();
         const { data, error: updateError } = await supabase
@@ -173,6 +193,23 @@ export function CloudSessionView({ id }: { id: string }) {
       );
     } finally {
       setVisibilityBusy(false);
+    }
+  }
+
+  async function onVideosChange(next: SessionVideo[]) {
+    setVideos(next);
+    if (!session || !userId || session.user_id !== userId) return;
+    const supabase = createClient();
+    const prevIds = new Set(videos.map((v) => v.id));
+    const nextIds = new Set(next.map((v) => v.id));
+    for (const video of next) {
+      if (video.provider !== "youtube") continue;
+      await upsertSessionVideo(supabase, session.id, userId, video);
+    }
+    for (const id of prevIds) {
+      if (!nextIds.has(id)) {
+        await deleteSessionVideo(supabase, id);
+      }
     }
   }
 
@@ -227,6 +264,9 @@ export function CloudSessionView({ id }: { id: string }) {
   const href = compareHref(session.id, laps);
   const mine = Boolean(userId && session.user_id === userId);
   const visibility = normalizeVisibility(session.visibility ?? DEFAULT_VISIBILITY);
+  const startedAtMs = session.started_at
+    ? Date.parse(session.started_at)
+    : undefined;
 
   return (
     <>
@@ -297,6 +337,27 @@ export function CloudSessionView({ id }: { id: string }) {
             </p>
           )}
         </div>
+
+        {(mine || videos.length > 0) && (
+          <SessionVideosCard
+            session={{
+              id: session.id,
+              trackId: session.track_id ?? undefined,
+              sessionDate: session.session_date ?? undefined,
+              startedAtMs: Number.isFinite(startedAtMs) ? startedAtMs : undefined,
+              created_at: session.created_at,
+              laps: laps.map((lap) => ({
+                id: lap.id,
+                lap_number: lap.lap_number,
+                lap_time_ms: lap.lap_time_ms,
+              })),
+            }}
+            videos={videos}
+            onChange={mine ? onVideosChange : () => {}}
+            readOnly={!mine}
+          />
+        )}
+
         {laps.length ? (
           <LapList sessionId={session.id} laps={laps} />
         ) : (

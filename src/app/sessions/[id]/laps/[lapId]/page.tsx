@@ -17,5 +17,9 @@ export default async function LapPage({
     );
   }
 
-  return <CloudLapView sessionId={id} lapId={lapId} />;
+  return (
+    <Suspense fallback={<p className="p-8 text-sm text-zinc-500">Loading lap…</p>}>
+      <CloudLapView sessionId={id} lapId={lapId} />
+    </Suspense>
+  );
 }

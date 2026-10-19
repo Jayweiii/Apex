@@ -28,10 +28,14 @@ export function useVideoSync(options: {
     if (!player || !enabled) return;
     let raf = 0;
     let last = 0;
+    let lastPaused: boolean | null = null;
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
       const paused = player.isPaused();
-      setPlaying(!paused);
+      if (lastPaused !== paused) {
+        lastPaused = paused;
+        setPlaying(!paused);
+      }
       if (paused) return;
       if (now - last < 66) return; // ~15 Hz
       last = now;

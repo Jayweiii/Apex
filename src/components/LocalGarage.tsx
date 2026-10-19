@@ -189,14 +189,8 @@ export function LocalCompare({
       trackId: item.trackId,
       sourceKind: item.sourceKind ?? null,
       gpsQuality: item.gpsQuality ?? null,
-      videos: item.videos ?? [],
-      videoSrcById: Object.fromEntries(
-        (item.videos ?? [])
-          .filter((video) => video.objectKey)
-          .map((video) => [
-            video.id,
-            `/api/storage/download?key=${encodeURIComponent(video.objectKey!)}`,
-          ]),
+      videos: (item.videos ?? []).filter(
+        (v) => v.provider === "youtube" && v.youtubeId,
       ),
       laps: toRows(item),
     })),
@@ -557,56 +551,9 @@ export function LocalLap({
 }) {
   const session = useLocalSession(sessionId);
   const lap = session?.laps.find((item) => item.id === lapId);
-  const [videoSrc, setVideoSrc] = useState<string | null>(null);
   const searchParams = useSearchParams();
   const videoParam = searchParams.get("v");
   const tParam = searchParams.get("t");
-
-  useEffect(() => {
-    let url: string | null = null;
-    let cancelled = false;
-    async function loadVideo() {
-      if (!session) return;
-      const videos = session.videos ?? [];
-      const chosen =
-        videos.find((item) => item.id === videoParam) ??
-        videos.find((item) => item.lapId === lapId) ??
-        videos.find((item) => item.provider === "mp4") ??
-        null;
-      if (chosen?.provider === "mp4") {
-        if (chosen.objectKey) {
-          setVideoSrc(
-            `/api/storage/download?key=${encodeURIComponent(chosen.objectKey)}`,
-          );
-          return;
-        }
-        if (chosen.localKey) {
-          const blob = await getLocalBlob(chosen.localKey);
-          if (!blob || cancelled) return;
-          url = URL.createObjectURL(blob);
-          setVideoSrc(url);
-          return;
-        }
-      }
-      if (session.videoObjectKey) {
-        setVideoSrc(
-          `/api/storage/download?key=${encodeURIComponent(session.videoObjectKey)}`,
-        );
-        return;
-      }
-      if (session.videoLocalKey) {
-        const blob = await getLocalBlob(session.videoLocalKey);
-        if (!blob || cancelled) return;
-        url = URL.createObjectURL(blob);
-        setVideoSrc(url);
-      }
-    }
-    loadVideo().catch(() => {});
-    return () => {
-      cancelled = true;
-      if (url) URL.revokeObjectURL(url);
-    };
-  }, [session, lapId, videoParam]);
 
   const lapCenterline = useMemo(() => {
     if (!session) return null;
@@ -633,11 +580,12 @@ export function LocalLap({
       analysisMode,
     ),
   });
-  const videos = session.videos ?? [];
+  const videos = (session.videos ?? []).filter(
+    (item) => item.provider === "youtube" && item.youtubeId,
+  );
   const activeVideo: SessionVideo | null =
     videos.find((item) => item.id === videoParam) ??
     videos.find((item) => item.lapId === lap.id) ??
-    videos.find((item) => item.provider === "youtube") ??
     videos[0] ??
     null;
   const bestMs = Math.min(...session.laps.map((item) => item.lap_time_ms));
@@ -692,8 +640,9 @@ export function LocalLap({
           />
         </div>
         {lap.telemetry.length ? (
-          activeVideo || videoSrc ? (
+          activeVideo ? (
             <SyncedLapView
+              sessionId={session.id}
               lap={{
                 id: lap.id,
                 lap_number: lap.lap_number,
@@ -709,7 +658,6 @@ export function LocalLap({
                 telemetry: item.telemetry,
               }))}
               video={activeVideo}
-              mp4Src={videoSrc}
               sessionStartedAtMs={session.startedAtMs}
               bestLapMs={bestMs}
               trackId={session.trackId}
@@ -722,7 +670,11 @@ export function LocalLap({
                       if (!nextVideos.some((item) => item.id === next.id)) {
                         nextVideos.push(next);
                       }
-                      updateLocalSession(session.id, { videos: nextVideos });
+                      updateLocalSession(session.id, {
+                        videos: nextVideos.filter(
+                          (v) => v.provider === "youtube",
+                        ),
+                      });
                     }
                   : undefined
               }
@@ -731,7 +683,6 @@ export function LocalLap({
             <LapCharts
               points={lap.telemetry}
               label={`Lap ${lap.lap_number}`}
-              videoSrc={videoSrc}
               trackId={session.trackId}
             />
           )

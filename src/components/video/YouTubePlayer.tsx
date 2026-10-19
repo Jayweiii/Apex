@@ -66,22 +66,35 @@ export const YouTubePlayer = forwardRef<
   const playerRef = useRef<YtPlayer | null>(null);
   const [ready, setReady] = useState(false);
 
+  // Empty deps — handle identity must stay stable. Methods read playerRef.
+  // (Depending on `ready` recreates the handle and loops callback refs.)
   useImperativeHandle(
     ref,
     () => ({
-      getTime: () => playerRef.current?.getCurrentTime() ?? 0,
+      getTime: () => {
+        const p = playerRef.current;
+        return typeof p?.getCurrentTime === "function" ? p.getCurrentTime() : 0;
+      },
       seek: (seconds: number) => {
-        playerRef.current?.seekTo(seconds, true);
+        const p = playerRef.current;
+        if (typeof p?.seekTo === "function") p.seekTo(seconds, true);
       },
       isPaused: () => {
-        const state = playerRef.current?.getPlayerState();
+        const p = playerRef.current;
+        if (typeof p?.getPlayerState !== "function") return true;
         // 1 = PLAYING
-        return state !== 1;
+        return p.getPlayerState() !== 1;
       },
-      play: () => playerRef.current?.playVideo(),
-      pause: () => playerRef.current?.pauseVideo(),
+      play: () => {
+        const p = playerRef.current;
+        if (typeof p?.playVideo === "function") p.playVideo();
+      },
+      pause: () => {
+        const p = playerRef.current;
+        if (typeof p?.pauseVideo === "function") p.pauseVideo();
+      },
     }),
-    [ready],
+    [],
   );
 
   useEffect(() => {
@@ -99,11 +112,12 @@ export const YouTubePlayer = forwardRef<
         },
         events: {
           onReady: () => {
-            if (!cancelled) setReady(true);
+            if (cancelled) return;
+            playerRef.current = player;
+            setReady(true);
           },
         },
       });
-      playerRef.current = player;
     });
     return () => {
       cancelled = true;
@@ -112,6 +126,8 @@ export const YouTubePlayer = forwardRef<
       setReady(false);
     };
   }, [videoId, startSeconds]);
+
+  void ready;
 
   return (
     <div className={className}>

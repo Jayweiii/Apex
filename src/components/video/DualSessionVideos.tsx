@@ -7,6 +7,7 @@ import {
   advanceSharedProgress,
   dualVideoTimeAtProgress,
   sideHasPlayableVideo,
+  sideHasVideoMeta,
   type DualVideoSide,
 } from "@/lib/dual-video-sync";
 import { formatClock, formatLapTime } from "@/lib/format";
@@ -23,8 +24,13 @@ function SidePlayer({
 }) {
   if (!sideHasPlayableVideo(side)) {
     return (
-      <div className="flex aspect-video items-center justify-center rounded-xl border border-dashed border-zinc-800 bg-zinc-950/80 text-sm text-zinc-500">
-        No video for {side.label}
+      <div className="flex aspect-video flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-zinc-800 bg-zinc-950/80 px-3 text-center text-sm text-zinc-500">
+        <span className="text-zinc-300">No YouTube for {side.label}</span>
+        <span className="text-xs text-zinc-600">
+          {side.video != null
+            ? `Offset ${side.video.offsetSec.toFixed(1)}s is saved — attach a YouTube URL on that session.`
+            : "Attach a YouTube onboard on the session page."}
+        </span>
       </div>
     );
   }
@@ -126,8 +132,9 @@ export function DualSessionVideos({
   const lapTimeSec = ((progress ?? 0) * sharedMs) / 1000;
   const canPlay =
     sideHasPlayableVideo(refSide) || sideHasPlayableVideo(otherSide);
+  const hasMeta = sideHasVideoMeta(refSide) || sideHasVideoMeta(otherSide);
 
-  if (!canPlay) return null;
+  if (!canPlay && !hasMeta) return null;
 
   return (
     <div className="space-y-3 rounded-2xl border border-zinc-800/80 bg-zinc-950/40 p-3 sm:p-4">

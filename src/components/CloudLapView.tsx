@@ -2,21 +2,29 @@
 
 import { AppHeader } from "@/components/AppHeader";
 import { LapCharts } from "@/components/LapCharts";
+import { SyncedLapView } from "@/components/video/SyncedLapView";
 import { compareHref } from "@/lib/compare";
 import { formatLapTime } from "@/lib/format";
+import {
+  fetchSessionVideos,
+  updateSessionVideoSync,
+} from "@/lib/session-videos-cloud";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
-import type { LapRow, TelemetryPoint } from "@/lib/types";
+import type { LapRow, SessionVideo, TelemetryPoint } from "@/lib/types";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 
 type CloudSession = {
   id: string;
   name: string;
   track_id?: string | null;
+  started_at?: string | null;
+  user_id?: string;
 };
 
 /**
- * Browser-auth lap view for cloud session UUIDs (avoids LocalLap "not found").
+ * Browser-auth lap view for cloud session UUIDs — YouTube sync when attached.
  */
 export function CloudLapView({
   sessionId,
@@ -25,14 +33,16 @@ export function CloudLapView({
   sessionId: string;
   lapId: string;
 }) {
+  const searchParams = useSearchParams();
+  const videoParam = searchParams.get("v");
   const [email, setEmail] = useState<string | undefined>();
+  const [userId, setUserId] = useState<string | null>(null);
   const [session, setSession] = useState<CloudSession | null | undefined>(
     undefined,
   );
   const [lap, setLap] = useState<LapRow | null>(null);
-  const [siblings, setSiblings] = useState<
-    Array<{ id: string; lap_time_ms: number }>
-  >([]);
+  const [siblings, setSiblings] = useState<LapRow[]>([]);
+  const [videos, setVideos] = useState<SessionVideo[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -52,10 +62,11 @@ export function CloudLapView({
         } = await supabase.auth.getUser();
         if (cancelled) return;
         setEmail(user?.email ?? undefined);
+        setUserId(user?.id ?? null);
 
         const { data: row, error: sessionError } = await supabase
           .from("sessions")
-          .select("id, name, track_id")
+          .select("id, name, track_id, started_at, user_id")
           .eq("id", sessionId)
           .maybeSingle();
         if (cancelled) return;
@@ -71,26 +82,32 @@ export function CloudLapView({
         }
         setSession(row as CloudSession);
 
-        const { data: lapRow } = await supabase
+        const { data: lapRows } = await supabase
           .from("laps")
           .select("*")
-          .eq("id", lapId)
           .eq("session_id", sessionId)
-          .maybeSingle();
+          .order("lap_number", { ascending: true });
         if (cancelled) return;
-        if (!lapRow) {
+        const all = (lapRows ?? []) as LapRow[];
+        setSiblings(all);
+        const found = all.find((item) => item.id === lapId) ?? null;
+        if (!found) {
           setLap(null);
           setError("not-found");
           return;
         }
-        setLap(lapRow as LapRow);
+        setLap(found);
 
-        const { data: sibs } = await supabase
-          .from("laps")
-          .select("id, lap_time_ms")
-          .eq("session_id", sessionId);
+        let cloudVideos: SessionVideo[] = [];
+        try {
+          cloudVideos = await fetchSessionVideos(supabase, sessionId);
+        } catch {
+          cloudVideos = [];
+        }
         if (!cancelled) {
-          setSiblings((sibs ?? []) as Array<{ id: string; lap_time_ms: number }>);
+          setVideos(
+            cloudVideos.filter((v) => v.provider === "youtube" && v.youtubeId),
+          );
         }
       } catch (err) {
         if (!cancelled) {
@@ -104,6 +121,16 @@ export function CloudLapView({
       cancelled = true;
     };
   }, [sessionId, lapId]);
+
+  const activeVideo: SessionVideo | null = useMemo(() => {
+    if (!videos.length) return null;
+    return (
+      videos.find((item) => item.id === videoParam) ??
+      videos.find((item) => item.lapId === lapId) ??
+      videos[0] ??
+      null
+    );
+  }, [videos, videoParam, lapId]);
 
   if (session === undefined) {
     return (
@@ -155,7 +182,17 @@ export function CloudLapView({
 
   const points = (lap.telemetry ?? []) as TelemetryPoint[];
   const peak = points.reduce((max, point) => Math.max(max, point.speed), 0);
-  const href = compareHref(session.id, siblings, lap.id);
+  const href = compareHref(
+    session.id,
+    siblings.map((s) => ({ id: s.id, lap_time_ms: s.lap_time_ms })),
+    lap.id,
+  );
+  const bestMs = Math.min(...siblings.map((s) => s.lap_time_ms));
+  const startedAtMs = session.started_at
+    ? Date.parse(session.started_at)
+    : undefined;
+  const mine = Boolean(userId && session.user_id === userId);
+  const showSynced = Boolean(activeVideo);
 
   return (
     <>
@@ -191,11 +228,52 @@ export function CloudLapView({
           </div>
         </div>
         {points.length ? (
-          <LapCharts
-            points={points}
-            label={`Lap ${lap.lap_number}`}
-            trackId={session.track_id}
-          />
+          showSynced ? (
+            <SyncedLapView
+              sessionId={session.id}
+              lap={{
+                id: lap.id,
+                lap_number: lap.lap_number,
+                lap_time_ms: lap.lap_time_ms,
+                start_offset_sec: lap.start_offset_sec ?? undefined,
+                telemetry: points,
+              }}
+              siblingLaps={siblings.map((item) => ({
+                id: item.id,
+                lap_number: item.lap_number,
+                lap_time_ms: item.lap_time_ms,
+                start_offset_sec: item.start_offset_sec ?? undefined,
+                telemetry: (item.telemetry ?? []) as TelemetryPoint[],
+              }))}
+              video={activeVideo}
+              sessionStartedAtMs={
+                Number.isFinite(startedAtMs) ? startedAtMs : undefined
+              }
+              bestLapMs={bestMs}
+              trackId={session.track_id}
+              onVideoChange={
+                mine && activeVideo
+                  ? async (next) => {
+                      setVideos((prev) =>
+                        prev.map((v) => (v.id === next.id ? next : v)),
+                      );
+                      try {
+                        const supabase = createClient();
+                        await updateSessionVideoSync(supabase, next);
+                      } catch {
+                        // keep local UI state
+                      }
+                    }
+                  : undefined
+              }
+            />
+          ) : (
+            <LapCharts
+              points={points}
+              label={`Lap ${lap.lap_number}`}
+              trackId={session.track_id}
+            />
+          )
         ) : (
           <p className="text-sm text-zinc-500">No speed samples on this lap.</p>
         )}

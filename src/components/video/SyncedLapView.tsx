@@ -34,9 +34,32 @@ import {
   type SyncLap,
 } from "@/lib/video-sync";
 import { progressFromIndex } from "@/lib/scrub";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+function MissingYouTube({ sessionId }: { sessionId?: string }) {
+  return (
+    <div className="flex aspect-video flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-zinc-800 bg-zinc-950/80 px-4 text-center">
+      <p className="text-sm text-zinc-300">
+        No YouTube video for this lap.
+      </p>
+      <p className="text-xs text-zinc-500">
+        Onboards are YouTube-only. Upload the clip to YouTube and paste the
+        link on the session page, then sync offset here.
+      </p>
+      {sessionId ? (
+        <a
+          href={`/sessions/${sessionId}`}
+          className="text-xs uppercase tracking-[0.16em] text-orange-400"
+        >
+          Open session to attach YouTube
+        </a>
+      ) : null}
+    </div>
+  );
+}
 
 export function SyncedLapView({
+  sessionId,
   lap,
   siblingLaps,
   video,
@@ -47,6 +70,7 @@ export function SyncedLapView({
   onVideoChange,
   trackId,
 }: {
+  sessionId?: string;
   lap: {
     id: string;
     lap_number: number;
@@ -62,6 +86,7 @@ export function SyncedLapView({
     telemetry: TelemetryPoint[];
   }>;
   video?: SessionVideo | null;
+  /** @deprecated Local MP4 playback removed — YouTube-only. */
   mp4Src?: string | null;
   sessionStartedAtMs?: number;
   bestLapMs?: number;
@@ -128,8 +153,16 @@ export function SyncedLapView({
   const [videoTime, setVideoTime] = useState(0);
   const [progress, setProgress] = useState<number | null>(null);
   const [follow, setFollow] = useState(followCharts);
+  // Optimistic copy so SyncPanel nudges update UI before parent re-fetches.
+  const [draftVideo, setDraftVideo] = useState<SessionVideo | null>(
+    video ?? null,
+  );
+  useEffect(() => {
+    setDraftVideo(video ?? null);
+  }, [video]);
 
   const activeVideo: SessionVideo | null =
+    draftVideo ??
     video ??
     (mp4Src
       ? {
@@ -140,6 +173,14 @@ export function SyncedLapView({
           syncSource: "unsynced",
         }
       : null);
+
+  const handleVideoChange = useCallback(
+    (next: SessionVideo) => {
+      setDraftVideo(next);
+      onVideoChange?.(next);
+    },
+    [onVideoChange],
+  );
 
   const { seek } = useVideoSync({
     player,
@@ -170,40 +211,45 @@ export function SyncedLapView({
     (next: number | null) => {
       const nextProgress = progressFromIndex(next, chartData.length);
       setProgress(nextProgress);
-      if (nextProgress == null || !activeVideo) return;
-      const paused = player?.isPaused() ?? true;
-      if (follow || paused) {
-        const t = videoTimeFromLapProgress(
-          currentSyncLap,
-          nextProgress,
-          activeVideo,
-        );
-        seek(t);
-        setVideoTime(t);
-      }
+      // Only drive video when Follow is on — off lets you pair video+chart for sync.
+      if (!follow || nextProgress == null || !activeVideo) return;
+      const t = videoTimeFromLapProgress(
+        currentSyncLap,
+        nextProgress,
+        activeVideo,
+      );
+      seek(t);
+      setVideoTime(t);
     },
-    [
-      chartData.length,
-      activeVideo,
-      player,
-      follow,
-      currentSyncLap,
-      seek,
-    ],
+    [chartData.length, activeVideo, follow, currentSyncLap, seek],
   );
 
   const onMapProgress = useCallback(
     (next: number | null) => {
       setProgress(next);
-      if (next == null || !activeVideo) return;
-      const paused = player?.isPaused() ?? true;
-      if (follow || paused) {
-        const t = videoTimeFromLapProgress(currentSyncLap, next, activeVideo);
-        seek(t);
-        setVideoTime(t);
-      }
+      if (!follow || next == null || !activeVideo) return;
+      const t = videoTimeFromLapProgress(currentSyncLap, next, activeVideo);
+      seek(t);
+      setVideoTime(t);
     },
-    [activeVideo, player, follow, currentSyncLap, seek],
+    [activeVideo, follow, currentSyncLap, seek],
+  );
+
+  const chartLapTimeSec =
+    progress == null
+      ? null
+      : progress *
+        (chartData[chartData.length - 1]?.t ??
+          lap.lap_time_ms / 1000);
+
+  const seekChartLapTime = useCallback(
+    (lapTimeSec: number) => {
+      const lastT =
+        chartData[chartData.length - 1]?.t ?? lap.lap_time_ms / 1000;
+      if (lastT <= 0) return;
+      setProgress(Math.max(0, Math.min(1, lapTimeSec / lastT)));
+    },
+    [chartData, lap.lap_time_ms],
   );
 
   const mapProps = {
@@ -215,10 +261,12 @@ export function SyncedLapView({
     analysisDisabled: !hasAnalysisSnap,
   } as const;
 
-  function bindPlayer(handle: VideoPlayerHandle | null) {
+  // Stable callback ref — an inline `ref={(h) => …}` is a new function each
+  // render and React 19 re-invokes it (null then instance) → update loops.
+  const bindPlayer = useCallback((handle: VideoPlayerHandle | null) => {
     playerRef.current = handle;
-    setPlayer(handle);
-  }
+    setPlayer((prev) => (prev === handle ? prev : handle));
+  }, []);
 
   return (
     <div className="flex flex-col gap-6">
@@ -229,15 +277,12 @@ export function SyncedLapView({
               <YouTubePlayer
                 key={activeVideo.youtubeId}
                 videoId={activeVideo.youtubeId}
-                ref={(instance) => bindPlayer(instance)}
+                ref={bindPlayer}
               />
             ) : mp4Src ? (
-              <Mp4Player
-                src={mp4Src}
-                ref={(instance) => bindPlayer(instance)}
-              />
+              <Mp4Player src={mp4Src} ref={bindPlayer} />
             ) : (
-              <p className="text-sm text-zinc-500">Video source missing.</p>
+              <MissingYouTube sessionId={sessionId} />
             )}
             <div className="flex flex-wrap items-center gap-3 text-sm text-zinc-400">
               <span className="font-mono text-zinc-200">
@@ -312,8 +357,11 @@ export function SyncedLapView({
             startOffsetSec: item.startOffsetSec,
             lapTimeMs: item.lapTimeMs,
           }))}
-          onChange={onVideoChange}
+          chartLapTimeSec={chartLapTimeSec}
+          lapPoints={chartData}
+          onChange={handleVideoChange}
           onSeek={seek}
+          onSeekChartLapTime={seekChartLapTime}
         />
       ) : null}
 

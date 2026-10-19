@@ -1,15 +1,37 @@
 /** Client + server upload abuse limits. */
 export const MAX_CSV_BYTES = 25 * 1024 * 1024; // 25 MB
+/** Max when actually uploading video to R2 / server / IndexedDB mirror. */
 export const MAX_VIDEO_BYTES = 400 * 1024 * 1024; // 400 MB
+/**
+ * Local GPMF parse only (File.slice / block reader — not uploaded).
+ * Covers ~2GB Hero clips; metadata track is a few MB.
+ */
+export const MAX_GOPRO_PARSE_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB
 export const MAX_UPLOADS_PER_USER_PER_HOUR = 12;
 export const MAX_UPLOADS_PER_IP_PER_HOUR = 30;
 
-export function assertFileWithinLimits(file: File, kind: "csv" | "video") {
-  const max = kind === "video" ? MAX_VIDEO_BYTES : MAX_CSV_BYTES;
+export function assertFileWithinLimits(
+  file: File,
+  kind: "csv" | "video" | "gopro-parse",
+) {
+  const max =
+    kind === "gopro-parse"
+      ? MAX_GOPRO_PARSE_BYTES
+      : kind === "video"
+        ? MAX_VIDEO_BYTES
+        : MAX_CSV_BYTES;
   if (file.size > max) {
     const mb = Math.round(max / (1024 * 1024));
+    const label =
+      kind === "gopro-parse"
+        ? "GoPro video"
+        : kind === "video"
+          ? "Video"
+          : "CSV";
     throw new Error(
-      `${kind === "video" ? "Video" : "CSV"} is too large (max ${mb} MB).`,
+      kind === "gopro-parse"
+        ? `${label} is too large to parse in-browser (max ${mb} MB). Export GPX/JSON from Quik / Telemetry Overlay instead.`
+        : `${label} is too large (max ${mb} MB).`,
     );
   }
 }
