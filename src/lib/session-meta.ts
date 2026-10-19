@@ -29,6 +29,9 @@ export type ShareTargets = {
 export function sessionSharePaths(
   sessionId: string,
   options?: {
+    /** Prefer lap number for ?lap=N share URLs. */
+    lapNumber?: number;
+    /** Legacy: UUID still resolves on the session page. */
     lapId?: string;
     ref?: string;
     other?: string;
@@ -38,12 +41,18 @@ export function sessionSharePaths(
 ): ShareTargets {
   const sessionPath = `/sessions/${sessionId}`;
   let lapPath: string | undefined;
-  if (options?.lapId) {
+  const lapKey =
+    options?.lapNumber != null
+      ? String(options.lapNumber)
+      : options?.lapId
+        ? options.lapId
+        : null;
+  if (lapKey) {
     const params = new URLSearchParams();
+    params.set("lap", lapKey);
     if (options.videoId) params.set("v", options.videoId);
     if (options.videoTime != null) params.set("t", String(options.videoTime));
-    const qs = params.toString();
-    lapPath = `/sessions/${sessionId}/laps/${options.lapId}${qs ? `?${qs}` : ""}`;
+    lapPath = `/sessions/${sessionId}?${params.toString()}`;
   }
   return {
     sessionPath,

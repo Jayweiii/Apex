@@ -131,25 +131,35 @@ export function suggestVideosForSession(
 /** Build a SessionVideo from a catalog entry / pasted link. */
 export function sessionVideoFromYouTube(options: {
   youtubeId: string;
+  youtubeUrl?: string;
   title?: string;
   lapId?: string | null;
+  lapIndex?: number | null;
   durationSec?: number;
   lapMs?: number | null;
   syncSource?: SessionVideo["syncSource"];
+  offsetSec?: number;
 }): SessionVideo {
   const lapMs = options.lapMs ?? null;
   const durationSec = options.durationSec;
   // Initial guess: center the lap in the clip padding.
-  let offsetSec = 0;
-  if (durationSec != null && lapMs != null && durationSec * 1000 > lapMs) {
+  let offsetSec = options.offsetSec ?? 0;
+  if (
+    options.offsetSec == null &&
+    durationSec != null &&
+    lapMs != null &&
+    durationSec * 1000 > lapMs
+  ) {
     offsetSec = (durationSec - lapMs / 1000) / 2;
   }
   return {
     id: crypto.randomUUID(),
     provider: "youtube",
     youtubeId: options.youtubeId,
+    youtubeUrl: options.youtubeUrl,
     title: options.title,
     lapId: options.lapId ?? null,
+    lapIndex: options.lapIndex ?? null,
     offsetSec,
     rate: 1,
     syncSource: options.syncSource ?? "lap_match",

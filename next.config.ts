@@ -19,6 +19,12 @@ const nextConfig: NextConfig = {
         destination: "/lap-comparisons?tab=sessions",
         permanent: false,
       },
+      {
+        // Legacy per-lap pages → session page with that lap selected.
+        source: "/sessions/:id/laps/:lapId",
+        destination: "/sessions/:id?lap=:lapId",
+        permanent: false,
+      },
     ];
   },
 };

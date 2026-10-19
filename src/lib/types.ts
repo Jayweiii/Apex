@@ -45,11 +45,19 @@ export type SessionVideo = {
   id: string;
   provider: "youtube" | "mp4";
   youtubeId?: string;
+  /** Original pasted URL when known (optional). */
+  youtubeUrl?: string;
   objectKey?: string;
   localKey?: string;
   title?: string;
-  /** Lap this clip covers (single-lap onboards). */
+  /**
+   * Lap this clip covers (single-lap onboards).
+   * Null / undefined = session-level video spanning many laps; offset applies
+   * at each lap start via start_offset_sec.
+   */
   lapId?: string | null;
+  /** 1-based lap_number for bulk paste; kept in sync with lapId when set. */
+  lapIndex?: number | null;
   offsetSec: number;
   rate?: number;
   syncSource: VideoSyncSource;

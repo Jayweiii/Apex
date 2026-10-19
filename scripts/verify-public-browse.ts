@@ -57,7 +57,6 @@ assert(
 // Cloud views: no hard "sign-in" error branch for missing public rows.
 for (const file of [
   "src/components/CloudSessionView.tsx",
-  "src/components/CloudLapView.tsx",
   "src/components/CloudCompareView.tsx",
 ]) {
   const src = read(file);

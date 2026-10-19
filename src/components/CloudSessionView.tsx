@@ -2,26 +2,29 @@
 
 import { AppHeader } from "@/components/AppHeader";
 import { GpsQualityBadge } from "@/components/GpsQualityBadge";
-import { LapList } from "@/components/LapList";
+import { LapChips, LapList } from "@/components/LapList";
+import { SessionLapDetail } from "@/components/SessionLapDetail";
 import { SessionVideosCard } from "@/components/SessionVideosCard";
 import { SessionVisibilityControl } from "@/components/SessionVisibilityControl";
+import { useSessionLapSelection } from "@/components/useSessionLapSelection";
 import { compareHref } from "@/lib/compare";
 import { formatLapTime } from "@/lib/format";
 import type { GpsQuality } from "@/lib/gps-quality";
 import {
   deleteSessionVideo,
   fetchSessionVideos,
+  updateSessionVideoSync,
   upsertSessionVideo,
 } from "@/lib/session-videos-cloud";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
-import type { LapRow, SessionVideo } from "@/lib/types";
+import type { LapRow, SessionVideo, TelemetryPoint } from "@/lib/types";
 import {
   DEFAULT_VISIBILITY,
   normalizeVisibility,
   type SessionVisibility,
 } from "@/lib/visibility";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type CloudSession = {
   id: string;
@@ -41,6 +44,7 @@ type CloudSession = {
 /**
  * Loads a cloud session with the browser Supabase client so auth cookies
  * that work for uploads also work for viewing (avoids LocalSession "not found").
+ * Lap selection is in-place via ?lap=N — no separate lap page.
  */
 export function CloudSessionView({ id }: { id: string }) {
   const [email, setEmail] = useState<string | undefined>();
@@ -124,6 +128,34 @@ export function CloudSessionView({ id }: { id: string }) {
       cancelled = true;
     };
   }, [id]);
+
+  const pickLaps = useMemo(
+    () =>
+      laps.map((lap) => ({
+        id: lap.id,
+        lap_number: lap.lap_number,
+        lap_time_ms: lap.lap_time_ms,
+      })),
+    [laps],
+  );
+  const { selected, selectLap, videoParam } = useSessionLapSelection(pickLaps);
+
+  const selectedRow = useMemo(
+    () => (selected ? laps.find((lap) => lap.id === selected.id) ?? null : null),
+    [laps, selected],
+  );
+
+  const detailLaps = useMemo(
+    () =>
+      laps.map((lap) => ({
+        id: lap.id,
+        lap_number: lap.lap_number,
+        lap_time_ms: lap.lap_time_ms,
+        start_offset_sec: lap.start_offset_sec,
+        telemetry: (lap.telemetry ?? []) as TelemetryPoint[],
+      })),
+    [laps],
+  );
 
   async function onVisibility(next: SessionVisibility) {
     if (!session || !userId || session.user_id !== userId || visibilityBusy) {
@@ -271,7 +303,7 @@ export function CloudSessionView({ id }: { id: string }) {
   return (
     <>
       <AppHeader email={email} />
-      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-5 px-4 py-5 sm:px-6 sm:py-6">
+      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-4 px-4 py-5 sm:px-6 sm:py-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0 space-y-2">
             <Link
@@ -318,7 +350,15 @@ export function CloudSessionView({ id }: { id: string }) {
           ) : null}
         </div>
 
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)] lg:items-start">
+        {laps.length ? (
+          <LapChips
+            laps={laps}
+            selectedId={selected?.id}
+            onSelect={(lap) => selectLap(lap)}
+          />
+        ) : null}
+
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] lg:items-start">
           <div className="space-y-4 lg:sticky lg:top-20">
             {mine ? (
               <div className="space-y-2">
@@ -345,8 +385,20 @@ export function CloudSessionView({ id }: { id: string }) {
               </p>
             )}
 
+            {laps.length ? (
+              <LapList
+                laps={laps}
+                selectedId={selected?.id}
+                onSelect={(lap) => selectLap(lap)}
+              />
+            ) : (
+              <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-8 text-center text-sm text-zinc-500">
+                No laps in this session.
+              </p>
+            )}
+
             {(mine || videos.length > 0) && (
-              <details open className="group rounded-xl border border-zinc-800/80 bg-zinc-950/40">
+              <details className="group rounded-xl border border-zinc-800/80 bg-zinc-950/40">
                 <summary className="cursor-pointer list-none px-4 py-3 text-xs uppercase tracking-[0.16em] text-zinc-400 marker:content-none [&::-webkit-details-marker]:hidden">
                   YouTube onboard
                   <span className="ml-2 text-zinc-600 group-open:hidden">
@@ -378,14 +430,43 @@ export function CloudSessionView({ id }: { id: string }) {
             )}
           </div>
 
-          <div className="max-h-[min(70vh,720px)] overflow-y-auto pr-1">
-            {laps.length ? (
-              <LapList sessionId={session.id} laps={laps} />
-            ) : (
-              <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-8 text-center text-sm text-zinc-500">
-                No laps in this session.
-              </p>
-            )}
+          <div className="min-w-0">
+            {selectedRow ? (
+              <SessionLapDetail
+                sessionId={session.id}
+                lap={{
+                  id: selectedRow.id,
+                  lap_number: selectedRow.lap_number,
+                  lap_time_ms: selectedRow.lap_time_ms,
+                  start_offset_sec: selectedRow.start_offset_sec,
+                  telemetry: (selectedRow.telemetry ?? []) as TelemetryPoint[],
+                }}
+                siblingLaps={detailLaps}
+                videos={videos}
+                videoParam={videoParam}
+                trackId={session.track_id}
+                sessionStartedAtMs={
+                  Number.isFinite(startedAtMs) ? startedAtMs : undefined
+                }
+                onVideoChange={
+                  mine
+                    ? async (next) => {
+                        setVideos((prev) =>
+                          prev.map((v) => (v.id === next.id ? next : v)),
+                        );
+                        try {
+                          const supabase = createClient();
+                          await updateSessionVideoSync(supabase, next);
+                        } catch {
+                          // keep local UI state
+                        }
+                      }
+                    : undefined
+                }
+              />
+            ) : laps.length ? (
+              <p className="text-sm text-zinc-500">Select a lap to view.</p>
+            ) : null}
           </div>
         </div>
       </main>

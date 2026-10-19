@@ -11,7 +11,7 @@ export default async function ShareRedirectPage({
   const { sessionId } = await params;
   const query = await searchParams;
   if (query.lap) {
-    redirect(`/sessions/${sessionId}/laps/${query.lap}`);
+    redirect(`/sessions/${sessionId}?lap=${encodeURIComponent(query.lap)}`);
   }
   if (query.ref && query.other) {
     redirect(

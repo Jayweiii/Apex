@@ -1,6 +1,7 @@
 "use client";
 
 import { formatLapTime } from "@/lib/format";
+import { sessionLapHref } from "@/lib/session-lap-url";
 import type { SessionVideo } from "@/lib/types";
 import {
   sessionVideoFromYouTube,
@@ -223,16 +224,23 @@ export function SessionVideosCard({
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {video.lapId ? (
+                  {video.lapId &&
+                  session.laps.find((item) => item.id === video.lapId) ? (
                     <a
-                      href={`/sessions/${session.id}/laps/${video.lapId}?v=${video.id}`}
+                      href={sessionLapHref(
+                        session.id,
+                        session.laps.find((item) => item.id === video.lapId)!,
+                        { videoId: video.id },
+                      )}
                       className="min-h-10 inline-flex items-center text-xs uppercase tracking-[0.16em] text-orange-400"
                     >
                       Open synced
                     </a>
                   ) : session.laps[0] ? (
                     <a
-                      href={`/sessions/${session.id}/laps/${session.laps[0].id}?v=${video.id}`}
+                      href={sessionLapHref(session.id, session.laps[0], {
+                        videoId: video.id,
+                      })}
                       className="min-h-10 inline-flex items-center text-xs uppercase tracking-[0.16em] text-orange-400"
                     >
                       Open synced

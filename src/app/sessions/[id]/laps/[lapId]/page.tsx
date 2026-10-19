@@ -1,25 +1,18 @@
-import { CloudLapView } from "@/components/CloudLapView";
-import { LocalLap } from "@/components/LocalGarage";
-import { shouldUseLocalSession } from "@/lib/session-route";
-import { Suspense } from "react";
+import { legacyLapRedirectHref } from "@/lib/session-lap-url";
+import { redirect } from "next/navigation";
 
+/**
+ * Legacy per-lap routes redirect onto the session page with ?lap= selected.
+ * Prefer /sessions/[id]?lap=N going forward.
+ */
 export default async function LapPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string; lapId: string }>;
+  searchParams: Promise<{ v?: string; t?: string }>;
 }) {
   const { id, lapId } = await params;
-  if (shouldUseLocalSession(id)) {
-    return (
-      <Suspense fallback={<p className="p-8 text-sm text-zinc-500">Loading lap…</p>}>
-        <LocalLap sessionId={id} lapId={lapId} />
-      </Suspense>
-    );
-  }
-
-  return (
-    <Suspense fallback={<p className="p-8 text-sm text-zinc-500">Loading lap…</p>}>
-      <CloudLapView sessionId={id} lapId={lapId} />
-    </Suspense>
-  );
+  const query = await searchParams;
+  redirect(legacyLapRedirectHref(id, lapId, query));
 }

@@ -12,9 +12,11 @@ export type SessionVideoRow = {
   user_id?: string;
   provider: string;
   youtube_id?: string | null;
+  youtube_url?: string | null;
   object_key?: string | null;
   title?: string | null;
   lap_id?: string | null;
+  lap_index?: number | null;
   offset_sec?: number | null;
   rate?: number | null;
   sync_source?: string | null;
@@ -29,9 +31,11 @@ export function rowToSessionVideo(row: SessionVideoRow): SessionVideo {
     id: row.id,
     provider: row.provider === "youtube" ? "youtube" : "mp4",
     youtubeId: row.youtube_id ?? undefined,
+    youtubeUrl: row.youtube_url ?? undefined,
     objectKey: row.object_key ?? undefined,
     title: row.title ?? undefined,
     lapId: row.lap_id ?? null,
+    lapIndex: row.lap_index ?? null,
     offsetSec: row.offset_sec ?? 0,
     rate: row.rate ?? 1,
     syncSource: (row.sync_source as VideoSyncSource | null) ?? "unsynced",
@@ -50,9 +54,11 @@ export function sessionVideoToInsert(
     user_id: userId,
     provider: video.provider,
     youtube_id: video.youtubeId ?? null,
+    youtube_url: video.youtubeUrl ?? null,
     object_key: video.objectKey ?? null,
     title: video.title ?? null,
     lap_id: video.lapId ?? null,
+    lap_index: video.lapIndex ?? null,
     offset_sec: video.offsetSec,
     rate: video.rate ?? 1,
     sync_source: video.syncSource,
@@ -69,7 +75,7 @@ export async function fetchSessionVideos(
   const { data, error } = await client
     .from("session_videos")
     .select(
-      "id, session_id, provider, youtube_id, object_key, title, lap_id, offset_sec, rate, sync_source, video_started_at",
+      "id, session_id, provider, youtube_id, youtube_url, object_key, title, lap_id, lap_index, offset_sec, rate, sync_source, video_started_at",
     )
     .eq("session_id", sessionId)
     .order("created_at", { ascending: true });

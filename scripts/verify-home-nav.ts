@@ -58,6 +58,12 @@ assert(
 
 const session = read("src/components/CloudSessionView.tsx");
 assert(session.includes("lg:grid-cols"), "session side-by-side");
+assert(session.includes("SessionLapDetail"), "in-place lap detail");
+assert(session.includes("useSessionLapSelection"), "lap query selection");
+assert(session.includes("LapChips"), "lap chips");
+const lapPage = read("src/app/sessions/[id]/laps/[lapId]/page.tsx");
+assert(lapPage.includes("legacyLapRedirectHref"), "legacy lap redirect");
+assert(!lapPage.includes("CloudLapView"), "lap page no longer renders detail");
 
 const compare = read("src/components/LapCompare.tsx");
 assert(compare.includes("chartPanel"), "compare chart tabs");
