@@ -324,10 +324,10 @@ export function CloudCompareView({
   }
 
   return (
-    <>
+    <div className="flex h-dvh flex-col overflow-hidden">
       <AppHeader email={email} />
-      <main className="mx-auto flex h-[calc(100dvh-3.5rem)] w-full max-w-[90rem] flex-1 flex-col overflow-hidden px-3 py-2 sm:px-4 lg:h-[calc(100dvh-3.75rem)]">
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 pb-2">
+      <main className="mx-auto flex min-h-0 w-full max-w-[90rem] flex-1 flex-col overflow-hidden px-3 py-1.5 sm:px-4">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 pb-1.5">
           <div className="min-w-0">
             <Link
               href={`/sessions/${session.id}`}
@@ -357,6 +357,6 @@ export function CloudCompareView({
           />
         </div>
       </main>
-    </>
+    </div>
   );
 }

@@ -715,10 +715,10 @@ export function CloudSessionView({ id }: { id: string }) {
   );
 
   return (
-    <>
+    <div className="flex h-dvh flex-col overflow-hidden">
       <AppHeader email={email} />
-      <main className="mx-auto flex h-[calc(100dvh-3.5rem)] w-full max-w-[90rem] flex-1 flex-col overflow-hidden px-3 py-2 sm:px-4 sm:py-2.5 lg:h-[calc(100dvh-3.75rem)]">
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 pb-2">
+      <main className="mx-auto flex min-h-0 w-full max-w-[90rem] flex-1 flex-col overflow-hidden px-3 py-1.5 sm:px-4">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 pb-1.5">
           <div className="min-w-0">
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
               <Link
@@ -832,6 +832,6 @@ export function CloudSessionView({ id }: { id: string }) {
           )}
         </div>
       </main>
-    </>
+    </div>
   );
 }

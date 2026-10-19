@@ -55,17 +55,35 @@ import {
   type ReactNode,
 } from "react";
 
-function MissingYouTube({ sessionId }: { sessionId?: string }) {
+function MissingYouTube({
+  sessionId,
+  compact = false,
+}: {
+  sessionId?: string;
+  compact?: boolean;
+}) {
   return (
-    <div className="flex aspect-video flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-zinc-800 bg-zinc-950/80 px-4 text-center">
-      <p className="text-sm text-zinc-300">
+    <div
+      className={`mx-auto flex w-full max-w-full flex-col items-center justify-center rounded-xl border border-dashed border-zinc-800 bg-zinc-950/80 px-4 text-center ${
+        compact
+          ? "h-[min(28vh,220px)] gap-1.5"
+          : "aspect-video gap-3"
+      }`}
+    >
+      <p className={`text-zinc-300 ${compact ? "text-xs" : "text-sm"}`}>
         No YouTube video for this lap.
       </p>
-      <p className="text-xs text-zinc-500">
-        Onboards are YouTube-only. Upload the clip to YouTube and paste the
-        link on the session page, then sync offset here.
-      </p>
-      {sessionId ? (
+      {!compact ? (
+        <p className="text-xs text-zinc-500">
+          Onboards are YouTube-only. Upload the clip to YouTube and paste the
+          link on the session page, then sync offset here.
+        </p>
+      ) : (
+        <p className="text-[11px] text-zinc-500">
+          Paste a YouTube link in Tools → Sync
+        </p>
+      )}
+      {sessionId && !compact ? (
         <a
           href={`/sessions/${sessionId}`}
           className="text-xs uppercase tracking-[0.16em] text-orange-400"
@@ -521,10 +539,8 @@ export function SyncedLapView({
         className="w-full"
         onPlayerEvent={onPlayerEvent}
       />
-    ) : activeVideo ? (
-      <MissingYouTube sessionId={sessionId} />
     ) : (
-      <MissingYouTube sessionId={sessionId} />
+      <MissingYouTube sessionId={sessionId} compact={workspace} />
     );
 
   const metaRow = (
