@@ -3,6 +3,7 @@
 import { DataKindBadge } from "@/components/Attribution";
 import { GpsQualityBadge } from "@/components/GpsQualityBadge";
 import { putLocalBlob } from "@/lib/blob-store";
+import { readMp4CreationTime } from "@/lib/mp4-creation-time";
 import {
   listDrivers,
   listKnownCars,
@@ -57,7 +58,14 @@ type Destination = "checking" | "cloud" | "local" | "unavailable";
 
 function extensionKind(name: string): string {
   const lower = name.toLowerCase();
-  if (lower.endsWith(".mp4")) return "mp4";
+  // GoPro media: full MP4, proxy LRV, and some MOV exports all carry GPMF.
+  if (
+    lower.endsWith(".mp4") ||
+    lower.endsWith(".lrv") ||
+    lower.endsWith(".mov")
+  ) {
+    return "mp4";
+  }
   if (lower.endsWith(".dlap")) return "dlap";
   if (lower.endsWith(".vbo")) return "vbo";
   if (lower.endsWith(".gpx")) return "gpx";
@@ -214,7 +222,7 @@ export function SessionUpload({
     if (first && !name) {
       setName(
         first.name
-          .replace(/\.(csv|mp4|gpx|json|vbo|dlap)$/i, "")
+          .replace(/\.(csv|mp4|lrv|mov|gpx|json|vbo|dlap)$/i, "")
           .replace(/[_-]+/g, " "),
       );
     }
@@ -391,7 +399,15 @@ export function SessionUpload({
     try {
       for (const file of files) {
         const kind = extensionKind(file.name);
-        assertFileWithinLimits(file, kind === "mp4" ? "video" : "csv");
+        if (kind === "mp4") {
+          // Local GPMF parse allows up to ~2GB; upload path stays at 400MB.
+          assertFileWithinLimits(
+            file,
+            keepVideo ? "video" : "gopro-parse",
+          );
+        } else {
+          assertFileWithinLimits(file, "csv");
+        }
       }
 
       const trackForSf =
@@ -404,8 +420,16 @@ export function SessionUpload({
       let sessionDate: string | undefined;
       let sourceKind: SessionSourceKind = "csv";
       let gpsQuality: GpsQuality | null = null;
+      let videoStartedAtMs: number | undefined;
 
       if (isMp4) {
+        setProgress("Reading video creation_time (not GPS clock)…");
+        try {
+          const creation = await readMp4CreationTime(files[0]);
+          videoStartedAtMs = creation.creationTimeMs ?? undefined;
+        } catch {
+          videoStartedAtMs = undefined;
+        }
         setProgress("Extracting GoPro GPMF locally (video stays on device)…");
         const parsed = await parseGoProChapters(files, {
           onProgress: (percent) => {
@@ -414,10 +438,15 @@ export function SessionUpload({
             );
           },
           startFinish,
+          videoStartedAtMs,
         });
         laps = parsed.laps;
-        startedAtMs = parsed.startedAtMs;
-        sessionDate = parsed.sessionDate;
+        // Prefer MP4 creation_time; never trust GPS9 sample.date for sync.
+        startedAtMs = videoStartedAtMs ?? parsed.startedAtMs;
+        sessionDate =
+          startedAtMs != null
+            ? new Date(startedAtMs).toISOString().slice(0, 10)
+            : parsed.sessionDate;
         sourceKind = "gopro";
         gpsQuality = parsed.gpsQuality;
       } else {
@@ -518,12 +547,14 @@ export function SessionUpload({
           provider: "mp4",
           objectKey: stored.videoObjectKey ?? undefined,
           localKey: stored.videoLocalKey ?? undefined,
+          // Same-file GPMF: video time ≡ GPS cts → offset 0.
           offsetSec: 0,
           rate: 1,
           syncSource:
             sourceKind === "gopro" || sourceKind === "logger"
               ? "auto"
               : "unsynced",
+          videoStartedAtMs,
         });
       }
 
@@ -848,7 +879,7 @@ export function SessionUpload({
           </label>
           <label className="flex cursor-pointer flex-col gap-1.5 text-sm">
             <span className="text-zinc-400">
-              CSV · MP4 · GPX · VBO · JSON · DLAP
+              CSV · MP4 · LRV · MOV · GPX · VBO · JSON · DLAP
             </span>
             <span className="flex min-h-12 items-center rounded-lg border border-dashed border-zinc-700 px-3 py-3 text-zinc-300 hover:border-orange-500/60 sm:min-h-10 sm:py-2">
               {files.length
@@ -857,7 +888,7 @@ export function SessionUpload({
             </span>
             <input
               type="file"
-              accept=".csv,text/csv,video/mp4,.mp4,.gpx,application/gpx+xml,.json,application/json,.vbo,.dlap"
+              accept=".csv,text/csv,video/mp4,.mp4,.lrv,.mov,video/quicktime,.gpx,application/gpx+xml,.json,application/json,.vbo,.dlap"
               multiple
               onChange={onFile}
               className="sr-only"
@@ -904,10 +935,11 @@ export function SessionUpload({
               className="mt-1"
             />
             <span>
-              Also upload the MP4 for onboard sync (optional; uses R2 when
+              Also upload the video for onboard sync (optional; uses R2 when
               configured, otherwise IndexedDB). Telemetry is always extracted
-              locally — large clips are not uploaded wholesale. Multi-chapter:
-              select several MP4s together.
+              locally via File.slice / GPMF metadata track — up to ~2GB clips
+              are not uploaded wholesale unless this is checked. Accepts
+              .mp4 / .lrv / .mov. Multi-chapter: select several files together.
             </span>
           </label>
         ) : null}

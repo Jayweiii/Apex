@@ -18,6 +18,8 @@ When the session has a UTC `started_at` (e.g. Dragy VBO), offset is auto-suggest
 
 `offsetSec ≈ (videoStartedAtMs − sessionStartedAtMs) / 1000`
 
+**Do not** use GoPro GPS9 `sample.date` / `daysSince2000` for this — that clock has been observed wrong vs the real record day. Same-file GPMF still uses video time ≡ GPS `cts` (offset 0).
+
 ## Manual sync (lap page)
 
 Open a lap with the video attached. Uncheck **Follow scrub** so video and chart move independently:

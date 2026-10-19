@@ -300,7 +300,7 @@ export function SessionVideosCard({
             <input
               ref={fileRef}
               type="file"
-              accept="video/mp4,.mp4"
+              accept="video/mp4,.mp4,.lrv,.mov,video/quicktime"
               multiple
               className="hidden"
               onChange={(e) => void attachMp4Files(e.target.files)}
