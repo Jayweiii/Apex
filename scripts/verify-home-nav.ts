@@ -68,6 +68,16 @@ const syncedLap = read("src/components/video/SyncedLapView.tsx");
 assert(syncedLap.includes("lg:grid-cols"), "session workspace side-by-side");
 assert(syncedLap.includes("SessionToolsPanel"), "secondary tools drawer");
 assert(session.includes("SessionReparsePanel"), "owner re-parse laps panel");
+assert(session.includes("onReparseLaps"), "re-parse in lap list header");
+assert(session.includes("UnsplitLapsBanner"), "unsplit laps banner on phone");
+assert(session.includes("isSessionOwner"), "normalized owner check");
+assert(
+  !session.includes('id: "reparse"'),
+  "re-parse not buried only in Tools drawer",
+);
+const lapList = read("src/components/LapList.tsx");
+assert(lapList.includes("ReparseLapsButton"), "lap list re-parse button");
+assert(lapList.includes("looksLikeUnsplitLaps"), "unsplit detection in list");
 const lapPage = read("src/app/sessions/[id]/laps/[lapId]/page.tsx");
 assert(lapPage.includes("legacyLapRedirectHref"), "legacy lap redirect");
 assert(!lapPage.includes("CloudLapView"), "lap page no longer renders detail");

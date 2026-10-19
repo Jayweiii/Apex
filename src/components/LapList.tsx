@@ -1,6 +1,10 @@
 "use client";
 
 import { ExcludeFromBestControl } from "@/components/ExcludeFromBestControl";
+import {
+  ReparseLapsButton,
+  UnsplitLapsBanner,
+} from "@/components/ReparseLapsCallout";
 import { formatLapTime } from "@/lib/format";
 import {
   bestLapTimeMs,
@@ -8,7 +12,9 @@ import {
   suspicionByLapId,
   type LapSuspicion,
 } from "@/lib/lap-quality";
+import { looksLikeUnsplitLaps } from "@/lib/session-reparse";
 import type { LapRow } from "@/lib/types";
+import type { ReactNode } from "react";
 
 export type LapExcludeChange = {
   lapId: string;
@@ -62,6 +68,8 @@ export function LapList({
   canEdit = false,
   onExcludeChange,
   excludeBusyId,
+  onReparseLaps,
+  reparsePanel,
 }: {
   laps: LapRow[];
   /** When set with onSelect, rows select in place instead of navigating. */
@@ -77,17 +85,43 @@ export function LapList({
   canEdit?: boolean;
   onExcludeChange?: (change: LapExcludeChange) => void;
   excludeBusyId?: string | null;
+  /** Owner re-parse — always visible in the list header (not Tools drawer). */
+  onReparseLaps?: () => void;
+  /** Expanded re-parse controls rendered under the header. */
+  reparsePanel?: ReactNode;
 }) {
   const fastest = bestLapTimeMs(laps);
   const flags = suspicionByLapId(laps);
   const dedicated = toDedicatedSet(videoLapIds);
   const synced = toDedicatedSet(syncedLapIds);
+  const unsplit = Boolean(onReparseLaps && looksLikeUnsplitLaps(laps));
   const gridCols = canEdit
     ? "grid-cols-[3rem_1fr_auto_auto_auto] sm:grid-cols-[3.5rem_1fr_auto_auto_auto]"
     : "grid-cols-[3.5rem_1fr_auto_auto] sm:grid-cols-[4rem_1fr_auto_auto]";
 
   return (
     <div className="overflow-hidden rounded-xl border-0 bg-transparent">
+      {onReparseLaps ? (
+        <div className="space-y-2 border-b border-zinc-800/80 bg-zinc-950/60 px-2.5 py-2 sm:px-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">
+              Laps
+            </p>
+            <ReparseLapsButton
+              onClick={onReparseLaps}
+              emphasize={unsplit}
+            />
+          </div>
+          {unsplit && !reparsePanel ? (
+            <UnsplitLapsBanner onClick={onReparseLaps} />
+          ) : null}
+          {reparsePanel ? (
+            <div className="rounded-lg border border-zinc-800 bg-zinc-950/80 p-2.5">
+              {reparsePanel}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       <div
         className={`grid gap-x-2 border-b border-zinc-800/80 bg-zinc-950/60 px-2.5 py-1.5 text-[10px] uppercase tracking-[0.16em] text-zinc-500 sm:px-3 ${gridCols}`}
       >

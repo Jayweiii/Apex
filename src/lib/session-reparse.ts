@@ -215,6 +215,16 @@ export function remapVideosByLapNumber(
   });
 }
 
+/** One lap longer than this usually means SF split never ran (full session blob). */
+export const UNSPLIT_LAP_HINT_MS = 5 * 60 * 1000;
+
+/** True when the session looks like a single unsplit drive (~5+ min). */
+export function looksLikeUnsplitLaps(
+  laps: Array<{ lap_time_ms: number }>,
+): boolean {
+  return laps.length === 1 && laps[0]!.lap_time_ms > UNSPLIT_LAP_HINT_MS;
+}
+
 /** Build insert rows for reparsed laps, merging preserved side data. */
 export function buildReparsedLapRows(
   userId: string,

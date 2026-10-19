@@ -3,6 +3,7 @@
 import { AppHeader } from "@/components/AppHeader";
 import { GpsQualityBadge } from "@/components/GpsQualityBadge";
 import { LapChips, LapList, type LapExcludeChange } from "@/components/LapList";
+import { UnsplitLapsBanner } from "@/components/ReparseLapsCallout";
 import { SessionLapDetail } from "@/components/SessionLapDetail";
 import { SessionReparsePanel } from "@/components/SessionReparsePanel";
 import type { SessionToolTab } from "@/components/SessionToolsPanel";
@@ -14,6 +15,8 @@ import { compareHref } from "@/lib/compare";
 import { formatLapTime } from "@/lib/format";
 import type { GpsQuality } from "@/lib/gps-quality";
 import { bestLapTimeMs } from "@/lib/lap-quality";
+import { isSessionOwner } from "@/lib/session-owner";
+import { looksLikeUnsplitLaps } from "@/lib/session-reparse";
 import {
   deleteSessionVideo,
   fetchSessionVideos,
@@ -67,6 +70,30 @@ export function CloudSessionView({ id }: { id: string }) {
   const [excludeBusyId, setExcludeBusyId] = useState<string | null>(null);
   const [trimError, setTrimError] = useState<string | null>(null);
   const [trimBusy, setTrimBusy] = useState(false);
+  const [reparseOpen, setReparseOpen] = useState(false);
+
+  // Auth is independent of session load so owner UI appears even if getUser
+  // resolves after the public row (or via onAuthStateChange on iOS Safari).
+  useEffect(() => {
+    if (!hasSupabaseConfig()) return;
+    let cancelled = false;
+    const supabase = createClient();
+    void supabase.auth.getUser().then(({ data }) => {
+      if (cancelled) return;
+      setEmail(data.user?.email ?? undefined);
+      setUserId(data.user?.id ?? null);
+    });
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, next) => {
+      setEmail(next?.user?.email ?? undefined);
+      setUserId(next?.user?.id ?? null);
+    });
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -80,12 +107,12 @@ export function CloudSessionView({ id }: { id: string }) {
       }
       try {
         const supabase = createClient();
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-        if (cancelled) return;
-        setEmail(user?.email ?? undefined);
-        setUserId(user?.id ?? null);
+        // Refresh auth in parallel with the row so mine flips as soon as both exist.
+        void supabase.auth.getUser().then(({ data }) => {
+          if (cancelled) return;
+          setEmail(data.user?.email ?? undefined);
+          setUserId(data.user?.id ?? null);
+        });
 
         const { data: row, error: sessionError } = await supabase
           .from("sessions")
@@ -187,7 +214,7 @@ export function CloudSessionView({ id }: { id: string }) {
     start_offset_override: number | null;
     end_offset_override: number | null;
   }) {
-    if (!session || !userId || session.user_id !== userId || trimBusy) return;
+    if (!session || !userId || !isSessionOwner(session.user_id, userId) || trimBusy) return;
     setTrimError(null);
     setTrimBusy(true);
     setLaps((rows) =>
@@ -264,7 +291,7 @@ export function CloudSessionView({ id }: { id: string }) {
   }
 
   async function onMergeNext(lapId: string) {
-    if (!session || !userId || session.user_id !== userId || trimBusy) return;
+    if (!session || !userId || !isSessionOwner(session.user_id, userId) || trimBusy) return;
     setTrimBusy(true);
     setTrimError(null);
     try {
@@ -291,7 +318,7 @@ export function CloudSessionView({ id }: { id: string }) {
   }
 
   async function onSplit(lapId: string, progress: number) {
-    if (!session || !userId || session.user_id !== userId || trimBusy) return;
+    if (!session || !userId || !isSessionOwner(session.user_id, userId) || trimBusy) return;
     setTrimBusy(true);
     setTrimError(null);
     try {
@@ -318,7 +345,7 @@ export function CloudSessionView({ id }: { id: string }) {
   }
 
   async function onVisibility(next: SessionVisibility) {
-    if (!session || !userId || session.user_id !== userId || visibilityBusy) {
+    if (!session || !userId || !isSessionOwner(session.user_id, userId) || visibilityBusy) {
       return;
     }
     const previous = normalizeVisibility(
@@ -389,7 +416,7 @@ export function CloudSessionView({ id }: { id: string }) {
 
   async function onVideosChange(next: SessionVideo[]) {
     setVideos(next);
-    if (!session || !userId || session.user_id !== userId) return;
+    if (!session || !userId || !isSessionOwner(session.user_id, userId)) return;
     const supabase = createClient();
     const prevIds = new Set(videos.map((v) => v.id));
     const nextIds = new Set(next.map((v) => v.id));
@@ -405,7 +432,7 @@ export function CloudSessionView({ id }: { id: string }) {
   }
 
   async function onExcludeChange(change: LapExcludeChange) {
-    if (!session || !userId || session.user_id !== userId || excludeBusyId) {
+    if (!session || !userId || !isSessionOwner(session.user_id, userId) || excludeBusyId) {
       return;
     }
     const previous = laps;
@@ -585,7 +612,7 @@ export function CloudSessionView({ id }: { id: string }) {
           : [],
     );
   const href = compareHref(session.id, laps);
-  const mine = Boolean(userId && session.user_id === userId);
+  const mine = isSessionOwner(session.user_id, userId);
   const visibility = normalizeVisibility(session.visibility ?? DEFAULT_VISIBILITY);
   const startedAtMs = session.started_at
     ? Date.parse(session.started_at)
@@ -698,11 +725,32 @@ export function CloudSessionView({ id }: { id: string }) {
     });
   }
 
-  if (mine) {
-    sessionToolTabs.push({
-      id: "reparse",
-      label: "Re-parse",
-      content: (
+  const unsplit = mine && looksLikeUnsplitLaps(laps);
+  const openReparse = () => {
+    setReparseOpen(true);
+    // Phone: lap list sits under the map — bring the panel into view.
+    requestAnimationFrame(() => {
+      document
+        .getElementById("session-lap-list")
+        ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
+  };
+
+  const reparsePanel =
+    mine && reparseOpen ? (
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">
+            Re-parse laps
+          </p>
+          <button
+            type="button"
+            onClick={() => setReparseOpen(false)}
+            className="rounded-md px-2 py-1 text-[11px] text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300"
+          >
+            Close
+          </button>
+        </div>
         <SessionReparsePanel
           sessionId={session.id}
           trackId={session.track_id}
@@ -713,6 +761,7 @@ export function CloudSessionView({ id }: { id: string }) {
           }
           onDone={async () => {
             setTrimError(null);
+            setReparseOpen(false);
             await reloadLaps();
             try {
               const supabase = createClient();
@@ -727,26 +776,47 @@ export function CloudSessionView({ id }: { id: string }) {
             }
           }}
         />
-      ),
-    });
-  }
+      </div>
+    ) : null;
 
-  const lapSidebar = laps.length ? (
-    <LapList
-      laps={laps}
-      selectedId={selected?.id}
-      onSelect={(lap) => selectLap(lap)}
-      videoLapIds={dedicatedVideoLapIds}
-      syncedLapIds={syncedLapIds}
-      sessionVideo={Boolean(coverage.sessionLevel)}
-      canEdit={mine}
-      onExcludeChange={mine ? onExcludeChange : undefined}
-      excludeBusyId={excludeBusyId}
-    />
-  ) : (
-    <p className="px-3 py-6 text-center text-sm text-zinc-500">
-      No laps in this session.
-    </p>
+  const lapSidebar = (
+    <div id="session-lap-list">
+      {laps.length ? (
+        <LapList
+          laps={laps}
+          selectedId={selected?.id}
+          onSelect={(lap) => selectLap(lap)}
+          videoLapIds={dedicatedVideoLapIds}
+          syncedLapIds={syncedLapIds}
+          sessionVideo={Boolean(coverage.sessionLevel)}
+          canEdit={mine}
+          onExcludeChange={mine ? onExcludeChange : undefined}
+          excludeBusyId={excludeBusyId}
+          onReparseLaps={mine ? openReparse : undefined}
+          reparsePanel={reparsePanel}
+        />
+      ) : mine ? (
+        <div className="space-y-2 px-3 py-4">
+          <p className="text-center text-sm text-zinc-500">
+            No laps in this session.
+          </p>
+          <div className="flex justify-center">
+            <button
+              type="button"
+              onClick={openReparse}
+              className="inline-flex min-h-9 items-center rounded-lg border border-orange-500/50 bg-orange-500/10 px-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-orange-200"
+            >
+              Re-parse laps
+            </button>
+          </div>
+          {reparsePanel}
+        </div>
+      ) : (
+        <p className="px-3 py-6 text-center text-sm text-zinc-500">
+          No laps in this session.
+        </p>
+      )}
+    </div>
   );
 
   return (
@@ -783,6 +853,13 @@ export function CloudSessionView({ id }: { id: string }) {
             </Link>
           ) : null}
         </div>
+
+        {/* Phone: unsplit hint above chips — lap list sits under the map */}
+        {unsplit && !reparseOpen ? (
+          <div className="shrink-0 pb-2 lg:hidden">
+            <UnsplitLapsBanner onClick={openReparse} />
+          </div>
+        ) : null}
 
         {/* Mobile lap picker — desktop uses the left-column lap list */}
         {laps.length ? (

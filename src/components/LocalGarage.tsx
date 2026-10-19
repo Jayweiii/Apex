@@ -10,6 +10,7 @@ import { LapCompare } from "@/components/LapCompare";
 import { SaveComparisonControls } from "@/components/SaveComparisonControls";
 import type { ComparisonDraftSnapshot } from "@/lib/comparisons";
 import { LapChips, LapList, type LapExcludeChange } from "@/components/LapList";
+import { UnsplitLapsBanner } from "@/components/ReparseLapsCallout";
 import { SessionLapDetail } from "@/components/SessionLapDetail";
 import type { SessionToolTab } from "@/components/SessionToolsPanel";
 import { SessionVideosCard } from "@/components/SessionVideosCard";
@@ -42,6 +43,7 @@ import {
 } from "@/lib/lap-trim";
 import { parseTelemetryCsv } from "@/lib/parse-telemetry";
 import { pickSessionVideoForLap } from "@/lib/pick-session-video";
+import { looksLikeUnsplitLaps } from "@/lib/session-reparse";
 import type { SessionVideo } from "@/lib/types";
 import { getTrack } from "@/lib/tracks";
 import Link from "next/link";
@@ -340,6 +342,7 @@ export function LocalSession({ id }: { id: string }) {
   const session = useLocalSession(id);
   const [reprocessMsg, setReprocessMsg] = useState<string | null>(null);
   const [reprocessBusy, setReprocessBusy] = useState(false);
+  const [reparseOpen, setReparseOpen] = useState(false);
 
   const centerline = useMemo(() => {
     if (!session) return null;
@@ -634,20 +637,66 @@ export function LocalSession({ id }: { id: string }) {
     },
   ];
 
-  const lapSidebar = laps.length ? (
-    <LapList
-      laps={laps}
-      selectedId={selected?.id}
-      onSelect={(lap) => selectLap(lap)}
-      videoLapIds={dedicatedVideoLapIds}
-      sessionVideo={hasSessionVideo}
-      canEdit
-      onExcludeChange={onExcludeChange}
-    />
-  ) : (
-    <p className="px-3 py-6 text-center text-sm text-zinc-500">
-      No laps in this session.
-    </p>
+  const unsplit = looksLikeUnsplitLaps(laps);
+  const openReparse = () => {
+    setReparseOpen(true);
+    requestAnimationFrame(() => {
+      document
+        .getElementById("session-lap-list")
+        ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
+  };
+  const reparsePanel = reparseOpen ? (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">
+          Re-parse laps
+        </p>
+        <button
+          type="button"
+          onClick={() => setReparseOpen(false)}
+          className="rounded-md px-2 py-1 text-[11px] text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300"
+        >
+          Close
+        </button>
+      </div>
+      <p className="text-sm text-zinc-400">
+        Re-split this local session from the original file kept in the browser.
+      </p>
+      <button
+        type="button"
+        disabled={reprocessBusy || session.kind !== "upload"}
+        onClick={() => void reprocess()}
+        className="min-h-10 w-full rounded-lg bg-orange-500 px-3 text-xs font-semibold uppercase tracking-[0.14em] text-black hover:bg-orange-400 disabled:opacity-40"
+      >
+        {reprocessBusy ? "Re-parsing…" : "Re-parse laps"}
+      </button>
+      {reprocessMsg ? (
+        <p className="text-xs text-zinc-500">{reprocessMsg}</p>
+      ) : null}
+    </div>
+  ) : null;
+
+  const lapSidebar = (
+    <div id="session-lap-list">
+      {laps.length ? (
+        <LapList
+          laps={laps}
+          selectedId={selected?.id}
+          onSelect={(lap) => selectLap(lap)}
+          videoLapIds={dedicatedVideoLapIds}
+          sessionVideo={hasSessionVideo}
+          canEdit
+          onExcludeChange={onExcludeChange}
+          onReparseLaps={openReparse}
+          reparsePanel={reparsePanel}
+        />
+      ) : (
+        <p className="px-3 py-6 text-center text-sm text-zinc-500">
+          No laps in this session.
+        </p>
+      )}
+    </div>
   );
 
   return (
@@ -686,6 +735,12 @@ export function LocalSession({ id }: { id: string }) {
             />
           </div>
         </div>
+
+        {unsplit && !reparseOpen ? (
+          <div className="shrink-0 pb-2 lg:hidden">
+            <UnsplitLapsBanner onClick={openReparse} />
+          </div>
+        ) : null}
 
         {laps.length ? (
           <div className="shrink-0 pb-2 lg:hidden">

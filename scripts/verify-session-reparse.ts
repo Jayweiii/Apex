@@ -8,12 +8,15 @@ import {
   compactSourceGps,
   expandSourceGps,
   isSourceGpsDenseEnough,
+  looksLikeUnsplitLaps,
   preserveMatchedLapSideData,
   remapVideosByLapNumber,
   reparseLapsFromPoints,
   resolveGpsForReparse,
   stitchLapTelemetry,
+  UNSPLIT_LAP_HINT_MS,
 } from "../src/lib/session-reparse";
+import { isSessionOwner } from "../src/lib/session-owner";
 import type { SessionVideo, TelemetryPoint } from "../src/lib/types";
 
 function assert(cond: unknown, msg: string): asserts cond {
@@ -183,6 +186,31 @@ async function smokeLrv() {
     "LRV smoke: no usable moving GPS in small /tmp GL01*.LRV — fixture reparse covers split",
   );
 }
+
+assert(
+  looksLikeUnsplitLaps([{ lap_time_ms: UNSPLIT_LAP_HINT_MS + 1 }]),
+  "single long lap looks unsplit",
+);
+assert(
+  !looksLikeUnsplitLaps([{ lap_time_ms: UNSPLIT_LAP_HINT_MS - 1 }]),
+  "short single lap is not unsplit hint",
+);
+assert(
+  !looksLikeUnsplitLaps([
+    { lap_time_ms: 120_000 },
+    { lap_time_ms: 121_000 },
+  ]),
+  "multi-lap session is not unsplit",
+);
+assert(
+  isSessionOwner(
+    "7a23f279-c3c6-428d-82d6-1823cc8b3fd1",
+    "7A23F279-C3C6-428D-82D6-1823CC8B3FD1",
+  ),
+  "owner id compare is case-insensitive",
+);
+assert(!isSessionOwner("a", null), "missing auth is not owner");
+assert(!isSessionOwner(null, "a"), "missing session user is not owner");
 
 void smokeLrv()
   .then(() => {
