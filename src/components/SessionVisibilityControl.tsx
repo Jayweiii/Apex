@@ -10,17 +10,17 @@ export function SessionVisibilityControl({
   onChange,
   disabled,
   compact,
+  legend = "Who can see this session?",
 }: {
   value: SessionVisibility;
   onChange: (next: SessionVisibility) => void;
   disabled?: boolean;
   compact?: boolean;
+  legend?: string;
 }) {
   return (
     <fieldset className={compact ? "grid gap-2" : "grid gap-2 sm:max-w-xl"}>
-      <legend className="text-sm text-zinc-400">
-        Who can see this session?
-      </legend>
+      <legend className="text-sm text-zinc-400">{legend}</legend>
       <div className="flex flex-wrap gap-2">
         {VISIBILITY_OPTIONS.map((option) => {
           const active = value === option.value;

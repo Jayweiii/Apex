@@ -2,6 +2,8 @@
 
 import { AppHeader } from "@/components/AppHeader";
 import { LapCompare } from "@/components/LapCompare";
+import { SaveComparisonControls } from "@/components/SaveComparisonControls";
+import type { ComparisonDraftSnapshot } from "@/lib/comparisons";
 import {
   catalogSessionsForTrack,
   loadCatalogSession,
@@ -16,7 +18,7 @@ import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
 import { setSharedTracksCache } from "@/lib/tracks";
 import type { LapRow, SessionRow, SessionVideo } from "@/lib/types";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type VideoRow = {
   id: string;
@@ -172,6 +174,10 @@ export function CloudCompareView({
     [],
   );
   const [error, setError] = useState<string | null>(null);
+  const [draft, setDraft] = useState<ComparisonDraftSnapshot | null>(null);
+  const onDraftChange = useCallback((next: ComparisonDraftSnapshot) => {
+    setDraft(next);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -377,6 +383,7 @@ export function CloudCompareView({
             <p className="mt-2 text-sm text-amber-200">{error}</p>
           ) : null}
         </div>
+        <SaveComparisonControls draft={draft} />
         <LapCompare
           laps={currentLaps}
           sessions={compareSessions}
@@ -385,6 +392,7 @@ export function CloudCompareView({
           initialOtherSession={initialOtherSession}
           initialLaps={initialLaps}
           initialTrackId={session.track_id ?? undefined}
+          onDraftChange={onDraftChange}
         />
       </main>
     </>
