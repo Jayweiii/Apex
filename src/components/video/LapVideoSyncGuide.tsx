@@ -273,7 +273,7 @@ export function LapVideoSyncGuide({
                 className="inline-flex min-h-6 items-center rounded-md bg-orange-500/20 px-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-orange-300"
                 role="status"
               >
-                Saved
+                Updated
               </span>
             ) : null}
           </div>

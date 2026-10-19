@@ -66,7 +66,7 @@ assert(session.includes("useSessionLapSelection"), "lap query selection");
 assert(session.includes("LapChips"), "lap chips");
 const syncedLap = read("src/components/video/SyncedLapView.tsx");
 assert(syncedLap.includes("lg:grid-cols"), "session workspace side-by-side");
-assert(syncedLap.includes("SessionToolsPanel"), "secondary tools drawer");
+assert(syncedLap.includes("SessionToolsPanel"), "session tools panel");
 assert(session.includes("SessionReparsePanel"), "owner re-parse laps panel");
 assert(session.includes("onReparseLaps"), "re-parse in lap list header");
 assert(session.includes("UnsplitLapsBanner"), "unsplit laps banner on phone");
@@ -75,6 +75,15 @@ assert(
   !session.includes('id: "reparse"'),
   "re-parse not buried only in Tools drawer",
 );
+assert(session.includes("UnsavedChangesBar"), "explicit save bar");
+assert(
+  session.includes('aria-label="Session tools"'),
+  "obvious labeled tools toolbar",
+);
+assert(session.includes("Sync video"), "toolbar Sync video");
+const toolsPanel = read("src/components/SessionToolsPanel.tsx");
+assert(toolsPanel.includes('role="toolbar"'), "tools role=toolbar");
+assert(!toolsPanel.includes("fixed right-3 top-1/2"), "no hidden drawer toggle");
 const lapList = read("src/components/LapList.tsx");
 assert(lapList.includes("ReparseLapsButton"), "lap list re-parse button");
 assert(lapList.includes("looksLikeUnsplitLaps"), "unsplit detection in list");

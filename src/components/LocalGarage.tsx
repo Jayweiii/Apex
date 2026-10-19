@@ -410,7 +410,8 @@ export function LocalSession({ id }: { id: string }) {
     return <MissingShell message="Session not found in this browser." />;
   }
 
-  const workingLaps = draftLaps ?? session.laps;
+  const sessionLaps = session.laps;
+  const workingLaps = draftLaps ?? sessionLaps;
   const workingVideos = draftVideos ?? session.videos ?? [];
   const best = bestLapTimeMs(workingLaps);
   const sessionId = session.id;
@@ -430,7 +431,7 @@ export function LocalSession({ id }: { id: string }) {
 
   function onExcludeChange(change: LapExcludeChange) {
     setDraftLaps((prev) => {
-      const base = prev ?? session.laps;
+      const base = prev ?? sessionLaps;
       return base.map((lap) =>
         lap.id === change.lapId
           ? {
@@ -452,7 +453,7 @@ export function LocalSession({ id }: { id: string }) {
     end_offset_override: number | null;
   }) {
     setDraftLaps((prev) => {
-      const base = prev ?? session.laps;
+      const base = prev ?? sessionLaps;
       return base.map((lap) => {
         if (lap.id !== change.lapId) return lap;
         const next = {
@@ -486,7 +487,7 @@ export function LocalSession({ id }: { id: string }) {
     try {
       if (draftLaps) {
         for (const lap of draftLaps) {
-          const baseline = session.laps.find((row) => row.id === lap.id);
+          const baseline = sessionLaps.find((row) => row.id === lap.id);
           if (!baseline) continue;
           if (
             (lap.start_offset_override ?? null) !==
@@ -588,9 +589,14 @@ export function LocalSession({ id }: { id: string }) {
   }
 
   const selectedLap =
-    session.laps.find((lap) => lap.id === selected?.id) ?? null;
+    workingLaps.find((lap) => lap.id === selected?.id) ?? null;
   const track = session.trackId ? getTrack(session.trackId) : null;
   const current = session;
+  const openTool = (tab: string) =>
+    setToolsOpenRequest((prev) => ({
+      tab,
+      nonce: (prev?.nonce ?? 0) + 1,
+    }));
 
   async function reprocess() {
     setReprocessBusy(true);
@@ -634,14 +640,14 @@ export function LocalSession({ id }: { id: string }) {
     }
   }
 
-  const youtubeVideos = (session.videos ?? []).filter(
+  const youtubeVideos = workingVideos.filter(
     (item) => item.provider === "youtube" && item.youtubeId,
   );
 
-  const dedicatedVideoLapIds = (session.videos ?? [])
+  const dedicatedVideoLapIds = workingVideos
     .filter((v) => v.provider === "youtube" && v.youtubeId && v.lapId)
     .map((v) => v.lapId as string);
-  const hasSessionVideo = (session.videos ?? []).some(
+  const hasSessionVideo = workingVideos.some(
     (v) =>
       v.provider === "youtube" &&
       v.youtubeId &&
@@ -717,10 +723,10 @@ export function LocalSession({ id }: { id: string }) {
               lap_time_ms: lap.lap_time_ms,
             })),
           }}
-          videos={session.videos ?? []}
+          videos={workingVideos}
           onChange={(videos) => {
-            updateLocalSession(session.id, { videos });
-            window.location.reload();
+            setDraftVideos(videos);
+            setDirty(true);
           }}
         />
       ),
@@ -792,6 +798,13 @@ export function LocalSession({ id }: { id: string }) {
   return (
     <div className="flex h-dvh flex-col overflow-hidden">
       <AppHeader />
+      <UnsavedChangesBar
+        dirty={dirty}
+        saving={saving}
+        loading={false}
+        onSave={saveEdits}
+        onDiscard={discardEdits}
+      />
       <main className="mx-auto flex min-h-0 w-full max-w-[90rem] flex-1 flex-col overflow-hidden px-3 py-1.5 sm:px-4">
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 pb-1.5">
           <div className="min-w-0">
@@ -808,11 +821,12 @@ export function LocalSession({ id }: { id: string }) {
             </div>
             <p className="mt-0.5 truncate text-xs text-zinc-500">
               {session.car ? `${session.car} · ` : ""}
-              {session.laps.length} laps
+              {workingLaps.length} laps
               {best != null ? ` · best ${formatLapTime(best)}` : ""}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
+            <ShareLinkButton path={`/sessions/${session.id}`} label="Share" />
             <CompareLink
               sessionId={session.id}
               laps={laps}
@@ -824,6 +838,48 @@ export function LocalSession({ id }: { id: string }) {
               }
             />
           </div>
+        </div>
+
+        <div
+          className="mb-2 flex shrink-0 flex-wrap gap-1.5"
+          role="toolbar"
+          aria-label="Session tools"
+        >
+          <button
+            type="button"
+            onClick={openReparse}
+            className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-orange-500/50 bg-orange-500/10 px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-orange-200"
+          >
+            <span aria-hidden>↻</span> Re-parse laps
+          </button>
+          <button
+            type="button"
+            onClick={() => openTool("trim")}
+            className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/80 px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-200"
+          >
+            <span aria-hidden>✂</span> Trim
+          </button>
+          <button
+            type="button"
+            onClick={() => openTool("sync")}
+            className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/80 px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-200"
+          >
+            <span aria-hidden>⏯</span> Sync video
+          </button>
+          <button
+            type="button"
+            onClick={() => openTool("exclude")}
+            className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/80 px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-200"
+          >
+            <span aria-hidden>⊘</span> Exclude
+          </button>
+          <button
+            type="button"
+            onClick={() => openTool("notes")}
+            className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/80 px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-200"
+          >
+            <span aria-hidden>✎</span> Edit details
+          </button>
         </div>
 
         {unsplit && !reparseOpen ? (
@@ -851,6 +907,7 @@ export function LocalSession({ id }: { id: string }) {
               layout="workspace"
               sidebar={lapSidebar}
               extraToolTabs={localToolTabs}
+              toolsOpenRequest={toolsOpenRequest}
               lap={{
                 id: selectedLap.id,
                 lap_number: selectedLap.lap_number,
@@ -863,7 +920,7 @@ export function LocalSession({ id }: { id: string }) {
                   selectedLap.start_offset_override ?? null,
                 end_offset_override: selectedLap.end_offset_override ?? null,
               }}
-              siblingLaps={session.laps.map((item) => ({
+              siblingLaps={workingLaps.map((item) => ({
                 id: item.id,
                 lap_number: item.lap_number,
                 lap_time_ms: item.lap_time_ms,
@@ -887,17 +944,17 @@ export function LocalSession({ id }: { id: string }) {
               onVideoChange={
                 session.kind === "upload"
                   ? (next) => {
-                      const nextVideos = (session.videos ?? []).map((item) =>
+                      const base = draftVideos ?? session.videos ?? [];
+                      const nextVideos = base.map((item) =>
                         item.id === next.id ? next : item,
                       );
                       if (!nextVideos.some((item) => item.id === next.id)) {
                         nextVideos.push(next);
                       }
-                      updateLocalSession(session.id, {
-                        videos: nextVideos.filter(
-                          (v) => v.provider === "youtube",
-                        ),
-                      });
+                      setDraftVideos(
+                        nextVideos.filter((v) => v.provider === "youtube"),
+                      );
+                      setDirty(true);
                     }
                   : undefined
               }

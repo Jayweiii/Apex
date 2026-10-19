@@ -4,6 +4,7 @@ import { hoverIndex, isSeekPointer } from "@/components/chart-hover";
 import { bindChartScrub } from "@/components/chart-scrub";
 import { HoverCursorLine, useHoverCursor } from "@/components/HoverCursor";
 import { type PlotPad } from "@/components/hover-cursor";
+import { chartTAtClientX } from "@/lib/lap-trim";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Area,
@@ -19,6 +20,8 @@ import {
 
 /** Plot pad matches YAxis width + right margin (hover line + scrub). */
 export const SPEED_PLOT_PAD: PlotPad = { left: 48, right: 8 };
+
+export { chartTAtClientX } from "@/lib/lap-trim";
 
 const tooltipStyle = {
   background: "#09090b",
@@ -47,20 +50,6 @@ export function speedAxisDomain(
   }
   const pad = Math.max(2, (max - min) * padFrac);
   return [Math.max(0, Math.floor(min - pad)), Math.ceil(max + pad)];
-}
-
-/** Map client X to chart domain t (exported for pointer-drag tests). */
-export function chartTAtClientX(
-  clientX: number,
-  rect: { left: number; width: number },
-  firstT: number,
-  lastT: number,
-  leftPad = 48,
-  rightPad = 8,
-): number {
-  const usable = Math.max(1, rect.width - leftPad - rightPad);
-  const x = Math.min(usable, Math.max(0, clientX - rect.left - leftPad));
-  return firstT + (x / usable) * (lastT - firstT);
 }
 
 export type SpeedChartPoint = {

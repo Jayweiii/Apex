@@ -5,9 +5,13 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   applyLapTrim,
+  applyLapTrimWithSession,
+  buildTrimChartContext,
+  clampTrimDrag,
   clearLapTrimOverrides,
   mergeAdjacentLaps,
   resolveLapTrimBounds,
+  sessionDataRange,
   splitLapAtProgress,
   videoOffsetAfterStartShift,
   type TrimableLap,
@@ -129,5 +133,36 @@ assert(
   "exclude in selected lap header",
 );
 assert(detail.includes("LapTrimControls"), "trim controls on session lap");
+assert(detail.includes("buildTrimChartContext"), "padded trim chart context");
+assert(detail.includes("clampTrimDrag"), "bidirectional clamp");
+
+const neighbors = [lap("a", 1, 0, 40), lap("b", 2, 40, 40), lap("c", 3, 80, 40)];
+const mid = neighbors[1];
+const range = sessionDataRange(neighbors);
+const out = clampTrimDrag(
+  "start",
+  30,
+  { start: 40, end: 80 },
+  range,
+  1,
+);
+assert(out.start === 30, "trim start into previous lap");
+const ctx = buildTrimChartContext(mid, neighbors, { padSec: 5 });
+assert(ctx.points.some((p) => !p.inLap), "grey neighbor points");
+const extended = applyLapTrimWithSession(
+  { ...mid, start_offset_override: 30, end_offset_override: 85 },
+  neighbors,
+);
+assert(extended.lap_time_ms === 55_000, `extended lap ${extended.lap_time_ms}`);
+
+const speed = readFileSync(
+  resolve(import.meta.dirname, "../src/components/SpeedChart.tsx"),
+  "utf8",
+);
+assert(speed.includes("setPointerCapture"), "pointer capture");
+assert(
+  !/onPointerLeave[\s\S]{0,120}setDragging\(null\)/.test(speed),
+  "leave does not end drag",
+);
 
 console.log("verify-lap-trim ok");

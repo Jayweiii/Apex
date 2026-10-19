@@ -143,6 +143,20 @@ export function nudgeTrimBound(
   return roundSec(Math.min(max, Math.max(min, current + deltaSec)));
 }
 
+/** Map pointer clientX to chart domain t (also used by SpeedChart + tests). */
+export function chartTAtClientX(
+  clientX: number,
+  rect: { left: number; width: number },
+  firstT: number,
+  lastT: number,
+  leftPad = 48,
+  rightPad = 8,
+): number {
+  const usable = Math.max(1, rect.width - leftPad - rightPad);
+  const x = Math.min(usable, Math.max(0, clientX - rect.left - leftPad));
+  return firstT + (x / usable) * (lastT - firstT);
+}
+
 /** Session-time span covered by stitched lap telemetry. */
 export function sessionDataRange(
   laps: Array<{
