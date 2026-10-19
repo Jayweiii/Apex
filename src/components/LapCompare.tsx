@@ -1225,7 +1225,7 @@ function ChartCard({
   scrub,
 }: {
   title: string;
-  hint: string;
+  hint?: string;
   children: ReactNode;
   scrub?: ReturnType<typeof bindChartScrub>;
 }) {

@@ -425,6 +425,7 @@ export function LocalSession({ id }: { id: string }) {
   }
 
   function onMergeNext(lapId: string) {
+    if (!session) return;
     const merged = mergeAdjacentLaps(
       session.laps.map((lap) => ({
         id: lap.id,
@@ -453,6 +454,7 @@ export function LocalSession({ id }: { id: string }) {
   }
 
   function onSplit(lapId: string, progress: number) {
+    if (!session) return;
     const split = splitLapAtProgress(
       session.laps.map((lap) => ({
         id: lap.id,
