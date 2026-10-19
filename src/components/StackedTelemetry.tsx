@@ -10,13 +10,13 @@ import {
   type TelemetryChannelId,
 } from "@/lib/telemetry-channels";
 import type { TelemetryPoint } from "@/lib/types";
-import type { ReactNode } from "react";
+import { useMemo } from "react";
 
-const CHANNEL_COLORS = ["#f97316", "#38bdf8", "#a3e635", "#e879f9"] as const;
+function formatDistance(meters: number) {
+  if (meters >= 1000) return `${(meters / 1000).toFixed(1)} km`;
+  return `${Math.round(meters)} m`;
+}
 
-/**
- * Single-lap stacked telemetry: every available channel, no tabs.
- */
 export function StackedLapTelemetry({
   points,
   activeIndex = null,
@@ -24,28 +24,28 @@ export function StackedLapTelemetry({
   syncId = "lap-detail",
   trimMarkers,
   onTrimBoundaryDrag,
-  fallback,
+  className,
 }: {
   points: TelemetryPoint[];
   activeIndex?: number | null;
   onHoverIndex?: (index: number | null) => void;
   syncId?: string;
-  trimMarkers?: { startT: number; endT: number };
+  trimMarkers?: { startT: number; endT: number } | null;
   onTrimBoundaryDrag?: (which: "start" | "end", lapLocalT: number) => void;
-  /** Used only if channel detection yields nothing (should not happen). */
-  fallback?: ReactNode;
+  className?: string;
 }) {
-  const channels = detectLapChannels(points);
-  if (!channels.length) return fallback ?? null;
-
+  const channels = useMemo(() => detectLapChannels(points), [points]);
   const activeT =
-    activeIndex != null && points[activeIndex]
-      ? points[activeIndex].t
-      : null;
+    activeIndex != null && points[activeIndex] ? points[activeIndex].t : null;
+  const last = channels.length - 1;
+  if (!channels.length) return null;
 
   return (
-    <div className="flex flex-col gap-4">
-      {channels.map((id) => (
+    <div
+      className={`flex min-h-0 flex-col gap-2 overflow-y-auto ${className ?? ""}`}
+      aria-label="Telemetry channels"
+    >
+      {channels.map((id, idx) => (
         <LapChannel
           key={id}
           id={id}
@@ -54,8 +54,9 @@ export function StackedLapTelemetry({
           activeT={activeT}
           onHoverIndex={onHoverIndex}
           syncId={syncId}
-          trimMarkers={trimMarkers}
-          onTrimBoundaryDrag={onTrimBoundaryDrag}
+          showXAxis={idx === last}
+          trimMarkers={id === "speed" ? trimMarkers : null}
+          onTrimBoundaryDrag={id === "speed" ? onTrimBoundaryDrag : undefined}
         />
       ))}
     </div>
@@ -69,6 +70,7 @@ function LapChannel({
   activeT,
   onHoverIndex,
   syncId,
+  showXAxis,
   trimMarkers,
   onTrimBoundaryDrag,
 }: {
@@ -78,7 +80,8 @@ function LapChannel({
   activeT: number | null;
   onHoverIndex?: (index: number | null) => void;
   syncId: string;
-  trimMarkers?: { startT: number; endT: number };
+  showXAxis: boolean;
+  trimMarkers?: { startT: number; endT: number } | null;
   onTrimBoundaryDrag?: (which: "start" | "end", lapLocalT: number) => void;
 }) {
   if (id === "speed") {
@@ -88,8 +91,9 @@ function LapChannel({
         activeIndex={activeIndex}
         onHoverIndex={onHoverIndex}
         syncId={syncId}
-        trimMarkers={trimMarkers}
+        trimMarkers={trimMarkers ?? undefined}
         onTrimBoundaryDrag={onTrimBoundaryDrag}
+        compact
       />
     );
   }
@@ -100,6 +104,7 @@ function LapChannel({
         activeIndex={activeIndex}
         onHoverIndex={onHoverIndex}
         syncId={syncId}
+        compact
       />
     );
   }
@@ -107,16 +112,17 @@ function LapChannel({
     return (
       <ChannelChart
         title={channelLabel(id)}
-        hint="0–100%"
+        hint="%"
         points={points as unknown as Record<string, unknown>[]}
         xKey="t"
         series={[
-          { dataKey: "throttle", name: "Throttle", stroke: "#a3e635" },
-          { dataKey: "brake", name: "Brake", stroke: "#f87171" },
+          { dataKey: "throttle", name: "Throttle", stroke: "#22c55e" },
+          { dataKey: "brake", name: "Brake", stroke: "#ef4444" },
         ]}
         activeX={activeT}
         onHoverIndex={onHoverIndex}
         syncId={syncId}
+        showXAxis={showXAxis}
       />
     );
   }
@@ -124,13 +130,14 @@ function LapChannel({
     return (
       <ChannelChart
         title={channelLabel(id)}
-        hint="degrees"
+        hint="deg"
         points={points as unknown as Record<string, unknown>[]}
         xKey="t"
         series={[{ dataKey: "steering", name: "Steering", stroke: "#38bdf8" }]}
         activeX={activeT}
         onHoverIndex={onHoverIndex}
         syncId={syncId}
+        showXAxis={showXAxis}
       />
     );
   }
@@ -141,12 +148,14 @@ function LapChannel({
         points={points as unknown as Record<string, unknown>[]}
         xKey="t"
         series={[
-          { dataKey: "rpm", name: "RPM", stroke: "#e879f9" },
-          { dataKey: "gear", name: "Gear", stroke: "#fbbf24" },
+          { dataKey: "rpm", name: "RPM", stroke: "#fbbf24" },
+          { dataKey: "gear", name: "Gear", stroke: "#a78bfa" },
         ]}
         activeX={activeT}
         onHoverIndex={onHoverIndex}
         syncId={syncId}
+        showXAxis={showXAxis}
+        showLegend
       />
     );
   }
@@ -154,170 +163,198 @@ function LapChannel({
     return (
       <ChannelChart
         title={channelLabel(id)}
-        hint="degrees"
+        hint="deg"
         points={points as unknown as Record<string, unknown>[]}
         xKey="t"
         series={[{ dataKey: "heading", name: "Heading", stroke: "#94a3b8" }]}
         activeX={activeT}
         onHoverIndex={onHoverIndex}
         syncId={syncId}
+        showXAxis={showXAxis}
       />
     );
   }
   return null;
 }
 
-/**
- * Compare stacked telemetry: all channels visible (no Delta/Speed/G tabs).
- */
+type CompareLapMeta = { id: string; lapNumber: number; color: string };
+
 export function StackedCompareTelemetry({
   series,
-  ordered,
-  hoverAt,
+  laps,
+  rawLaps,
+  activeIndex = null,
   onHoverIndex,
-  analysisMode,
-  formatDistance,
-  chartScrub,
-  ChartCard,
-  CompareTooltip,
+  syncId = "compare",
+  analysisHint,
+  className,
 }: {
   series: Record<string, number | boolean | undefined>[];
-  ordered: Array<{ lap: { id: string; lap_number: number }; color: string }>;
-  hoverAt: number | null;
-  onHoverIndex: (index: number | null) => void;
-  analysisMode: string;
-  formatDistance: (meters: number) => string;
-  chartScrub: Record<string, unknown>;
-  ChartCard: (props: {
-    title: string;
-    hint?: string;
-    scrub?: Record<string, unknown>;
-    children: ReactNode;
-  }) => ReactNode;
-  CompareTooltip: (props: { mode?: "delta" | "g" | "speed" }) => ReactNode;
+  laps: CompareLapMeta[];
+  rawLaps: TelemetryPoint[][];
+  activeIndex?: number | null;
+  onHoverIndex?: (index: number | null) => void;
+  syncId?: string;
+  analysisHint?: string;
+  className?: string;
 }) {
-  const lapPoints = ordered.map(() =>
-    series.map((row) => {
-      // Reconstruct minimal points for channel detection from flat keys.
-      const point: TelemetryPoint = { t: 0, speed: 0 };
-      return point;
-    }),
+  const channels = useMemo(
+    () => detectCompareChannels(rawLaps, { includeDelta: laps.length >= 2 }),
+    [rawLaps, laps.length],
   );
-  void lapPoints;
-
-  // Detect from series keys (throttle0, brake1, …) plus always speed/delta/g.
-  const hasOptional = (key: string) =>
-    series.some((row) => typeof row[key] === "number");
-  const sampleLaps: TelemetryPoint[][] = ordered.map((_, index) => {
-    const pts: TelemetryPoint[] = [];
-    for (const row of series) {
-      const point: TelemetryPoint = {
-        t: 0,
-        speed: Number(row[`speed${index}`] ?? 0),
-      };
-      if (typeof row[`throttle${index}`] === "number") {
-        point.throttle = row[`throttle${index}`] as number;
-      }
-      if (typeof row[`brake${index}`] === "number") {
-        point.brake = row[`brake${index}`] as number;
-      }
-      if (typeof row[`steering${index}`] === "number") {
-        point.steering = row[`steering${index}`] as number;
-      }
-      if (typeof row[`rpm${index}`] === "number") {
-        point.rpm = row[`rpm${index}`] as number;
-      }
-      if (typeof row[`gear${index}`] === "number") {
-        point.gear = row[`gear${index}`] as number;
-      }
-      if (typeof row[`heading${index}`] === "number") {
-        point.heading = row[`heading${index}`] as number;
-      }
-      if (typeof row[`g${index}`] === "number") {
-        point.g = row[`g${index}`] as number;
-        point.latG = point.g;
-      }
-      pts.push(point);
-    }
-    return pts;
-  });
-
-  const channels = detectCompareChannels(sampleLaps, { includeDelta: true });
-  // Ensure classic three always appear when series exists.
-  const ensured: TelemetryChannelId[] = [];
-  for (const id of ["speed", "delta", "g"] as const) {
-    if (!channels.includes(id) && series.length) ensured.push(id);
-  }
-  const orderedChannels = [
-    ...TELEMETRY_ORDER.filter(
-      (id) => channels.includes(id) || ensured.includes(id),
-    ),
-  ];
-
   const hoverDist =
-    hoverAt != null && series[hoverAt]
-      ? Number(series[hoverAt].dist)
+    activeIndex != null && series[activeIndex]
+      ? Number(series[activeIndex].dist)
       : null;
+  const last = channels.length - 1;
+  if (!channels.length || series.length < 2) return null;
 
-  void hasOptional;
-  void chartScrub;
-  void CompareTooltip;
-  void ChartCard;
-  void analysisMode;
-  void formatDistance;
-  void CHANNEL_COLORS;
-  void hoverDist;
-  void orderedChannels;
-
-  // Rendered inline by LapCompare for access to existing ChartCard/tooltips —
-  // this helper only returns the channel list.
-  return null;
+  return (
+    <div
+      className={`flex min-h-0 flex-col gap-2 overflow-y-auto ${className ?? ""}`}
+      aria-label="Compare telemetry channels"
+    >
+      {channels.map((id, idx) => (
+        <CompareChannel
+          key={id}
+          id={id}
+          series={series}
+          laps={laps}
+          activeX={hoverDist}
+          onHoverIndex={onHoverIndex}
+          syncId={syncId}
+          showXAxis={idx === last}
+          analysisHint={analysisHint}
+        />
+      ))}
+    </div>
+  );
 }
 
-const TELEMETRY_ORDER: TelemetryChannelId[] = [
-  "speed",
-  "delta",
-  "throttleBrake",
-  "steering",
-  "g",
-  "gearRpm",
-  "heading",
-];
+function CompareChannel({
+  id,
+  series,
+  laps,
+  activeX,
+  onHoverIndex,
+  syncId,
+  showXAxis,
+  analysisHint,
+}: {
+  id: TelemetryChannelId;
+  series: Record<string, number | boolean | undefined>[];
+  laps: CompareLapMeta[];
+  activeX: number | null;
+  onHoverIndex?: (index: number | null) => void;
+  syncId: string;
+  showXAxis: boolean;
+  analysisHint?: string;
+}) {
+  const xTick = (value: number) => formatDistance(value);
+  const points = series as unknown as Record<string, unknown>[];
 
-/** Channel list for compare UI (all available, no tabs). */
+  if (id === "delta") {
+    return (
+      <ChannelChart
+        title={channelLabel(id)}
+        hint={analysisHint ?? "+ behind ref"}
+        points={points}
+        xKey="dist"
+        xTick={xTick}
+        series={laps.slice(1).map((lap, index) => ({
+          dataKey: `delta${index + 1}`,
+          name: `Δ ${lap.lapNumber}`,
+          stroke: lap.color,
+        }))}
+        activeX={activeX}
+        onHoverIndex={onHoverIndex}
+        syncId={syncId}
+        showXAxis={showXAxis}
+        showLegend
+      />
+    );
+  }
+  if (id === "throttleBrake") {
+    return (
+      <ChannelChart
+        title={channelLabel(id)}
+        hint="%"
+        points={points}
+        xKey="dist"
+        xTick={xTick}
+        series={laps.flatMap((lap, index) => [
+          { dataKey: `throttle${index}`, name: `T ${lap.lapNumber}`, stroke: lap.color },
+          { dataKey: `brake${index}`, name: `B ${lap.lapNumber}`, stroke: lap.color },
+        ])}
+        activeX={activeX}
+        onHoverIndex={onHoverIndex}
+        syncId={syncId}
+        showXAxis={showXAxis}
+        showLegend
+      />
+    );
+  }
+  if (id === "gearRpm") {
+    return (
+      <ChannelChart
+        title={channelLabel(id)}
+        hint="RPM"
+        points={points}
+        xKey="dist"
+        xTick={xTick}
+        series={laps.map((lap, index) => ({
+          dataKey: `rpm${index}`,
+          name: `RPM ${lap.lapNumber}`,
+          stroke: lap.color,
+        }))}
+        activeX={activeX}
+        onHoverIndex={onHoverIndex}
+        syncId={syncId}
+        showXAxis={showXAxis}
+        showLegend
+      />
+    );
+  }
+  const prefix =
+    id === "speed" ? "speed" : id === "g" ? "g" : id === "steering" ? "steering" : id === "heading" ? "heading" : null;
+  if (!prefix) return null;
+  return (
+    <ChannelChart
+      title={channelLabel(id)}
+      hint={id === "speed" ? analysisHint : id === "g" ? "combined" : "deg"}
+      points={points}
+      xKey="dist"
+      xTick={xTick}
+      series={laps.map((lap, index) => ({
+        dataKey: `${prefix}${index}`,
+        name: `Lap ${lap.lapNumber}`,
+        stroke: lap.color,
+      }))}
+      activeX={activeX}
+      onHoverIndex={onHoverIndex}
+      syncId={syncId}
+      showXAxis={showXAxis}
+      showLegend
+    />
+  );
+}
+
+/** Helper kept for any callers that detect channels from flat compare series. */
 export function compareChannelsForSeries(
   series: Record<string, number | boolean | undefined>[],
   lapCount: number,
 ): TelemetryChannelId[] {
   if (!series.length || lapCount < 1) return [];
-  const sampleLaps: TelemetryPoint[][] = Array.from(
-    { length: lapCount },
-    (_, index) => {
-      const pts: TelemetryPoint[] = [];
-      for (const row of series.slice(0, 8)) {
-        const point: TelemetryPoint = {
-          t: 0,
-          speed: Number(row[`speed${index}`] ?? 0),
-        };
-        for (const key of [
-          "throttle",
-          "brake",
-          "steering",
-          "rpm",
-          "gear",
-          "heading",
-          "g",
-        ] as const) {
-          const value = row[`${key}${index}`];
-          if (typeof value === "number") {
-            (point as Record<string, number>)[key] = value;
-          }
-        }
-        if (point.g != null && point.latG == null) point.latG = point.g;
-        pts.push(point);
+  const sampleLaps: TelemetryPoint[][] = Array.from({ length: lapCount }, (_, index) =>
+    series.slice(0, 12).map((row) => {
+      const point: TelemetryPoint = { t: 0, speed: Number(row[`speed${index}`] ?? 0) };
+      for (const key of ["throttle", "brake", "steering", "rpm", "gear", "heading", "g"] as const) {
+        const value = row[`${key}${index}`];
+        if (typeof value === "number") (point as Record<string, number>)[key] = value;
       }
-      return pts;
-    },
+      if (point.g != null && point.latG == null) point.latG = point.g;
+      return point;
+    }),
   );
   return detectCompareChannels(sampleLaps, { includeDelta: lapCount >= 2 });
 }

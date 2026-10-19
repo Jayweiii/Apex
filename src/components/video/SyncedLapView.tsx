@@ -452,101 +452,61 @@ export function SyncedLapView({
   );
 
   return (
-    <div ref={rootRef} tabIndex={0} className="flex flex-col gap-6 outline-none">
-      {activeVideo ? (
-        <div className="space-y-4">
-          <div className="w-full">
-            {activeVideo.provider === "youtube" && activeVideo.youtubeId ? (
-              <YouTubePlayer
-                key={activeVideo.youtubeId}
-                videoId={activeVideo.youtubeId}
-                ref={bindPlayer}
-                className="w-full"
-                onPlayerEvent={onPlayerEvent}
-              />
-            ) : mp4Src ? (
-              <Mp4Player
-                src={mp4Src}
-                ref={bindPlayer}
-                className="w-full"
-                onPlayerEvent={onPlayerEvent}
-              />
-            ) : (
-              <MissingYouTube sessionId={sessionId} />
-            )}
-            <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-zinc-400">
-              <span className="font-mono text-zinc-200">
-                {formatLapTime(lap.lap_time_ms)}
-              </span>
-              {cursorPoint ? (
-                <span>
-                  {formatMph(cursorPoint.speed)} · {formatKmh(cursorPoint.speed)}
+    <div ref={rootRef} tabIndex={0} className="flex flex-col gap-4 outline-none">
+      {playbackBar}
+
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.05fr)_minmax(280px,0.95fr)] lg:items-start">
+        <div className="min-w-0 space-y-3 lg:sticky lg:top-20">
+          {activeVideo ? (
+            <div className="w-full">
+              {activeVideo.provider === "youtube" && activeVideo.youtubeId ? (
+                <YouTubePlayer
+                  key={activeVideo.youtubeId}
+                  videoId={activeVideo.youtubeId}
+                  ref={bindPlayer}
+                  className="w-full"
+                  onPlayerEvent={onPlayerEvent}
+                />
+              ) : mp4Src ? (
+                <Mp4Player
+                  src={mp4Src}
+                  ref={bindPlayer}
+                  className="w-full"
+                  onPlayerEvent={onPlayerEvent}
+                />
+              ) : (
+                <MissingYouTube sessionId={sessionId} />
+              )}
+              <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-zinc-400">
+                <span className="font-mono text-zinc-200">
+                  {formatLapTime(lap.lap_time_ms)}
                 </span>
-              ) : null}
-              {deltaVsBest != null ? (
-                <span>Δ best {formatGap(deltaVsBest)}</span>
-              ) : null}
+                {cursorPoint ? (
+                  <span>
+                    {formatMph(cursorPoint.speed)} ·{" "}
+                    {formatKmh(cursorPoint.speed)}
+                  </span>
+                ) : null}
+                {deltaVsBest != null ? (
+                  <span>Δ best {formatGap(deltaVsBest)}</span>
+                ) : null}
+              </div>
             </div>
-          </div>
-          {playbackBar}
-          <div>{mapBlock}</div>
-        </div>
-      ) : (
-        <>
-          {playbackBar}
+          ) : null}
           {mapBlock}
-        </>
-      )}
+        </div>
 
-      {activeVideo && onVideoChange ? (
-        <SyncPanel
-          video={activeVideo}
-          videoTime={videoTime}
-          lapStartOffsetSec={currentSyncLap.startOffsetSec}
-          lapTimeMs={lap.lap_time_ms}
-          sessionStartedAtMs={sessionStartedAtMs}
-          loggedLaps={syncLaps.map((item) => ({
-            startOffsetSec: item.startOffsetSec,
-            lapTimeMs: item.lapTimeMs,
-          }))}
-          chartLapTimeSec={chartLapTimeSec}
-          lapPoints={chartData}
-          onChange={handleVideoChange}
-          onSeek={(t) => {
-            authorityRef.current = "clock";
-            drivePlayer("seek", t);
-            applyVideoTime(t);
-          }}
-          onSeekChartLapTime={seekChartLapTime}
+        <StackedLapTelemetry
+          points={chartData}
+          activeIndex={index}
+          onHoverIndex={hoverFromChart}
+          syncId="lap-detail"
+          trimMarkers={trimMarkers}
+          onTrimBoundaryDrag={onTrimBoundaryDrag}
+          className="max-h-[min(70vh,720px)]"
         />
-      ) : null}
-
-      <StackedLapTelemetry
-        points={chartData}
-        activeIndex={index}
-        onHoverIndex={hoverFromChart}
-        syncId="lap-detail"
-        trimMarkers={trimMarkers ?? undefined}
-        onTrimBoundaryDrag={onTrimBoundaryDrag}
-        fallback={
-          <>
-            <SpeedChart
-              points={chartData}
-              activeIndex={index}
-              onHoverIndex={hoverFromChart}
-              syncId="lap-detail"
-              trimMarkers={trimMarkers ?? undefined}
-              onTrimBoundaryDrag={onTrimBoundaryDrag}
-            />
-            <GChart
-              points={chartData}
-              activeIndex={index}
-              onHoverIndex={hoverFromChart}
-              syncId="lap-detail"
-            />
-          </>
-        }
-      />
+      </div>
     </div>
   );
 }
+

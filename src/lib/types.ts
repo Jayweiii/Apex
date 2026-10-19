@@ -9,6 +9,18 @@ export type TelemetryPoint = {
   lonG?: number;
   /** Combined acceleration in g. */
   g?: number;
+  /** Throttle pedal position 0–100%. */
+  throttle?: number;
+  /** Brake pedal / calculated brake 0–100%. */
+  brake?: number;
+  /** Steering wheel angle in degrees. */
+  steering?: number;
+  /** Engine RPM. */
+  rpm?: number;
+  /** Gear number (0 = neutral, negative = reverse). */
+  gear?: number;
+  /** Heading / course in degrees. */
+  heading?: number;
   /** Distance along track centerline (meters), when map-matched. */
   trackDist?: number;
   /** Signed lateral offset from centerline (meters), when map-matched. */
