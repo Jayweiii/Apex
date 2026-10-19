@@ -40,6 +40,8 @@ export type StoredSession = {
   attribution?: DatasetAttribution;
   sourceKind?: SessionSourceKind;
   gpsQuality?: GpsQuality | null;
+  /** Full GPS for re-split; stored compactly when present. */
+  sourcePoints?: import("@/lib/types").TelemetryPoint[] | null;
   rawObjectKey?: string | null;
   /** @deprecated Prefer videos[]. Migrated on read. */
   videoObjectKey?: string | null;
@@ -231,6 +233,8 @@ export type SessionMetaInput = {
   notes?: string;
   sourceKind?: SessionSourceKind;
   gpsQuality?: GpsQuality | null;
+  /** Full GPS for re-split; stored compactly when present. */
+  sourcePoints?: import("@/lib/types").TelemetryPoint[] | null;
   rawObjectKey?: string | null;
   videoObjectKey?: string | null;
   videoLocalKey?: string | null;

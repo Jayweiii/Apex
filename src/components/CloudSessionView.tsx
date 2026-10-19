@@ -4,6 +4,7 @@ import { AppHeader } from "@/components/AppHeader";
 import { GpsQualityBadge } from "@/components/GpsQualityBadge";
 import { LapChips, LapList, type LapExcludeChange } from "@/components/LapList";
 import { SessionLapDetail } from "@/components/SessionLapDetail";
+import { SessionReparsePanel } from "@/components/SessionReparsePanel";
 import type { SessionToolTab } from "@/components/SessionToolsPanel";
 import { videoCoverage } from "@/lib/pick-session-video";
 import { SessionVideosCard } from "@/components/SessionVideosCard";
@@ -39,6 +40,7 @@ type CloudSession = {
   visibility?: string | null;
   source_kind?: string | null;
   gps_quality?: GpsQuality | null;
+  source_gps?: unknown;
   notes?: string | null;
   started_at?: string | null;
   session_date?: string | null;
@@ -691,6 +693,39 @@ export function CloudSessionView({ id }: { id: string }) {
           videos={videos}
           onChange={mine ? onVideosChange : () => {}}
           readOnly={!mine}
+        />
+      ),
+    });
+  }
+
+  if (mine) {
+    sessionToolTabs.push({
+      id: "reparse",
+      label: "Re-parse",
+      content: (
+        <SessionReparsePanel
+          sessionId={session.id}
+          trackId={session.track_id}
+          sourceGps={session.source_gps}
+          laps={laps}
+          startedAtMs={
+            Number.isFinite(startedAtMs) ? startedAtMs : undefined
+          }
+          onDone={async () => {
+            setTrimError(null);
+            await reloadLaps();
+            try {
+              const supabase = createClient();
+              const { data: row } = await supabase
+                .from("sessions")
+                .select("*")
+                .eq("id", session.id)
+                .maybeSingle();
+              if (row) setSession(row as CloudSession);
+            } catch {
+              // laps already reloaded
+            }
+          }}
         />
       ),
     });

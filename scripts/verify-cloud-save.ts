@@ -62,6 +62,7 @@ assert(payload.session.car === "ND Miata", "car");
 assert(payload.session.visibility === "friends", "default visibility friends");
 assert(payload.session.raw_object_key === "r2/sess-1/raw/morning.csv", "raw key");
 assert(payload.session.started_at === new Date(1_700_000_000_000).toISOString(), "started_at");
+assert(payload.session.source_gps == null, "no source_gps without sourcePoints");
 assert(payload.laps.length === 2, "two laps");
 assert(payload.laps[0].start_offset_sec === 5, "lap start offset");
 assert(payload.laps[0].telemetry != null, "telemetry kept");
@@ -79,8 +80,17 @@ const noYt = buildCloudSessionPayload("user-1", laps, {
   carTags: [],
   sourceKind: "gopro",
   videoObjectKey: "r2/ignored-mp4.mp4",
+  sourcePoints: [
+    { t: 0, lat: 39.5, lon: -122.3, speed: 40 },
+    { t: 1, lat: 39.5001, lon: -122.3001, speed: 50 },
+  ],
 });
 assert(noYt.videos.length === 0, "legacy videoObjectKey does not invent mp4 row");
+assert(Array.isArray(noYt.session.source_gps), "source_gps stored on upload");
+assert(
+  (noYt.session.source_gps as unknown[]).length === 2,
+  "source_gps compact length",
+);
 
 const privatePayload = buildCloudSessionPayload("user-1", laps, {
   name: "Private run",

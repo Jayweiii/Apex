@@ -67,6 +67,7 @@ assert(session.includes("LapChips"), "lap chips");
 const syncedLap = read("src/components/video/SyncedLapView.tsx");
 assert(syncedLap.includes("lg:grid-cols"), "session workspace side-by-side");
 assert(syncedLap.includes("SessionToolsPanel"), "secondary tools drawer");
+assert(session.includes("SessionReparsePanel"), "owner re-parse laps panel");
 const lapPage = read("src/app/sessions/[id]/laps/[lapId]/page.tsx");
 assert(lapPage.includes("legacyLapRedirectHref"), "legacy lap redirect");
 assert(!lapPage.includes("CloudLapView"), "lap page no longer renders detail");
@@ -97,5 +98,10 @@ assert(accountPage.includes("My Sessions"), "account page heading");
 
 const footer = read("src/components/SiteFooter.tsx");
 assert(footer.includes("My Sessions"), "footer My Sessions");
+
+assert(
+  existsSync(join(root, "supabase/migrations/20261019_session_source_gps.sql")),
+  "source_gps migration",
+);
 
 console.log("verify-home-nav: ok");

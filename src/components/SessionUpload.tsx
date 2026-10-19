@@ -440,6 +440,7 @@ export function SessionUpload({
       let gpsQuality: GpsQuality | null = null;
       let videoStartedAtMs: number | undefined;
       let autoTrackId: string | undefined;
+      let sourcePoints: import("@/lib/types").TelemetryPoint[] | undefined;
 
       if (isMp4) {
         setProgress("Reading MP4 creation_time (GPS clock preferred when present)…");
@@ -464,6 +465,7 @@ export function SessionUpload({
         laps = parsed.laps;
         startedAtMs = parsed.startedAtMs;
         sessionDate = parsed.sessionDate;
+        sourcePoints = parsed.sourcePoints;
         // Align attached video wall-clock with the resolved session clock.
         if (parsed.startedAtMs != null) {
           videoStartedAtMs = parsed.startedAtMs;
@@ -519,6 +521,7 @@ export function SessionUpload({
             laps = parsed.laps;
             startedAtMs = parsed.startedAtMs;
             sessionDate = parsed.sessionDate;
+            sourcePoints = parsed.sourcePoints;
             sourceKind =
               parsed.format === "gopro-json" || parsed.format === "gopro-csv"
                 ? "gopro"
@@ -654,6 +657,7 @@ export function SessionUpload({
           notes: notes.trim() || undefined,
           sourceKind,
           gpsQuality,
+          sourcePoints,
           rawObjectKey: stored.rawObjectKey,
           videoObjectKey: stored.videoObjectKey,
           storageBackend: stored.storageBackend,
@@ -689,6 +693,7 @@ export function SessionUpload({
           notes: notes.trim() || undefined,
           sourceKind,
           gpsQuality,
+          sourcePoints,
           rawObjectKey: stored.rawObjectKey,
           videoObjectKey: stored.videoObjectKey,
           videoLocalKey: stored.videoLocalKey,

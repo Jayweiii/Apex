@@ -1,6 +1,10 @@
 import { assertUserUploadRateLimit } from "@/lib/abuse-limits";
 import type { GpsQuality } from "@/lib/gps-quality";
-import type { ParsedLap, SessionVideo } from "@/lib/types";
+import {
+  compactSourceGps,
+  type CompactGpsPoint,
+} from "@/lib/session-reparse";
+import type { ParsedLap, SessionVideo, TelemetryPoint } from "@/lib/types";
 import {
   DEFAULT_VISIBILITY,
   normalizeVisibility,
@@ -20,6 +24,9 @@ export type CloudSessionMeta = {
   notes?: string;
   sourceKind: "csv" | "gopro" | "logger";
   gpsQuality?: GpsQuality | null;
+  /** Full-res GPS for later re-split (compacted on save). */
+  sourcePoints?: TelemetryPoint[] | null;
+  sourceGps?: CompactGpsPoint[] | null;
   rawObjectKey?: string | null;
   videoObjectKey?: string | null;
   storageBackend?: string | null;
@@ -48,6 +55,10 @@ export function buildCloudSessionPayload(
   if (!meta.car.trim()) throw new Error("Enter the car");
   if (!laps.length) throw new Error("No laps to save");
 
+  const sourceGps =
+    meta.sourceGps ??
+    (meta.sourcePoints?.length ? compactSourceGps(meta.sourcePoints) : null);
+
   const session: Record<string, unknown> = {
     user_id: userId,
     name: meta.name,
@@ -62,6 +73,7 @@ export function buildCloudSessionPayload(
     notes: meta.notes?.trim() || null,
     source_kind: meta.sourceKind,
     gps_quality: meta.gpsQuality ?? null,
+    source_gps: sourceGps,
     raw_object_key: meta.rawObjectKey ?? null,
     video_object_key: meta.videoObjectKey ?? null,
     storage_backend: meta.storageBackend ?? null,
@@ -140,6 +152,18 @@ export async function saveSessionToCloud(
     .select("id")
     .single();
   // Drop optional columns gracefully when migrations are not yet applied.
+  if (
+    sessionInsert.error &&
+    /source_gps/i.test(String(sessionInsert.error.message ?? ""))
+  ) {
+    const { source_gps: _omitSource, ...withoutSource } = payload.session;
+    void _omitSource;
+    sessionInsert = await client
+      .from("sessions")
+      .insert(withoutSource)
+      .select("id")
+      .single();
+  }
   if (
     sessionInsert.error &&
     /gps_quality/i.test(String(sessionInsert.error.message ?? ""))

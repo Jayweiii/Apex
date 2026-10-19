@@ -188,6 +188,11 @@ export type GoProClockSource = "gps" | "mp4" | "override" | "none";
 export type GoProParseResult = {
   laps: ParsedLap[];
   pointCount: number;
+  /**
+   * Full-resolution GPS before per-lap downsample — stored on
+   * sessions.source_gps so owners can re-split without re-uploading video.
+   */
+  sourcePoints?: TelemetryPoint[];
   gpsStream: "GPS5" | "GPS9" | "GPS" | "unknown";
   /**
    * Absolute wall-clock at video t=0 for session date / time-of-day sync.
@@ -460,6 +465,7 @@ export async function parseGoProRawData(
   return {
     laps: split.laps,
     pointCount: points.length,
+    sourcePoints: points,
     gpsStream,
     startedAtMs,
     sessionDate: startedAtMs != null ? sessionDateFromMs(startedAtMs) : undefined,
@@ -597,6 +603,10 @@ export async function parseGoProChapters(
       // Only first chapter supplies absolute clocks.
       videoStartedAtMs: i === 0 ? options.videoStartedAtMs : undefined,
       overrideStartedAtMs: i === 0 ? options.overrideStartedAtMs : undefined,
+      // Defer SF split — concatenate full GPS first, then split once.
+      trackId: null,
+      startFinish: null,
+      centerline: null,
       onProgress: (percent) => {
         const overall = ((i + percent / 100) / files.length) * 100;
         options.onProgress?.(overall);
@@ -611,14 +621,21 @@ export async function parseGoProChapters(
       clockSource = chapter.clockSource;
     }
 
+    const chapterPoints = chapter.sourcePoints?.length
+      ? chapter.sourcePoints
+      : chapter.laps.flatMap((lap) => {
+          const lapStart = lap.startOffsetSec ?? 0;
+          return lap.points.map((point) => ({
+            ...point,
+            t: point.t + lapStart,
+          }));
+        });
+
     let chapterEnd = 0;
-    for (const lap of chapter.laps) {
-      const lapStart = lap.startOffsetSec ?? 0;
-      for (const point of lap.points) {
-        const t = point.t + lapStart + timeOffset;
-        allPoints.push({ ...point, t });
-        chapterEnd = Math.max(chapterEnd, t);
-      }
+    for (const point of chapterPoints) {
+      const t = point.t + timeOffset;
+      allPoints.push({ ...point, t });
+      chapterEnd = Math.max(chapterEnd, t);
     }
     timeOffset = chapterEnd;
   }
@@ -647,6 +664,7 @@ export async function parseGoProChapters(
   return {
     laps,
     pointCount: allPoints.length,
+    sourcePoints: allPoints,
     gpsStream,
     startedAtMs,
     sessionDate: startedAtMs != null ? sessionDateFromMs(startedAtMs) : undefined,

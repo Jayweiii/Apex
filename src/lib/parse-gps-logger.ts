@@ -25,6 +25,8 @@ export type GpsLoggerFormat =
 export type GpsLoggerResult = {
   laps: ParsedLap[];
   pointCount: number;
+  /** Full GPS before per-lap downsample — for sessions.source_gps. */
+  sourcePoints?: TelemetryPoint[];
   format: GpsLoggerFormat;
   stream: GpsQuality["stream"];
   startedAtMs?: number;
@@ -93,6 +95,7 @@ function finalizeLogger(
   return {
     laps,
     pointCount: normalized.length,
+    sourcePoints: normalized,
     format,
     stream,
     startedAtMs,
