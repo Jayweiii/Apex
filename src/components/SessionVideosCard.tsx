@@ -146,8 +146,8 @@ export function SessionVideosCard({
       setUrl("");
       setStatus(
         chosenLap
-          ? `Attached to lap ${lap?.lap_number ?? ""} — nudge offset or open synced`
-          : "Session-level YouTube attached — offset applies at each lap start",
+          ? `Attached to lap ${lap?.lap_number ?? ""} — point-match on the lap panel`
+          : "Session-level YouTube attached — open a lap and Sync here",
       );
     } finally {
       setBusy(false);

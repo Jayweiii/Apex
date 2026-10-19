@@ -35,8 +35,8 @@ function videoMark(
       text: synced ? "Synced" : "Not synced",
       className: synced ? "text-emerald-300" : "text-orange-300",
       title: synced
-        ? "YouTube attached and start line synced"
-        : "YouTube attached — mark start line to sync",
+        ? "YouTube attached and point-matched"
+        : "YouTube attached — pin chart + Sync here",
     };
   }
   if (sessionVideo) {
