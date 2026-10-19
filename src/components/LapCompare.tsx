@@ -4,6 +4,7 @@ import { hoverIndex } from "@/components/chart-hover";
 import { bindChartScrub } from "@/components/chart-scrub";
 import { GpsQualityBadge } from "@/components/GpsQualityBadge";
 import { MissingGps, TrackMap } from "@/components/TrackMap";
+import { compareChannelsForSeries } from "@/components/StackedTelemetry";
 import { DualSessionVideos } from "@/components/video/DualSessionVideos";
 import { useAnalysisMode } from "@/lib/analysis-mode";
 import { resolveTrackCenterline } from "@/lib/cloud-tracks";
@@ -32,6 +33,7 @@ import {
   type GpsDisplayMode,
 } from "@/lib/map-match";
 import { progressFromIndex } from "@/lib/scrub";
+import { channelLabel } from "@/lib/telemetry-channels";
 import { getTrack } from "@/lib/tracks";
 import { pickSessionVideoForLap } from "@/lib/pick-session-video";
 import type { LapRow, SessionVideo } from "@/lib/types";
@@ -423,6 +425,11 @@ export function LapCompare({
     );
   }, [ordered, sameLap, matchedByLapId, analysisMode]);
 
+  const stackedChannels = useMemo(
+    () => compareChannelsForSeries(series, ordered.length),
+    [series, ordered.length],
+  );
+
   const mapTraces = useMemo(() => {
     return ordered.map((item) => ({
       id: item.lap.id,
@@ -439,9 +446,6 @@ export function LapCompare({
   }, [ordered, matchedByLapId, gpsMode, centerline]);
 
   const [progress, setProgress] = useState<number | null>(null);
-  const [chartPanel, setChartPanel] = useState<"delta" | "speed" | "g">(
-    "delta",
-  );
 
   const draftKey = resolved
     .map((item) => `${item.session.id}:${item.lap.id}:${item.isRef ? "r" : ""}`)
@@ -762,30 +766,11 @@ export function LapCompare({
             </div>
 
             <div className="space-y-3">
-              <div className="flex flex-wrap gap-2">
-                {(
-                  [
-                    { id: "delta" as const, label: "Delta" },
-                    { id: "speed" as const, label: "Speed" },
-                    { id: "g" as const, label: "G" },
-                  ] as const
-                ).map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setChartPanel(item.id)}
-                    className={`min-h-9 rounded-lg px-3 text-xs uppercase tracking-[0.14em] ${
-                      chartPanel === item.id
-                        ? "bg-zinc-100 text-zinc-900"
-                        : "border border-zinc-800 text-zinc-400 hover:text-zinc-200"
-                    }`}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
+              <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
+                Telemetry · all channels
+              </p>
 
-              {chartPanel === "speed" ? (
+              {stackedChannels.includes("speed") ? (
                 <ChartCard
                   title="Speed"
                   hint={
@@ -842,7 +827,7 @@ export function LapCompare({
                 </ChartCard>
               ) : null}
 
-              {chartPanel === "delta" ? (
+              {stackedChannels.includes("delta") ? (
                 <ChartCard
                   title="Delta"
                   hint={
@@ -900,7 +885,118 @@ export function LapCompare({
                 </ChartCard>
               ) : null}
 
-              {chartPanel === "g" ? (
+              {stackedChannels.includes("throttleBrake") ? (
+                <ChartCard title={channelLabel("throttleBrake")} hint="0–100%" scrub={chartScrub}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart
+                      data={series}
+                      syncId="compare"
+                      margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
+                      onMouseMove={(state) => {
+                        const native = (state as { event?: MouseEvent }).event;
+                        if (native && native.buttons === 0) return;
+                        hoverFromChart(hoverIndex(state));
+                      }}
+                      onMouseLeave={() => setProgress(null)}
+                    >
+                      <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
+                      <XAxis
+                        dataKey="dist"
+                        type="number"
+                        tickFormatter={(value) => formatDistance(Number(value))}
+                        stroke="#71717a"
+                        fontSize={11}
+                      />
+                      <YAxis stroke="#71717a" fontSize={11} width={48} />
+                      <Tooltip />
+                      <Legend />
+                      {hoverAt != null ? (
+                        <ReferenceLine
+                          x={series[hoverAt]?.dist}
+                          stroke="#a1a1aa"
+                          strokeDasharray="4 4"
+                        />
+                      ) : null}
+                      {ordered.map((item, index) => (
+                        <Line
+                          key={`${item.lap.id}-th`}
+                          type="monotone"
+                          dataKey={`throttle${index}`}
+                          name={`T ${item.lap.lap_number}`}
+                          stroke={item.color}
+                          strokeWidth={2}
+                          dot={false}
+                          isAnimationActive={false}
+                        />
+                      ))}
+                      {ordered.map((item, index) => (
+                        <Line
+                          key={`${item.lap.id}-br`}
+                          type="monotone"
+                          dataKey={`brake${index}`}
+                          name={`B ${item.lap.lap_number}`}
+                          stroke={item.color}
+                          strokeWidth={1.5}
+                          strokeDasharray="4 3"
+                          dot={false}
+                          isAnimationActive={false}
+                        />
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer>
+                </ChartCard>
+              ) : null}
+
+              {stackedChannels.includes("steering") ? (
+                <ChartCard title={channelLabel("steering")} hint="degrees" scrub={chartScrub}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart
+                      data={series}
+                      syncId="compare"
+                      margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
+                      onMouseMove={(state) => {
+                        const native = (state as { event?: MouseEvent }).event;
+                        if (native && native.buttons === 0) return;
+                        hoverFromChart(hoverIndex(state));
+                      }}
+                      onMouseLeave={() => setProgress(null)}
+                    >
+                      <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
+                      <XAxis
+                        dataKey="dist"
+                        type="number"
+                        tickFormatter={(value) => formatDistance(Number(value))}
+                        stroke="#71717a"
+                        fontSize={11}
+                      />
+                      <YAxis stroke="#71717a" fontSize={11} width={48} />
+                      <Tooltip />
+                      <Legend />
+                      {hoverAt != null ? (
+                        <ReferenceLine
+                          x={series[hoverAt]?.dist}
+                          stroke="#a1a1aa"
+                          strokeDasharray="4 4"
+                        />
+                      ) : null}
+                      {ordered.map((item, index) => (
+                        <Line
+                          key={item.lap.id}
+                          type="monotone"
+                          dataKey={`steering${index}`}
+                          name={`Lap ${item.lap.lap_number}`}
+                          stroke={item.color}
+                          strokeWidth={2}
+                          dot={false}
+                          isAnimationActive={false}
+                        />
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer>
+                </ChartCard>
+              ) : null}
+
+              {stackedChannels.includes("g") ? (
                 <ChartCard title="G" hint="Combined acceleration" scrub={chartScrub}>
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart
@@ -937,6 +1033,104 @@ export function LapCompare({
                           key={item.lap.id}
                           type="monotone"
                           dataKey={`g${index}`}
+                          name={`Lap ${item.lap.lap_number}`}
+                          stroke={item.color}
+                          strokeWidth={2}
+                          dot={false}
+                          isAnimationActive={false}
+                        />
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer>
+                </ChartCard>
+              ) : null}
+
+              {stackedChannels.includes("gearRpm") ? (
+                <ChartCard title={channelLabel("gearRpm")} scrub={chartScrub}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart
+                      data={series}
+                      syncId="compare"
+                      margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
+                      onMouseMove={(state) => {
+                        const native = (state as { event?: MouseEvent }).event;
+                        if (native && native.buttons === 0) return;
+                        hoverFromChart(hoverIndex(state));
+                      }}
+                      onMouseLeave={() => setProgress(null)}
+                    >
+                      <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
+                      <XAxis
+                        dataKey="dist"
+                        type="number"
+                        tickFormatter={(value) => formatDistance(Number(value))}
+                        stroke="#71717a"
+                        fontSize={11}
+                      />
+                      <YAxis stroke="#71717a" fontSize={11} width={48} />
+                      <Tooltip />
+                      <Legend />
+                      {hoverAt != null ? (
+                        <ReferenceLine
+                          x={series[hoverAt]?.dist}
+                          stroke="#a1a1aa"
+                          strokeDasharray="4 4"
+                        />
+                      ) : null}
+                      {ordered.map((item, index) => (
+                        <Line
+                          key={item.lap.id}
+                          type="monotone"
+                          dataKey={`rpm${index}`}
+                          name={`RPM ${item.lap.lap_number}`}
+                          stroke={item.color}
+                          strokeWidth={2}
+                          dot={false}
+                          isAnimationActive={false}
+                        />
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer>
+                </ChartCard>
+              ) : null}
+
+              {stackedChannels.includes("heading") ? (
+                <ChartCard title={channelLabel("heading")} hint="degrees" scrub={chartScrub}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart
+                      data={series}
+                      syncId="compare"
+                      margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
+                      onMouseMove={(state) => {
+                        const native = (state as { event?: MouseEvent }).event;
+                        if (native && native.buttons === 0) return;
+                        hoverFromChart(hoverIndex(state));
+                      }}
+                      onMouseLeave={() => setProgress(null)}
+                    >
+                      <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
+                      <XAxis
+                        dataKey="dist"
+                        type="number"
+                        tickFormatter={(value) => formatDistance(Number(value))}
+                        stroke="#71717a"
+                        fontSize={11}
+                      />
+                      <YAxis stroke="#71717a" fontSize={11} width={48} />
+                      <Tooltip />
+                      <Legend />
+                      {hoverAt != null ? (
+                        <ReferenceLine
+                          x={series[hoverAt]?.dist}
+                          stroke="#a1a1aa"
+                          strokeDasharray="4 4"
+                        />
+                      ) : null}
+                      {ordered.map((item, index) => (
+                        <Line
+                          key={item.lap.id}
+                          type="monotone"
+                          dataKey={`heading${index}`}
                           name={`Lap ${item.lap.lap_number}`}
                           stroke={item.color}
                           strokeWidth={2}

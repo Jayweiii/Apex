@@ -18,6 +18,15 @@ import {
   scrubPlaybackProgress,
   type PlaybackSpeed,
 } from "@/lib/playback";
+import {
+  createSyncSuppress,
+  DRIFT_CHECK_INTERVAL_MS,
+  lapProgressFromVideoTime,
+  nearestPlaybackSpeed,
+  needsDriftCorrection,
+  type PlayerSyncEvent,
+  type SyncAuthority,
+} from "@/lib/playback-sync";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export type MultiVideoSide = DualVideoSide & { color: string };
@@ -26,10 +35,12 @@ function SidePlayer({
   side,
   color,
   onBind,
+  onPlayerEvent,
 }: {
   side: DualVideoSide;
   color: string;
   onBind: (handle: VideoPlayerHandle | null) => void;
+  onPlayerEvent?: (event: PlayerSyncEvent) => void;
 }) {
   if (!sideHasPlayableVideo(side)) {
     return (
@@ -67,9 +78,14 @@ function SidePlayer({
           key={side.video.youtubeId}
           videoId={side.video.youtubeId}
           ref={(instance) => onBind(instance)}
+          onPlayerEvent={onPlayerEvent}
         />
       ) : side.mp4Src ? (
-        <Mp4Player src={side.mp4Src} ref={(instance) => onBind(instance)} />
+        <Mp4Player
+          src={side.mp4Src}
+          ref={(instance) => onBind(instance)}
+          onPlayerEvent={onPlayerEvent}
+        />
       ) : null}
     </div>
   );
@@ -83,8 +99,8 @@ function gridClass(count: number) {
 
 /**
  * Up to 4 onboard videos lockstepped by shared lap-relative progress (0..1).
- * Our RAF clock (speed-aware) drives players; parent map/charts share `progress`.
- * Respects each video's saved offset. Play only on explicit click (no hover).
+ * Two-way: track controls drive all players; any YouTube play/pause/seek/rate
+ * drives the shared track cursor (and the other players).
  */
 export function DualSessionVideos({
   sides,
@@ -116,38 +132,68 @@ export function DualSessionVideos({
   const [speed, setSpeed] = useState<PlaybackSpeed>(1);
   const progressRef = useRef(progress ?? 0);
   progressRef.current = progress ?? 0;
+  const authorityRef = useRef<SyncAuthority>("clock");
+  const suppress = useRef(createSyncSuppress());
   const lapMs = resolved.map((side) => side.lap.lapTimeMs);
   const positiveMs = lapMs.filter((ms) => ms > 0);
   const sharedMs = Math.max(1, positiveMs.length ? Math.min(...positiveMs) : 1);
 
+  const sideKey = resolved
+    .map((s) => `${s.lap.id}:${s.video?.id ?? ""}:${s.video?.offsetSec ?? 0}`)
+    .join("|");
+
+  const driveAll = useCallback(
+    (action: "play" | "pause" | "rate", value?: number) => {
+      suppress.current.arm();
+      playersRef.current.forEach((player) => {
+        if (!player) return;
+        if (action === "play") player.play();
+        else if (action === "pause") player.pause();
+        else if (action === "rate" && value != null) player.setRate?.(value);
+      });
+    },
+    [],
+  );
+
   const seekAll = useCallback(
-    (next: number) => {
+    (next: number, force = false) => {
       const clamped = Math.max(0, Math.min(1, next));
+      suppress.current.arm();
       resolved.forEach((side, index) => {
         const t = dualVideoTimeAtProgress(side, clamped);
-        if (t != null) playersRef.current[index]?.seek(t);
+        if (t == null) return;
+        const player = playersRef.current[index];
+        if (!player) return;
+        const actual = player.getTime();
+        if (force || needsDriftCorrection(t, actual)) {
+          player.seek(t);
+        }
       });
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- seek by current sides snapshot
-    [
-      resolved
-        .map((s) => `${s.lap.id}:${s.video?.id ?? ""}:${s.video?.offsetSec ?? 0}`)
-        .join("|"),
-    ],
+    [sideKey],
   );
 
   useEffect(() => {
     if (progress == null) return;
-    seekAll(progress);
-  }, [progress, seekAll]);
+    if (authorityRef.current !== "clock") return;
+    if (playing) return;
+    seekAll(progress, true);
+  }, [progress, playing, seekAll]);
 
   useEffect(() => {
-    playersRef.current.forEach((p) => p?.pause());
-    if (!playing) return;
+    if (!playing) {
+      if (authorityRef.current === "clock") driveAll("pause");
+      return;
+    }
+    if (authorityRef.current !== "clock") return;
+    driveAll("play");
+    driveAll("rate", speed);
     let raf = 0;
     let last = performance.now();
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
+      if (authorityRef.current !== "clock") return;
       const dt = (now - last) / 1000;
       last = now;
       const next = advancePlaybackProgress(
@@ -158,12 +204,107 @@ export function DualSessionVideos({
       );
       progressRef.current = next;
       onProgress(next);
-      seekAll(next);
       if (next >= 1) setPlaying(false);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [playing, onProgress, seekAll, sharedMs, speed]);
+  }, [playing, onProgress, sharedMs, speed, driveAll]);
+
+  useEffect(() => {
+    if (!playing) return;
+    const id = window.setInterval(() => {
+      if (authorityRef.current !== "clock") return;
+      seekAll(progressRef.current, false);
+    }, DRIFT_CHECK_INTERVAL_MS);
+    return () => window.clearInterval(id);
+  }, [playing, seekAll]);
+
+  const onSidePlayerEvent = useCallback(
+    (sideIndex: number, event: PlayerSyncEvent) => {
+      if (suppress.current.active()) return;
+      const side = resolved[sideIndex];
+      if (!side?.video) return;
+
+      if (event.type === "play") {
+        authorityRef.current = "video";
+        setPlaying(true);
+        const next = lapProgressFromVideoTime(
+          side.lap,
+          playersRef.current[sideIndex]?.getTime() ?? 0,
+          side.video,
+        );
+        progressRef.current = next;
+        onProgress(next);
+        suppress.current.arm();
+        resolved.forEach((other, index) => {
+          if (index === sideIndex) return;
+          const t = dualVideoTimeAtProgress(other, next);
+          const player = playersRef.current[index];
+          if (!player) return;
+          if (t != null) player.seek(t);
+          player.setRate?.(speed);
+          player.play();
+        });
+        return;
+      }
+      if (event.type === "pause" || event.type === "ended") {
+        authorityRef.current = "video";
+        setPlaying(false);
+        suppress.current.arm();
+        playersRef.current.forEach((p, index) => {
+          if (index !== sideIndex) p?.pause();
+        });
+        if (event.type === "ended") {
+          progressRef.current = 1;
+          onProgress(1);
+        } else {
+          const time = playersRef.current[sideIndex]?.getTime() ?? 0;
+          const next = lapProgressFromVideoTime(side.lap, time, side.video);
+          progressRef.current = next;
+          onProgress(next);
+          seekAll(next, true);
+        }
+        return;
+      }
+      if (event.type === "seek") {
+        authorityRef.current = "video";
+        setPlaying(false);
+        const next = lapProgressFromVideoTime(side.lap, event.time, side.video);
+        progressRef.current = next;
+        onProgress(next);
+        seekAll(next, true);
+        return;
+      }
+      if (event.type === "rate") {
+        authorityRef.current = "video";
+        const nextSpeed = nearestPlaybackSpeed(event.rate);
+        setSpeed(nextSpeed);
+        suppress.current.arm();
+        playersRef.current.forEach((p, index) => {
+          if (index !== sideIndex) p?.setRate?.(nextSpeed);
+        });
+        return;
+      }
+      if (event.type === "time") {
+        if (authorityRef.current !== "video") return;
+        const next = lapProgressFromVideoTime(side.lap, event.time, side.video);
+        progressRef.current = next;
+        onProgress(next);
+        resolved.forEach((other, index) => {
+          if (index === sideIndex) return;
+          const t = dualVideoTimeAtProgress(other, next);
+          const player = playersRef.current[index];
+          if (t == null || !player) return;
+          if (needsDriftCorrection(t, player.getTime())) {
+            suppress.current.arm();
+            player.seek(t);
+          }
+        });
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sideKey, onProgress, seekAll, speed],
+  );
 
   useEffect(() => {
     if (!resolved.length) return;
@@ -180,13 +321,17 @@ export function DualSessionVideos({
         return;
       }
       const root = rootRef.current;
-      if (root && document.activeElement && !root.contains(document.activeElement)) {
-        // Still allow when the event originates inside our region.
+      if (
+        root &&
+        document.activeElement &&
+        !root.contains(document.activeElement)
+      ) {
         if (!root.contains(target)) return;
       }
 
       if (event.code === "Space" || event.key === " ") {
         event.preventDefault();
+        authorityRef.current = "clock";
         setPlaying((was) => {
           if (was) return false;
           if ((progressRef.current ?? 0) >= 1) onProgress(0);
@@ -196,33 +341,64 @@ export function DualSessionVideos({
       }
       if (event.key === "ArrowLeft") {
         event.preventDefault();
+        authorityRef.current = "clock";
         setPlaying(false);
         const next = scrubPlaybackProgress(progressRef.current, -1);
         onProgress(next);
-        seekAll(next);
+        seekAll(next, true);
         return;
       }
       if (event.key === "ArrowRight") {
         event.preventDefault();
+        authorityRef.current = "clock";
         setPlaying(false);
         const next = scrubPlaybackProgress(progressRef.current, 1);
         onProgress(next);
-        seekAll(next);
+        seekAll(next, true);
         return;
       }
       if (event.key >= "1" && event.key <= "4") {
         const next = PLAYBACK_SPEEDS[Number(event.key) - 1];
-        if (next != null && isPlaybackSpeed(next)) setSpeed(next);
+        if (next != null && isPlaybackSpeed(next)) {
+          authorityRef.current = "clock";
+          setSpeed(next);
+          driveAll("rate", next);
+        }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [resolved.length, onProgress, seekAll]);
+  }, [resolved.length, onProgress, seekAll, driveAll]);
 
   const canPlay = resolved.some(sideHasPlayableVideo);
   const hasMeta = resolved.some(sideHasVideoMeta);
 
-  if (!resolved.length || (!canPlay && !hasMeta)) return null;
+  if (!resolved.length) return null;
+  if (!canPlay && !hasMeta) {
+    return (
+      <div className="w-full space-y-3 rounded-2xl border border-zinc-800/80 bg-zinc-950/40 p-3 sm:p-4">
+        <PlaybackControls
+          progress={progress ?? 0}
+          onProgress={(next) => {
+            authorityRef.current = "clock";
+            setPlaying(false);
+            onProgress(next);
+          }}
+          playing={playing}
+          onTogglePlay={() => {
+            authorityRef.current = "clock";
+            if ((progress ?? 0) >= 1) onProgress(0);
+            setPlaying((p) => !p);
+          }}
+          speed={speed}
+          onSpeed={setSpeed}
+          durationMs={sharedMs}
+          label="Lap playback"
+          hint="No onboard video — track/charts still play"
+        />
+      </div>
+    );
+  }
 
   const count = resolved.length;
   const at = progress ?? 0;
@@ -235,11 +411,11 @@ export function DualSessionVideos({
     >
       <div>
         <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
-          {count > 2 ? `${count}-way` : "Dual"} onboard · lap-relative sync
+          {count > 2 ? `${count}-way` : "Dual"} onboard · two-way sync
         </p>
         <p className="mt-1 text-sm text-zinc-400">
-          Shared cursor from lap start — driven by our clock (not hover). Each
-          side keeps its saved YouTube offset.
+          Play track or any YouTube — all players and the shared cursor stay
+          locked; each side keeps its saved offset.
         </p>
       </div>
 
@@ -252,6 +428,7 @@ export function DualSessionVideos({
             onBind={(h) => {
               playersRef.current[index] = h;
             }}
+            onPlayerEvent={(event) => onSidePlayerEvent(index, event)}
           />
         ))}
       </div>
@@ -259,17 +436,23 @@ export function DualSessionVideos({
       <PlaybackControls
         progress={at}
         onProgress={(next) => {
+          authorityRef.current = "clock";
           setPlaying(false);
           onProgress(next);
-          seekAll(next);
+          seekAll(next, true);
         }}
         playing={playing}
         onTogglePlay={() => {
+          authorityRef.current = "clock";
           if (at >= 1) onProgress(0);
           setPlaying((p) => !p);
         }}
         speed={speed}
-        onSpeed={setSpeed}
+        onSpeed={(next) => {
+          authorityRef.current = "clock";
+          setSpeed(next);
+          driveAll("rate", next);
+        }}
         durationMs={sharedMs}
         disabled={!canPlay && !hasMeta}
         label={count > 2 ? "Play all" : "Play both"}
