@@ -37,6 +37,8 @@ type MapProps = {
   defaultFollowId?: string;
   /** Shorter map for home/hero embeds. */
   compact?: boolean;
+  /** Stretch to parent height (session dashboard left column). */
+  panel?: boolean;
   /** Hide chase/overview camera chrome (hero embeds). */
   hideCameraControls?: boolean;
 };
@@ -213,7 +215,7 @@ export function TrackMap(props: MapProps) {
   if (!hasDrawable) return null;
 
   const hideChrome = Boolean(props.hideCameraControls || props.compact);
-  const useChase = !hideChrome && prefs.mode === "chase";
+  const useChase = !hideChrome && prefs.mode === "chase" && !props.panel;
 
   if (useChase) {
     return (
@@ -260,6 +262,7 @@ export function TrackMap(props: MapProps) {
     <LeafletTrackMap
       {...(props as ComponentProps<typeof LeafletTrackMap>)}
       compact={props.compact}
+      panel={props.panel}
       headerSlot={
         hideChrome ? null : (
           <CameraControls

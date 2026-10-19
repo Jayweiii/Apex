@@ -223,8 +223,8 @@ export const YouTubePlayer = forwardRef<
 
   return (
     <div className={className}>
-      <div className="relative aspect-video w-full overflow-hidden rounded-xl bg-black">
-        <div ref={hostRef} className="h-full w-full" />
+      <div className="relative mx-auto aspect-video h-[min(34vh,280px)] w-auto max-w-full overflow-hidden rounded-xl bg-black lg:h-[min(32vh,260px)]">
+        <div ref={hostRef} className="absolute inset-0 h-full w-full" />
         <button
           type="button"
           onClick={() => {

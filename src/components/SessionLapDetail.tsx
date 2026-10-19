@@ -3,6 +3,7 @@
 import { ExcludeFromBestControl } from "@/components/ExcludeFromBestControl";
 import type { LapExcludeChange } from "@/components/LapList";
 import { LapTrimControls } from "@/components/LapTrimControls";
+import type { SessionToolTab } from "@/components/SessionToolsPanel";
 import { SyncedLapView } from "@/components/video/SyncedLapView";
 import { formatLapTime } from "@/lib/format";
 import {
@@ -13,7 +14,7 @@ import {
 import { bestLapTimeMs, suspicionByLapId } from "@/lib/lap-quality";
 import { pickSessionVideoForLap } from "@/lib/pick-session-video";
 import type { SessionVideo, TelemetryPoint } from "@/lib/types";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 
 export type SessionLapDetailLap = {
   id: string;
@@ -48,6 +49,9 @@ export function SessionLapDetail({
   onMergeNext,
   onSplit,
   trimBusy = false,
+  layout = "workspace",
+  sidebar,
+  extraToolTabs,
 }: {
   sessionId: string;
   lap: SessionLapDetailLap;
@@ -69,6 +73,9 @@ export function SessionLapDetail({
   onMergeNext?: (lapId: string) => void;
   onSplit?: (lapId: string, progress: number) => void;
   trimBusy?: boolean;
+  layout?: "stack" | "workspace";
+  sidebar?: ReactNode;
+  extraToolTabs?: SessionToolTab[];
 }) {
   const [draftTrim, setDraftTrim] = useState<{
     start_offset_override: number | null;
@@ -216,18 +223,124 @@ export function SessionLapDetail({
     };
   });
 
+  const trimTabContent =
+    canEdit && onTrimChange ? (
+      <LapTrimControls
+        lap={trimable}
+        previewLapTimeMs={applied.lap_time_ms}
+        canMergeNext={canMergeNext}
+        canSplit={canSplit}
+        busy={trimBusy}
+        onChange={commitTrim}
+        onReset={() => {
+          setDraftTrim({
+            start_offset_override: null,
+            end_offset_override: null,
+          });
+          onTrimReset?.(lap.id);
+        }}
+        onMergeNext={onMergeNext ? () => onMergeNext(lap.id) : undefined}
+        onSplit={
+          onSplit
+            ? () => {
+                const b = resolveLapTrimBounds(trimable);
+                const mid = (b.effectiveStart + b.effectiveEnd) / 2;
+                const progress =
+                  (mid - b.effectiveStart) /
+                  Math.max(0.001, b.effectiveEnd - b.effectiveStart);
+                onSplit(lap.id, progress);
+              }
+            : undefined
+        }
+      />
+    ) : null;
+
+  const excludeTabContent =
+    canEdit && onExcludeChange ? (
+      <div className="space-y-3">
+        <p className="text-sm text-zinc-400">
+          Exclude this lap from best-lap calculations when it is an in-lap,
+          out-lap, or otherwise invalid.
+        </p>
+        <ExcludeFromBestControl
+          excluded={Boolean(lap.excluded)}
+          busy={excludeBusy}
+          reason={lap.exclude_reason}
+          title={
+            suspicion ? suspicion.labels.join("; ") : "Exclude from best"
+          }
+          onChange={(next) => {
+            onExcludeChange({
+              lapId: lap.id,
+              excluded: next.excluded,
+              exclude_reason: next.excluded
+                ? suspicion
+                  ? suspicion.labels.join("; ")
+                  : (next.exclude_reason ?? "manual")
+                : null,
+            });
+          }}
+        />
+        {suspicion ? (
+          <p className="text-xs text-amber-200/90">
+            Flagged: {suspicion.labels.join("; ")}
+          </p>
+        ) : null}
+      </div>
+    ) : lap.excluded ? (
+      <p className="text-sm text-zinc-400">
+        This lap is excluded from best
+        {lap.exclude_reason ? ` · ${lap.exclude_reason}` : ""}.
+      </p>
+    ) : null;
+
+  const lapToolTabs: SessionToolTab[] = [
+    ...(trimTabContent
+      ? [{ id: "trim", label: "Trim", content: trimTabContent }]
+      : []),
+    ...(excludeTabContent
+      ? [{ id: "exclude", label: "Exclude", content: excludeTabContent }]
+      : []),
+    ...(extraToolTabs ?? []),
+  ];
+
+  const workspace = layout === "workspace";
+
   return (
-    <section className="space-y-4" aria-label={`Lap ${lap.lap_number}`}>
-      <div className="flex flex-wrap items-end justify-between gap-3">
+    <section
+      className={
+        workspace
+          ? "flex h-full min-h-0 flex-col gap-2"
+          : "space-y-4"
+      }
+      aria-label={`Lap ${lap.lap_number}`}
+    >
+      <div
+        className={`flex flex-wrap items-end justify-between gap-2 ${
+          workspace ? "shrink-0" : "gap-3"
+        }`}
+      >
         <div>
-          <h2 className="text-lg font-semibold tracking-tight text-zinc-50">
+          <h2
+            className={`font-semibold tracking-tight text-zinc-50 ${
+              workspace ? "text-sm" : "text-lg"
+            }`}
+          >
             Lap {lap.lap_number}
           </h2>
-          <p className="mt-0.5 font-mono text-2xl text-orange-400">
+          <p
+            className={`font-mono text-orange-400 ${
+              workspace ? "text-lg" : "mt-0.5 text-2xl"
+            }`}
+          >
             {formatLapTime(applied.lap_time_ms)}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-3 text-sm text-zinc-500">
+        <div
+          className={`flex flex-wrap items-center gap-2 text-zinc-500 ${
+            workspace ? "text-xs" : "gap-3 text-sm"
+          }`}
+        >
           <span>Peak {peak.toFixed(0)} km/h</span>
           {deltaSec == null ? null : deltaSec !== 0 ? (
             <span className="font-mono">
@@ -237,142 +350,94 @@ export function SessionLapDetail({
           ) : (
             <span className="text-orange-500/90">Best</span>
           )}
-          {canEdit && onExcludeChange ? (
-            <ExcludeFromBestControl
-              excluded={Boolean(lap.excluded)}
-              busy={excludeBusy}
-              reason={lap.exclude_reason}
-              title={
-                suspicion
-                  ? suspicion.labels.join("; ")
-                  : "Exclude from best"
-              }
-              onChange={(next) => {
-                onExcludeChange({
-                  lapId: lap.id,
-                  excluded: next.excluded,
-                  exclude_reason: next.excluded
-                    ? suspicion
-                      ? suspicion.labels.join("; ")
-                      : (next.exclude_reason ?? "manual")
-                    : null,
-                });
-              }}
-            />
+          {lap.excluded ? (
+            <span className="rounded-md border border-zinc-700 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-zinc-500">
+              Excluded
+            </span>
           ) : null}
         </div>
       </div>
 
-      {canEdit && onTrimChange ? (
-        <LapTrimControls
-          lap={trimable}
-          previewLapTimeMs={applied.lap_time_ms}
-          canMergeNext={canMergeNext}
-          canSplit={canSplit}
-          busy={trimBusy}
-          onChange={commitTrim}
-          onReset={() => {
-            setDraftTrim({
-              start_offset_override: null,
-              end_offset_override: null,
-            });
-            onTrimReset?.(lap.id);
-          }}
-          onMergeNext={
-            onMergeNext ? () => onMergeNext(lap.id) : undefined
+      <div className={workspace ? "min-h-0 flex-1" : undefined}>
+        <SyncedLapView
+          sessionId={sessionId}
+          layout={layout}
+          sidebar={sidebar}
+          extraToolTabs={lapToolTabs}
+          lap={
+            canEdit && onTrimChange
+              ? {
+                  id: lap.id,
+                  lap_number: lap.lap_number,
+                  lap_time_ms: applied.lap_time_ms,
+                  start_offset_sec: applied.start_offset_sec,
+                  telemetry: points,
+                }
+              : chartLap
           }
-          onSplit={
-            onSplit
-              ? () => {
-                  const b = resolveLapTrimBounds(trimable);
-                  const mid =
-                    (b.effectiveStart + b.effectiveEnd) / 2;
-                  const progress =
-                    (mid - b.effectiveStart) /
-                    Math.max(0.001, b.effectiveEnd - b.effectiveStart);
-                  onSplit(lap.id, progress);
+          siblingLaps={displaySiblingLaps}
+          video={activeVideo}
+          sessionStartedAtMs={sessionStartedAtMs}
+          bestLapMs={bestMs ?? undefined}
+          trackId={trackId}
+          onVideoChange={onVideoChange}
+          canEditSync={canEdit}
+          onAttachYouTube={
+            canEdit && onVideoChange
+              ? async ({ youtubeId, youtubeUrl, title }) => {
+                  const next: SessionVideo = {
+                    id: activeVideo?.id ?? crypto.randomUUID(),
+                    provider: "youtube",
+                    youtubeId,
+                    youtubeUrl,
+                    title,
+                    lapId: lap.id,
+                    lapIndex: lap.lap_number,
+                    offsetSec: 0,
+                    rate: 1,
+                    // Fresh paste starts unsynced until point-match Sync here.
+                    syncSource: "unsynced",
+                  };
+                  onVideoChange(next);
+                }
+              : undefined
+          }
+          trimMarkers={
+            canEdit && onTrimChange && trimMarkers
+              ? { startT: 0, endT: applied.lap_time_ms / 1000 }
+              : undefined
+          }
+          onTrimBoundaryDrag={
+            canEdit && onTrimChange
+              ? (which, lapLocalT) => {
+                  const sessionT = applied.start_offset_sec + lapLocalT;
+                  if (which === "start") {
+                    commitTrim({
+                      start_offset_override: sessionT,
+                      end_offset_override:
+                        trimable.end_offset_override ??
+                        (Math.abs(bounds.effectiveEnd - bounds.autoEnd) <
+                        0.0005
+                          ? null
+                          : bounds.effectiveEnd),
+                    });
+                  } else {
+                    commitTrim({
+                      start_offset_override:
+                        trimable.start_offset_override ??
+                        (Math.abs(
+                          bounds.effectiveStart - bounds.autoStart,
+                        ) < 0.0005
+                          ? null
+                          : bounds.effectiveStart),
+                      end_offset_override: sessionT,
+                    });
+                  }
                 }
               : undefined
           }
         />
-      ) : null}
-
-      <SyncedLapView
-        sessionId={sessionId}
-        lap={
-          canEdit && onTrimChange
-            ? {
-                id: lap.id,
-                lap_number: lap.lap_number,
-                lap_time_ms: applied.lap_time_ms,
-                start_offset_sec: applied.start_offset_sec,
-                telemetry: points,
-              }
-            : chartLap
-        }
-        siblingLaps={displaySiblingLaps}
-        video={activeVideo}
-        sessionStartedAtMs={sessionStartedAtMs}
-        bestLapMs={bestMs ?? undefined}
-        trackId={trackId}
-        onVideoChange={onVideoChange}
-        canEditSync={canEdit}
-        onAttachYouTube={
-          canEdit && onVideoChange
-            ? async ({ youtubeId, youtubeUrl, title }) => {
-                const next: SessionVideo = {
-                  id: activeVideo?.id ?? crypto.randomUUID(),
-                  provider: "youtube",
-                  youtubeId,
-                  youtubeUrl,
-                  title,
-                  lapId: lap.id,
-                  lapIndex: lap.lap_number,
-                  offsetSec: 0,
-                  rate: 1,
-                  // Fresh paste starts unsynced until point-match Sync here.
-                  syncSource: "unsynced",
-                };
-                onVideoChange(next);
-              }
-            : undefined
-        }
-        trimMarkers={
-          canEdit && onTrimChange && trimMarkers
-            ? // Markers are on auto chart — when showing applied telemetry,
-              // map markers to applied window ends (0 .. duration).
-              { startT: 0, endT: applied.lap_time_ms / 1000 }
-            : undefined
-        }
-        onTrimBoundaryDrag={
-          canEdit && onTrimChange
-            ? (which, lapLocalT) => {
-                // Drag is relative to applied view: convert to session time.
-                const sessionT = applied.start_offset_sec + lapLocalT;
-                if (which === "start") {
-                  commitTrim({
-                    start_offset_override: sessionT,
-                    end_offset_override:
-                      trimable.end_offset_override ??
-                      (Math.abs(bounds.effectiveEnd - bounds.autoEnd) < 0.0005
-                        ? null
-                        : bounds.effectiveEnd),
-                  });
-                } else {
-                  commitTrim({
-                    start_offset_override:
-                      trimable.start_offset_override ??
-                      (Math.abs(bounds.effectiveStart - bounds.autoStart) <
-                      0.0005
-                        ? null
-                        : bounds.effectiveStart),
-                    end_offset_override: sessionT,
-                  });
-                }
-              }
-            : undefined
-        }
-      />
+      </div>
     </section>
   );
 }

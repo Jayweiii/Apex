@@ -21,6 +21,8 @@ export function PlaybackControls({
   disabled = false,
   label = "Playback",
   hint = "Space play/pause · ← → scrub · 1–4 speed",
+  compact = false,
+  sticky = false,
 }: {
   progress: number;
   onProgress: (next: number) => void;
@@ -32,35 +34,55 @@ export function PlaybackControls({
   disabled?: boolean;
   label?: string;
   hint?: string;
+  /** Dense bar for one-screen session/compare dashboards. */
+  compact?: boolean;
+  /** Stick under the video while telemetry scrolls. */
+  sticky?: boolean;
 }) {
   const durationSec = Math.max(0, durationMs / 1000);
   const atSec = progress * durationSec;
 
   return (
     <div
-      className="w-full space-y-2 rounded-2xl border border-zinc-800/80 bg-zinc-950/40 p-3 sm:p-4"
+      className={`w-full border border-zinc-800/80 bg-zinc-950/90 ${
+        compact
+          ? "space-y-1.5 rounded-xl px-2.5 py-2 backdrop-blur"
+          : "space-y-2 rounded-2xl p-3 sm:p-4"
+      } ${sticky ? "sticky bottom-0 z-10 shadow-[0_-8px_24px_rgba(0,0,0,0.35)]" : ""}`}
       role="group"
       aria-label={label}
     >
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className={compact ? "min-w-0" : undefined}>
+          <p
+            className={`uppercase tracking-[0.18em] text-zinc-500 ${
+              compact ? "text-[10px]" : "text-[11px]"
+            }`}
+          >
             {label}
           </p>
-          <p className="mt-1 text-xs text-zinc-500">{hint}</p>
+          {!compact ? (
+            <p className="mt-1 text-xs text-zinc-500">{hint}</p>
+          ) : (
+            <p className="sr-only">{hint}</p>
+          )}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
           <button
             type="button"
             disabled={disabled}
             onClick={onTogglePlay}
-            className="min-h-10 rounded-lg bg-orange-500 px-3 py-2 text-sm font-semibold text-black hover:bg-orange-400 disabled:opacity-40"
+            className={`rounded-lg bg-orange-500 font-semibold text-black hover:bg-orange-400 disabled:opacity-40 ${
+              compact
+                ? "min-h-8 px-2.5 py-1 text-xs"
+                : "min-h-10 px-3 py-2 text-sm"
+            }`}
             aria-label={playing ? "Pause" : "Play"}
           >
             {playing ? "Pause" : "Play"}
           </button>
           <div
-            className="flex items-center gap-1"
+            className="flex items-center gap-0.5"
             role="group"
             aria-label="Playback speed"
           >
@@ -71,7 +93,9 @@ export function PlaybackControls({
                 disabled={disabled}
                 onClick={() => onSpeed(value)}
                 aria-pressed={speed === value}
-                className={`min-h-9 rounded-md px-2 font-mono text-xs transition ${
+                className={`rounded-md px-1.5 font-mono transition ${
+                  compact ? "min-h-7 text-[11px]" : "min-h-9 px-2 text-xs"
+                } ${
                   speed === value
                     ? "bg-zinc-100 text-zinc-950"
                     : "border border-zinc-800 text-zinc-400 hover:border-zinc-600 hover:text-zinc-200"
@@ -81,7 +105,11 @@ export function PlaybackControls({
               </button>
             ))}
           </div>
-          <span className="font-mono text-sm text-zinc-300">
+          <span
+            className={`font-mono text-zinc-300 ${
+              compact ? "text-xs" : "text-sm"
+            }`}
+          >
             {formatClock(atSec)}
             <span className="text-zinc-600">
               {" "}
@@ -91,7 +119,7 @@ export function PlaybackControls({
         </div>
       </div>
 
-      <label className="flex flex-col gap-1.5 text-sm">
+      <label className="flex flex-col gap-1 text-sm">
         <span className="sr-only">Scrub</span>
         <input
           type="range"

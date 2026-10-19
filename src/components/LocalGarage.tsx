@@ -11,7 +11,7 @@ import { SaveComparisonControls } from "@/components/SaveComparisonControls";
 import type { ComparisonDraftSnapshot } from "@/lib/comparisons";
 import { LapChips, LapList, type LapExcludeChange } from "@/components/LapList";
 import { SessionLapDetail } from "@/components/SessionLapDetail";
-import { videoCoverage } from "@/lib/pick-session-video";
+import type { SessionToolTab } from "@/components/SessionToolsPanel";
 import { SessionVideosCard } from "@/components/SessionVideosCard";
 import { ShareLinkButton } from "@/components/ShareLinkButton";
 import { GpsModeToggle } from "@/components/GpsModeToggle";
@@ -245,51 +245,61 @@ export function LocalCompare({
   return (
     <>
       <AppHeader />
-      <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8">
-        <div className="space-y-3">
-          <Link
-            href={`/sessions/${session.id}`}
-            className="text-[11px] uppercase tracking-[0.2em] text-zinc-500 hover:text-zinc-300"
-          >
-            {session.name}
-          </Link>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight text-zinc-50 sm:text-3xl">
-                Compare laps
-              </h1>
-              <p className="mt-1 text-sm text-zinc-500">
-                Compare within this session or against other uploads and catalog
-                sessions{session.trackId ? " — filter by track" : ""}.
-              </p>
-            </div>
-            {href ? <ShareLinkButton path={href} label="Copy compare link" /> : null}
+      <main className="mx-auto flex h-[calc(100dvh-3.5rem)] w-full max-w-[90rem] flex-1 flex-col overflow-hidden px-3 py-2 sm:px-4 lg:h-[calc(100dvh-3.75rem)]">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 pb-2">
+          <div className="min-w-0">
+            <Link
+              href={`/sessions/${session.id}`}
+              className="text-[10px] uppercase tracking-[0.18em] text-zinc-500 hover:text-zinc-300"
+            >
+              {session.name}
+            </Link>
+            <h1 className="truncate text-base font-semibold tracking-tight text-zinc-50 sm:text-lg">
+              Compare laps
+            </h1>
           </div>
-          <AttributionCard
-            kind={session.kind ?? "upload"}
-            attribution={session.attribution}
-            compact
-          />
-          <SessionNotes session={session} />
+          <div className="flex flex-wrap items-center gap-2">
+            {href ? (
+              <ShareLinkButton path={href} label="Copy compare link" />
+            ) : null}
+            <SaveComparisonControls draft={draft} />
+          </div>
         </div>
-        <SaveComparisonControls draft={draft} />
-        <LapCompare
-          laps={laps}
-          sessions={compareSessions}
-          initialRef={initialRef}
-          initialOther={initialOther}
-          initialOtherSession={initialOtherSession}
-          initialLaps={initialLaps}
-          initialTrackId={session.trackId}
-          onDraftChange={onDraftChange}
-        />
-        {corners.length ? (
-          <CornerBreakdownTable
-            corners={corners}
-            referenceLabel={`Lap ${refLap?.lap_number}`}
-            otherLabel={`Lap ${otherLap?.lap_number}`}
+        <div className="min-h-0 flex-1 overflow-y-auto lg:overflow-hidden">
+          <LapCompare
+            laps={laps}
+            sessions={compareSessions}
+            initialRef={initialRef}
+            initialOther={initialOther}
+            initialOtherSession={initialOtherSession}
+            initialLaps={initialLaps}
+            initialTrackId={session.trackId}
+            onDraftChange={onDraftChange}
+            extraToolTabs={[
+              {
+                id: "notes",
+                label: "Notes",
+                content: (
+                  <div className="space-y-3">
+                    <SessionNotes session={session} />
+                    <AttributionCard
+                      kind={session.kind ?? "upload"}
+                      attribution={session.attribution}
+                      compact
+                    />
+                    {corners.length ? (
+                      <CornerBreakdownTable
+                        corners={corners}
+                        referenceLabel={`Lap ${refLap?.lap_number}`}
+                        otherLabel={`Lap ${otherLap?.lap_number}`}
+                      />
+                    ) : null}
+                  </div>
+                ),
+              },
+            ]}
           />
-        ) : null}
+        </div>
       </main>
     </>
   );
@@ -542,214 +552,226 @@ export function LocalSession({ id }: { id: string }) {
     (item) => item.provider === "youtube" && item.youtubeId,
   );
 
-  return (
-    <>
-      <AppHeader />
-      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-4 px-4 py-5 sm:px-6 sm:py-6">
+  const dedicatedVideoLapIds = (session.videos ?? [])
+    .filter((v) => v.provider === "youtube" && v.youtubeId && v.lapId)
+    .map((v) => v.lapId as string);
+  const hasSessionVideo = (session.videos ?? []).some(
+    (v) =>
+      v.provider === "youtube" &&
+      v.youtubeId &&
+      (v.lapId == null || v.lapId === ""),
+  );
+
+  const localToolTabs: SessionToolTab[] = [
+    {
+      id: "notes",
+      label: "Notes",
+      content: (
         <div className="space-y-3">
-          <Link
-            href={track ? `/tracks/${track.id}` : "/"}
-            className="text-[11px] uppercase tracking-[0.2em] text-zinc-500 hover:text-zinc-300"
-          >
-            {track ? track.name : "All tracks"}
-          </Link>
-          <h1 className="text-2xl font-semibold tracking-tight text-zinc-50 sm:text-3xl">
-            {session.name}
-          </h1>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-2 text-sm text-zinc-500">
-              <span>
-                {session.car ? `${session.car} · ` : ""}
-                {session.laps.length} laps
-                {best != null ? ` · best ${formatLapTime(best)}` : ""}
-              </span>
-              <GpsQualityBadge
-                quality={session.gpsQuality}
-                sourceKind={session.sourceKind}
-              />
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <ShareLinkButton path={shareLapPath} label="Copy lap link" />
-              <ShareLinkButton path={`/sessions/${session.id}`} />
-              {comparePath ? (
-                <ShareLinkButton path={comparePath} label="Copy compare link" />
-              ) : null}
-              <CompareLink
-                sessionId={session.id}
-                laps={laps}
-                focusId={selectedLap?.id}
-                label={
-                  laps.length < 2
-                    ? "Compare with other sessions"
-                    : "Compare laps"
-                }
-              />
-            </div>
-          </div>
           <SessionNotes session={session} />
           <AttributionCard
             kind={session.kind ?? "upload"}
             attribution={session.attribution}
+            compact
           />
+          <div>
+            <p className="mb-1.5 text-[10px] uppercase tracking-[0.16em] text-zinc-500">
+              GPS quality
+            </p>
+            <GpsQualityBadge
+              quality={session.gpsQuality}
+              sourceKind={session.sourceKind}
+            />
+          </div>
+          {theo ? (
+            <div className="space-y-2">
+              {hasAnalysisSnap ? (
+                <GpsModeToggle
+                  mode={analysisMode}
+                  onChange={setAnalysisMode}
+                  label="Delta"
+                  ariaLabel="Delta calculation mode"
+                />
+              ) : null}
+              <TheoreticalBestCard result={theo} />
+            </div>
+          ) : null}
           {session.kind === "upload" ? (
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="space-y-2">
               <button
                 type="button"
                 disabled={reprocessBusy}
                 onClick={reprocess}
-                className="min-h-10 rounded-lg border border-zinc-800 px-3 text-xs uppercase tracking-[0.16em] text-zinc-300 hover:border-zinc-600 disabled:opacity-50"
+                className="min-h-9 rounded-lg border border-zinc-800 px-3 text-xs uppercase tracking-[0.14em] text-zinc-300 hover:border-zinc-600 disabled:opacity-50"
               >
                 {reprocessBusy ? "Re-processing…" : "Re-process from original"}
               </button>
               {reprocessMsg ? (
-                <p className="text-sm text-zinc-500">{reprocessMsg}</p>
+                <p className="text-xs text-zinc-500">{reprocessMsg}</p>
               ) : null}
             </div>
           ) : null}
         </div>
+      ),
+    },
+    {
+      id: "videos",
+      label: "Videos",
+      content: (
+        <SessionVideosCard
+          session={{
+            id: session.id,
+            trackId: session.trackId,
+            sessionDate: session.sessionDate,
+            startedAtMs: session.startedAtMs,
+            created_at: session.created_at,
+            laps: session.laps.map((lap) => ({
+              id: lap.id,
+              lap_number: lap.lap_number,
+              lap_time_ms: lap.lap_time_ms,
+            })),
+          }}
+          videos={session.videos ?? []}
+          onChange={(videos) => {
+            updateLocalSession(session.id, { videos });
+            window.location.reload();
+          }}
+        />
+      ),
+    },
+  ];
+
+  const lapSidebar = laps.length ? (
+    <LapList
+      laps={laps}
+      selectedId={selected?.id}
+      onSelect={(lap) => selectLap(lap)}
+      videoLapIds={dedicatedVideoLapIds}
+      sessionVideo={hasSessionVideo}
+      canEdit
+      onExcludeChange={onExcludeChange}
+    />
+  ) : (
+    <p className="px-3 py-6 text-center text-sm text-zinc-500">
+      No laps in this session.
+    </p>
+  );
+
+  return (
+    <>
+      <AppHeader />
+      <main className="mx-auto flex h-[calc(100dvh-3.5rem)] w-full max-w-[90rem] flex-1 flex-col overflow-hidden px-3 py-2 sm:px-4 sm:py-2.5 lg:h-[calc(100dvh-3.75rem)]">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 pb-2">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+              <Link
+                href={track ? `/tracks/${track.id}` : "/"}
+                className="text-[10px] uppercase tracking-[0.18em] text-zinc-500 hover:text-zinc-300"
+              >
+                {track ? track.name : "All tracks"}
+              </Link>
+              <h1 className="truncate text-base font-semibold tracking-tight text-zinc-50 sm:text-lg">
+                {session.name}
+              </h1>
+            </div>
+            <p className="mt-0.5 truncate text-xs text-zinc-500">
+              {session.car ? `${session.car} · ` : ""}
+              {session.laps.length} laps
+              {best != null ? ` · best ${formatLapTime(best)}` : ""}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <ShareLinkButton path={shareLapPath} label="Copy lap link" />
+            <ShareLinkButton path={`/sessions/${session.id}`} />
+            {comparePath ? (
+              <ShareLinkButton path={comparePath} label="Copy compare link" />
+            ) : null}
+            <CompareLink
+              sessionId={session.id}
+              laps={laps}
+              focusId={selectedLap?.id}
+              label={
+                laps.length < 2
+                  ? "Compare with other sessions"
+                  : "Compare laps"
+              }
+            />
+          </div>
+        </div>
 
         {laps.length ? (
-          <LapChips
-            laps={laps}
-            selectedId={selected?.id}
-            onSelect={(lap) => selectLap(lap)}
-            videoLapIds={(session.videos ?? [])
-              .filter((v) => v.provider === "youtube" && v.youtubeId && v.lapId)
-              .map((v) => v.lapId as string)}
-            sessionVideo={(session.videos ?? []).some(
-              (v) =>
-                v.provider === "youtube" &&
-                v.youtubeId &&
-                (v.lapId == null || v.lapId === ""),
-            )}
-          />
+          <div className="shrink-0 pb-2 lg:hidden">
+            <LapChips
+              laps={laps}
+              selectedId={selected?.id}
+              onSelect={(lap) => selectLap(lap)}
+              videoLapIds={dedicatedVideoLapIds}
+              sessionVideo={hasSessionVideo}
+            />
+          </div>
         ) : null}
 
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] lg:items-start">
-          <div className="space-y-4 lg:sticky lg:top-20">
-            {theo ? (
-              <div className="space-y-3">
-                {hasAnalysisSnap ? (
-                  <GpsModeToggle
-                    mode={analysisMode}
-                    onChange={setAnalysisMode}
-                    label="Delta"
-                    ariaLabel="Delta calculation mode"
-                  />
-                ) : null}
-                <TheoreticalBestCard result={theo} />
-              </div>
-            ) : null}
-            {laps.length ? (
-              <LapList
-                laps={laps}
-                selectedId={selected?.id}
-                onSelect={(lap) => selectLap(lap)}
-                videoLapIds={(session.videos ?? [])
-                  .filter((v) => v.provider === "youtube" && v.youtubeId && v.lapId)
-                  .map((v) => v.lapId as string)}
-                sessionVideo={(session.videos ?? []).some(
-                  (v) =>
-                    v.provider === "youtube" &&
-                    v.youtubeId &&
-                    (v.lapId == null || v.lapId === ""),
-                )}
-                canEdit
-                onExcludeChange={onExcludeChange}
-              />
-            ) : (
-              <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-8 text-center text-sm text-zinc-500">
-                No laps in this session.
-              </p>
-            )}
-            <details className="group rounded-xl border border-zinc-800/80 bg-zinc-950/40">
-              <summary className="cursor-pointer list-none px-4 py-3 text-xs uppercase tracking-[0.16em] text-zinc-400 marker:content-none [&::-webkit-details-marker]:hidden">
-                YouTube onboard
-                <span className="ml-2 text-zinc-600 group-open:hidden">
-                  show
-                </span>
-              </summary>
-              <div className="border-t border-zinc-900 px-3 pb-3 pt-2">
-                <SessionVideosCard
-                  session={{
-                    id: session.id,
-                    trackId: session.trackId,
-                    sessionDate: session.sessionDate,
-                    startedAtMs: session.startedAtMs,
-                    created_at: session.created_at,
-                    laps: session.laps.map((lap) => ({
-                      id: lap.id,
-                      lap_number: lap.lap_number,
-                      lap_time_ms: lap.lap_time_ms,
-                    })),
-                  }}
-                  videos={session.videos ?? []}
-                  onChange={(videos) => {
-                    updateLocalSession(session.id, { videos });
-                    window.location.reload();
-                  }}
-                />
-              </div>
-            </details>
-          </div>
-
-          <div className="min-w-0">
-            {selectedLap ? (
-              <SessionLapDetail
-                sessionId={session.id}
-                lap={{
-                  id: selectedLap.id,
-                  lap_number: selectedLap.lap_number,
-                  lap_time_ms: selectedLap.lap_time_ms,
-                  start_offset_sec: selectedLap.start_offset_sec,
-                  telemetry: selectedLap.telemetry,
-                  excluded: selectedLap.excluded ?? false,
-                  exclude_reason: selectedLap.exclude_reason ?? null,
-                  start_offset_override:
-                    selectedLap.start_offset_override ?? null,
-                  end_offset_override: selectedLap.end_offset_override ?? null,
-                }}
-                siblingLaps={session.laps.map((item) => ({
-                  id: item.id,
-                  lap_number: item.lap_number,
-                  lap_time_ms: item.lap_time_ms,
-                  start_offset_sec: item.start_offset_sec,
-                  telemetry: item.telemetry,
-                  excluded: item.excluded ?? false,
-                  exclude_reason: item.exclude_reason ?? null,
-                  start_offset_override: item.start_offset_override ?? null,
-                  end_offset_override: item.end_offset_override ?? null,
-                }))}
-                videos={youtubeVideos}
-                videoParam={videoParam}
-                trackId={session.trackId}
-                sessionStartedAtMs={session.startedAtMs}
-                canEdit
-                onExcludeChange={onExcludeChange}
-                onTrimChange={onTrimChange}
-                onTrimReset={onTrimReset}
-                onMergeNext={onMergeNext}
-                onSplit={onSplit}
-                onVideoChange={
-                  session.kind === "upload"
-                    ? (next) => {
-                        const nextVideos = (session.videos ?? []).map((item) =>
-                          item.id === next.id ? next : item,
-                        );
-                        if (!nextVideos.some((item) => item.id === next.id)) {
-                          nextVideos.push(next);
-                        }
-                        updateLocalSession(session.id, {
-                          videos: nextVideos.filter(
-                            (v) => v.provider === "youtube",
-                          ),
-                        });
+        <div className="min-h-0 flex-1 overflow-y-auto lg:overflow-hidden">
+          {selectedLap ? (
+            <SessionLapDetail
+              sessionId={session.id}
+              layout="workspace"
+              sidebar={lapSidebar}
+              extraToolTabs={localToolTabs}
+              lap={{
+                id: selectedLap.id,
+                lap_number: selectedLap.lap_number,
+                lap_time_ms: selectedLap.lap_time_ms,
+                start_offset_sec: selectedLap.start_offset_sec,
+                telemetry: selectedLap.telemetry,
+                excluded: selectedLap.excluded ?? false,
+                exclude_reason: selectedLap.exclude_reason ?? null,
+                start_offset_override:
+                  selectedLap.start_offset_override ?? null,
+                end_offset_override: selectedLap.end_offset_override ?? null,
+              }}
+              siblingLaps={session.laps.map((item) => ({
+                id: item.id,
+                lap_number: item.lap_number,
+                lap_time_ms: item.lap_time_ms,
+                start_offset_sec: item.start_offset_sec,
+                telemetry: item.telemetry,
+                excluded: item.excluded ?? false,
+                exclude_reason: item.exclude_reason ?? null,
+                start_offset_override: item.start_offset_override ?? null,
+                end_offset_override: item.end_offset_override ?? null,
+              }))}
+              videos={youtubeVideos}
+              videoParam={videoParam}
+              trackId={session.trackId}
+              sessionStartedAtMs={session.startedAtMs}
+              canEdit
+              onExcludeChange={onExcludeChange}
+              onTrimChange={onTrimChange}
+              onTrimReset={onTrimReset}
+              onMergeNext={onMergeNext}
+              onSplit={onSplit}
+              onVideoChange={
+                session.kind === "upload"
+                  ? (next) => {
+                      const nextVideos = (session.videos ?? []).map((item) =>
+                        item.id === next.id ? next : item,
+                      );
+                      if (!nextVideos.some((item) => item.id === next.id)) {
+                        nextVideos.push(next);
                       }
-                    : undefined
-                }
-              />
-            ) : null}
-          </div>
+                      updateLocalSession(session.id, {
+                        videos: nextVideos.filter(
+                          (v) => v.provider === "youtube",
+                        ),
+                      });
+                    }
+                  : undefined
+              }
+            />
+          ) : (
+            lapSidebar
+          )}
         </div>
       </main>
     </>

@@ -1,6 +1,10 @@
 "use client";
 
 import { PlaybackControls } from "@/components/PlaybackControls";
+import {
+  SessionToolsPanel,
+  type SessionToolTab,
+} from "@/components/SessionToolsPanel";
 import { StackedLapTelemetry } from "@/components/StackedTelemetry";
 import { MissingGps, TrackMap } from "@/components/TrackMap";
 import { usePlaybackClock } from "@/components/usePlaybackClock";
@@ -42,7 +46,14 @@ import {
   type SyncLap,
 } from "@/lib/video-sync";
 import { progressFromIndex } from "@/lib/scrub";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 function MissingYouTube({ sessionId }: { sessionId?: string }) {
   return (
@@ -80,6 +91,9 @@ export function SyncedLapView({
   onTrimBoundaryDrag,
   onAttachYouTube,
   canEditSync = false,
+  layout = "stack",
+  sidebar,
+  extraToolTabs,
 }: {
   sessionId?: string;
   lap: {
@@ -113,6 +127,15 @@ export function SyncedLapView({
     title: string;
   }) => void | Promise<void>;
   canEditSync?: boolean;
+  /**
+   * `workspace` = one-screen dashboard (map+laps left, video+telemetry right).
+   * `stack` = classic vertical layout (mobile / embeds).
+   */
+  layout?: "stack" | "workspace";
+  /** Lap list (or other) under the map in workspace layout. */
+  sidebar?: ReactNode;
+  /** Secondary panels (trim, notes, GPS, videos) for the tools drawer. */
+  extraToolTabs?: SessionToolTab[];
 }) {
   const centerline = useMemo(
     () =>
@@ -441,6 +464,8 @@ export function SyncedLapView({
     }
   }, [clock, activeVideo, currentSyncLap, drivePlayer]);
 
+  const workspace = layout === "workspace";
+
   const playbackBar = (
     <PlaybackControls
       progress={clock.progress}
@@ -451,6 +476,8 @@ export function SyncedLapView({
       onSpeed={onSpeed}
       durationMs={durationMs}
       label="Lap playback"
+      compact={workspace}
+      sticky={workspace}
     />
   );
 
@@ -467,147 +494,214 @@ export function SyncedLapView({
       ]}
       activeProgress={clock.progress}
       onProgress={setProgressFromUi}
+      panel={workspace}
+      compact={workspace}
+      hideCameraControls={workspace}
       {...mapProps}
     />
   ) : (
-    <MissingGps />
+    <div className={workspace ? "flex h-full items-center" : undefined}>
+      <MissingGps />
+    </div>
   );
 
-  return (
-    <div ref={rootRef} tabIndex={0} className="flex flex-col gap-6 outline-none">
-      {activeVideo ? (
-        <div className="space-y-4">
-          <div className="w-full">
-            {activeVideo.provider === "youtube" && activeVideo.youtubeId ? (
-              <YouTubePlayer
-                key={activeVideo.youtubeId}
-                videoId={activeVideo.youtubeId}
-                ref={bindPlayer}
-                className="w-full"
-                onPlayerEvent={onPlayerEvent}
-              />
-            ) : mp4Src ? (
-              <Mp4Player
-                src={mp4Src}
-                ref={bindPlayer}
-                className="w-full"
-                onPlayerEvent={onPlayerEvent}
-              />
-            ) : (
-              <MissingYouTube sessionId={sessionId} />
-            )}
-            <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-zinc-400">
-              <span className="font-mono text-zinc-200">
-                {formatLapTime(lap.lap_time_ms)}
-              </span>
-              {cursorPoint ? (
-                <span>
-                  {formatMph(cursorPoint.speed)} · {formatKmh(cursorPoint.speed)}
-                </span>
-              ) : null}
-              {deltaVsBest != null ? (
-                <span>Δ best {formatGap(deltaVsBest)}</span>
-              ) : null}
-              {!locked ? (
-                <span className="rounded-md bg-zinc-800 px-2 py-0.5 text-[11px] uppercase tracking-[0.12em] text-zinc-400">
-                  Sync setup · video free
-                </span>
-              ) : null}
-            </div>
-            {sessionId && siblingLaps.length > 1 ? (
-              <div
-                className="mt-3 flex flex-wrap items-center gap-1.5"
-                role="group"
-                aria-label="Lap"
-              >
-                <span className="mr-1 text-[11px] uppercase tracking-[0.14em] text-zinc-500">
-                  Lap
-                </span>
-                {[...siblingLaps]
-                  .sort((a, b) => a.lap_number - b.lap_number)
-                  .map((item) => {
-                    const selected = item.id === lap.id;
-                    return (
-                      <a
-                        key={item.id}
-                        href={sessionLapHref(sessionId, item, {
-                          videoId: activeVideo?.id,
-                        })}
-                        aria-current={selected ? "true" : undefined}
-                        className={`inline-flex min-h-8 items-center rounded-md px-2.5 font-mono text-xs ${
-                          selected
-                            ? "bg-orange-500 text-black"
-                            : "border border-zinc-800 text-zinc-400 hover:border-zinc-600 hover:text-zinc-200"
-                        }`}
-                      >
-                        {item.lap_number}
-                      </a>
-                    );
-                  })}
+  const videoBlock =
+    activeVideo?.provider === "youtube" && activeVideo.youtubeId ? (
+      <YouTubePlayer
+        key={activeVideo.youtubeId}
+        videoId={activeVideo.youtubeId}
+        ref={bindPlayer}
+        className="w-full"
+        onPlayerEvent={onPlayerEvent}
+      />
+    ) : mp4Src ? (
+      <Mp4Player
+        src={mp4Src}
+        ref={bindPlayer}
+        className="w-full"
+        onPlayerEvent={onPlayerEvent}
+      />
+    ) : activeVideo ? (
+      <MissingYouTube sessionId={sessionId} />
+    ) : (
+      <MissingYouTube sessionId={sessionId} />
+    );
+
+  const metaRow = (
+    <div
+      className={`flex flex-wrap items-center gap-x-3 gap-y-1 text-zinc-400 ${
+        workspace ? "mt-1.5 text-xs" : "mt-3 text-sm"
+      }`}
+    >
+      <span className="font-mono text-zinc-200">
+        {formatLapTime(lap.lap_time_ms)}
+      </span>
+      {cursorPoint ? (
+        <span>
+          {formatMph(cursorPoint.speed)} · {formatKmh(cursorPoint.speed)}
+        </span>
+      ) : null}
+      {deltaVsBest != null ? (
+        <span>Δ best {formatGap(deltaVsBest)}</span>
+      ) : null}
+      {!locked && activeVideo ? (
+        <span className="rounded-md bg-zinc-800 px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-zinc-400">
+          Sync setup · video free
+        </span>
+      ) : null}
+    </div>
+  );
+
+  const syncPanel =
+    (activeVideo || canEditSync) && (onVideoChange || onAttachYouTube) ? (
+      <LapVideoSyncGuide
+        video={activeVideo}
+        videoTime={videoTime}
+        lapStartOffsetSec={currentSyncLap.startOffsetSec}
+        lapTimeMs={lap.lap_time_ms}
+        lapNumber={lap.lap_number}
+        chartLapTimeSec={chartLapTimeSec}
+        canEdit={canEditSync || Boolean(onVideoChange)}
+        sessionLevel={Boolean(activeVideo && !activeVideo.lapId)}
+        availableLaps={siblingLaps.map((item) => ({
+          lap_number: item.lap_number,
+          lap_time_ms: item.lap_time_ms,
+        }))}
+        startsAtLapNumber={lap.lap_number}
+        onStartsAtLapChange={
+          sessionId
+            ? (lapNumber) => {
+                const target = siblingLaps.find(
+                  (item) => item.lap_number === lapNumber,
+                );
+                if (!target || target.id === lap.id) return;
+                window.location.assign(
+                  sessionLapHref(sessionId, target, {
+                    videoId: activeVideo?.id,
+                  }),
+                );
+              }
+            : undefined
+        }
+        onChange={onVideoChange ? handleVideoChange : undefined}
+        onSeek={(t) => {
+          drivePlayer("seek", t);
+          setVideoTime(t);
+          if (locked) applyVideoTime(t);
+        }}
+        onAttachYouTube={onAttachYouTube}
+        onPlayBoth={locked ? playBoth : undefined}
+      />
+    ) : null;
+
+  const telemetry = (
+    <StackedLapTelemetry
+      points={chartData}
+      activeIndex={index}
+      onHoverIndex={hoverFromChart}
+      syncId="lap-detail"
+      trimMarkers={trimMarkers ?? undefined}
+      onTrimBoundaryDrag={onTrimBoundaryDrag}
+      fallback={null}
+      className={workspace ? "h-full" : undefined}
+    />
+  );
+
+  const toolTabs: SessionToolTab[] = [];
+  if (syncPanel) {
+    toolTabs.push({
+      id: "sync",
+      label: "Sync",
+      content: syncPanel,
+      badge: activeVideo && !locked ? "!" : null,
+    });
+  }
+  for (const tab of extraToolTabs ?? []) toolTabs.push(tab);
+
+  if (workspace) {
+    return (
+      <div
+        ref={rootRef}
+        tabIndex={0}
+        className="flex h-full min-h-0 flex-col outline-none"
+      >
+        <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-[minmax(220px,0.85fr)_minmax(0,1.35fr)] lg:gap-3">
+          <aside className="flex min-h-0 flex-col gap-2 lg:h-full">
+            <div className="min-h-[180px] flex-[1.15] lg:min-h-0">{mapBlock}</div>
+            {sidebar ? (
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-zinc-800/80 bg-zinc-950/40">
+                <div className="min-h-0 flex-1 overflow-y-auto">{sidebar}</div>
               </div>
             ) : null}
-          </div>
-          {playbackBar}
-          <div>{mapBlock}</div>
-        </div>
-      ) : (
-        <>
-          {playbackBar}
-          {mapBlock}
-        </>
-      )}
+          </aside>
 
-      {(activeVideo || canEditSync) && (onVideoChange || onAttachYouTube) ? (
-        <LapVideoSyncGuide
-          video={activeVideo}
-          videoTime={videoTime}
-          lapStartOffsetSec={currentSyncLap.startOffsetSec}
-          lapTimeMs={lap.lap_time_ms}
-          lapNumber={lap.lap_number}
-          chartLapTimeSec={chartLapTimeSec}
-          canEdit={canEditSync || Boolean(onVideoChange)}
-          sessionLevel={Boolean(activeVideo && !activeVideo.lapId)}
-          availableLaps={siblingLaps.map((item) => ({
-            lap_number: item.lap_number,
-            lap_time_ms: item.lap_time_ms,
-          }))}
-          startsAtLapNumber={lap.lap_number}
-          onStartsAtLapChange={
-            sessionId
-              ? (lapNumber) => {
-                  const target = siblingLaps.find(
-                    (item) => item.lap_number === lapNumber,
+          <section className="flex min-h-0 flex-col gap-2 lg:h-full">
+            <div className="shrink-0">
+              {videoBlock}
+              {metaRow}
+            </div>
+            <div className="shrink-0">{playbackBar}</div>
+            <div className="min-h-0 flex-1 overflow-hidden">{telemetry}</div>
+          </section>
+        </div>
+
+        {toolTabs.length ? (
+          <SessionToolsPanel tabs={toolTabs} defaultTab="sync" />
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <div ref={rootRef} tabIndex={0} className="flex flex-col gap-4 outline-none">
+      <div className="space-y-3">
+        <div className="w-full">
+          {videoBlock}
+          {metaRow}
+          {sessionId && siblingLaps.length > 1 ? (
+            <div
+              className="mt-2 flex flex-wrap items-center gap-1.5"
+              role="group"
+              aria-label="Lap"
+            >
+              <span className="mr-1 text-[11px] uppercase tracking-[0.14em] text-zinc-500">
+                Lap
+              </span>
+              {[...siblingLaps]
+                .sort((a, b) => a.lap_number - b.lap_number)
+                .map((item) => {
+                  const selected = item.id === lap.id;
+                  return (
+                    <a
+                      key={item.id}
+                      href={sessionLapHref(sessionId, item, {
+                        videoId: activeVideo?.id,
+                      })}
+                      aria-current={selected ? "true" : undefined}
+                      className={`inline-flex min-h-8 items-center rounded-md px-2.5 font-mono text-xs ${
+                        selected
+                          ? "bg-orange-500 text-black"
+                          : "border border-zinc-800 text-zinc-400 hover:border-zinc-600 hover:text-zinc-200"
+                      }`}
+                    >
+                      {item.lap_number}
+                    </a>
                   );
-                  if (!target || target.id === lap.id) return;
-                  window.location.assign(
-                    sessionLapHref(sessionId, target, {
-                      videoId: activeVideo?.id,
-                    }),
-                  );
-                }
-              : undefined
-          }
-          onChange={onVideoChange ? handleVideoChange : undefined}
-          onSeek={(t) => {
-            // Independent seek during setup; after sync still allow fine nudge.
-            drivePlayer("seek", t);
-            setVideoTime(t);
-            if (locked) applyVideoTime(t);
-          }}
-          onAttachYouTube={onAttachYouTube}
-          onPlayBoth={locked ? playBoth : undefined}
-        />
+                })}
+            </div>
+          ) : null}
+        </div>
+        {playbackBar}
+        <div>{mapBlock}</div>
+      </div>
+
+      {toolTabs.length ? (
+        <SessionToolsPanel tabs={toolTabs} defaultTab="sync" />
+      ) : syncPanel ? (
+        syncPanel
       ) : null}
 
-      <StackedLapTelemetry
-        points={chartData}
-        activeIndex={index}
-        onHoverIndex={hoverFromChart}
-        syncId="lap-detail"
-        trimMarkers={trimMarkers ?? undefined}
-        onTrimBoundaryDrag={onTrimBoundaryDrag}
-        fallback={null}
-      />
+      {telemetry}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { AppHeader } from "@/components/AppHeader";
 import { GpsQualityBadge } from "@/components/GpsQualityBadge";
 import { LapChips, LapList, type LapExcludeChange } from "@/components/LapList";
 import { SessionLapDetail } from "@/components/SessionLapDetail";
+import type { SessionToolTab } from "@/components/SessionToolsPanel";
 import { videoCoverage } from "@/lib/pick-session-video";
 import { SessionVideosCard } from "@/components/SessionVideosCard";
 import { SessionVisibilityControl } from "@/components/SessionVisibilityControl";
@@ -38,6 +39,7 @@ type CloudSession = {
   visibility?: string | null;
   source_kind?: string | null;
   gps_quality?: GpsQuality | null;
+  notes?: string | null;
   started_at?: string | null;
   session_date?: string | null;
   created_at: string;
@@ -587,227 +589,247 @@ export function CloudSessionView({ id }: { id: string }) {
     ? Date.parse(session.started_at)
     : undefined;
 
+  const sessionToolTabs: SessionToolTab[] = [
+    {
+      id: "session",
+      label: "Session",
+      content: (
+        <div className="space-y-3">
+          {mine ? (
+            <>
+              <SessionVisibilityControl
+                value={visibility}
+                onChange={onVisibility}
+                disabled={visibilityBusy}
+                compact
+              />
+              {visibilityBusy ? (
+                <p className="text-xs text-zinc-500">Saving visibility…</p>
+              ) : null}
+              {visibilityError ? (
+                <p
+                  role="alert"
+                  className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100"
+                >
+                  {visibilityError}
+                </p>
+              ) : null}
+            </>
+          ) : (
+            <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">
+              Visibility · {visibility}
+            </p>
+          )}
+          <div>
+            <p className="mb-1.5 text-[10px] uppercase tracking-[0.16em] text-zinc-500">
+              GPS quality
+            </p>
+            <GpsQualityBadge
+              quality={session.gps_quality}
+              sourceKind={
+                session.source_kind === "gopro" ||
+                session.source_kind === "csv" ||
+                session.source_kind === "logger"
+                  ? session.source_kind
+                  : null
+              }
+            />
+          </div>
+          {excludeError ? (
+            <p
+              role="alert"
+              className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100"
+            >
+              {excludeError}
+            </p>
+          ) : null}
+          {trimError ? (
+            <p
+              role="alert"
+              className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100"
+            >
+              {trimError}
+            </p>
+          ) : null}
+        </div>
+      ),
+    },
+  ];
+
+  if (session.notes?.trim()) {
+    sessionToolTabs.push({
+      id: "notes",
+      label: "Notes",
+      content: (
+        <p className="whitespace-pre-wrap text-sm text-zinc-300">
+          {session.notes}
+        </p>
+      ),
+    });
+  }
+
+  if (mine || videos.length > 0) {
+    sessionToolTabs.push({
+      id: "videos",
+      label: "Videos",
+      content: (
+        <SessionVideosCard
+          session={{
+            id: session.id,
+            trackId: session.track_id ?? undefined,
+            sessionDate: session.session_date ?? undefined,
+            startedAtMs: Number.isFinite(startedAtMs)
+              ? startedAtMs
+              : undefined,
+            created_at: session.created_at,
+            laps: laps.map((lap) => ({
+              id: lap.id,
+              lap_number: lap.lap_number,
+              lap_time_ms: lap.lap_time_ms,
+            })),
+          }}
+          videos={videos}
+          onChange={mine ? onVideosChange : () => {}}
+          readOnly={!mine}
+        />
+      ),
+    });
+  }
+
+  const lapSidebar = laps.length ? (
+    <LapList
+      laps={laps}
+      selectedId={selected?.id}
+      onSelect={(lap) => selectLap(lap)}
+      videoLapIds={dedicatedVideoLapIds}
+      syncedLapIds={syncedLapIds}
+      sessionVideo={Boolean(coverage.sessionLevel)}
+      canEdit={mine}
+      onExcludeChange={mine ? onExcludeChange : undefined}
+      excludeBusyId={excludeBusyId}
+    />
+  ) : (
+    <p className="px-3 py-6 text-center text-sm text-zinc-500">
+      No laps in this session.
+    </p>
+  );
+
   return (
     <>
       <AppHeader email={email} />
-      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-4 px-4 py-5 sm:px-6 sm:py-6">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0 space-y-2">
-            <Link
-              href={mine ? "/account" : "/lap-comparisons?tab=sessions"}
-              className="text-[11px] uppercase tracking-[0.2em] text-zinc-500 hover:text-zinc-300"
-            >
-              {mine
-                ? "My Sessions"
-                : userId
-                  ? "Friends"
-                  : "Public feed"}
-            </Link>
-            <h1 className="text-2xl font-semibold tracking-tight text-zinc-50 sm:text-3xl">
-              {session.name}
-            </h1>
-            <div className="flex flex-wrap items-center gap-2 text-sm text-zinc-500">
-              <span>
-                {session.car ? `${session.car} · ` : ""}
-                {laps.length} laps
-                {best != null ? ` · best ${formatLapTime(best)}` : ""}
-                {session.driver_name ? ` · ${session.driver_name}` : ""}
-                {mine ? " · saved to your account" : ""}
-                {!mine ? ` · ${visibility}` : ""}
-              </span>
-              <GpsQualityBadge
-                quality={session.gps_quality}
-                sourceKind={
-                  session.source_kind === "gopro" ||
-                  session.source_kind === "csv" ||
-                  session.source_kind === "logger"
-                    ? session.source_kind
-                    : null
-                }
-              />
+      <main className="mx-auto flex h-[calc(100dvh-3.5rem)] w-full max-w-[90rem] flex-1 flex-col overflow-hidden px-3 py-2 sm:px-4 sm:py-2.5 lg:h-[calc(100dvh-3.75rem)]">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 pb-2">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+              <Link
+                href={mine ? "/account" : "/lap-comparisons?tab=sessions"}
+                className="text-[10px] uppercase tracking-[0.18em] text-zinc-500 hover:text-zinc-300"
+              >
+                {mine ? "My Sessions" : userId ? "Friends" : "Public feed"}
+              </Link>
+              <h1 className="truncate text-base font-semibold tracking-tight text-zinc-50 sm:text-lg">
+                {session.name}
+              </h1>
             </div>
+            <p className="mt-0.5 truncate text-xs text-zinc-500">
+              {session.car ? `${session.car} · ` : ""}
+              {laps.length} laps
+              {best != null ? ` · best ${formatLapTime(best)}` : ""}
+              {session.driver_name ? ` · ${session.driver_name}` : ""}
+              {!mine ? ` · ${visibility}` : ""}
+            </p>
           </div>
           {href ? (
             <Link
               href={href}
-              className="inline-flex min-h-10 items-center text-xs uppercase tracking-[0.18em] text-orange-400 hover:text-orange-300"
+              className="inline-flex min-h-8 items-center text-[11px] uppercase tracking-[0.16em] text-orange-400 hover:text-orange-300"
             >
-              Compare laps
+              Compare
             </Link>
           ) : null}
         </div>
 
+        {/* Mobile lap picker — desktop uses the left-column lap list */}
         {laps.length ? (
-          <LapChips
-            laps={laps}
-            selectedId={selected?.id}
-            onSelect={(lap) => selectLap(lap)}
-            videoLapIds={dedicatedVideoLapIds}
-            syncedLapIds={syncedLapIds}
-            sessionVideo={Boolean(coverage.sessionLevel)}
-          />
+          <div className="shrink-0 pb-2 lg:hidden">
+            <LapChips
+              laps={laps}
+              selectedId={selected?.id}
+              onSelect={(lap) => selectLap(lap)}
+              videoLapIds={dedicatedVideoLapIds}
+              syncedLapIds={syncedLapIds}
+              sessionVideo={Boolean(coverage.sessionLevel)}
+            />
+          </div>
         ) : null}
 
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] lg:items-start">
-          <div className="space-y-4 lg:sticky lg:top-20">
-            {mine ? (
-              <div className="space-y-2">
-                <SessionVisibilityControl
-                  value={visibility}
-                  onChange={onVisibility}
-                  disabled={visibilityBusy}
-                />
-                {visibilityBusy ? (
-                  <p className="text-xs text-zinc-500">Saving visibility…</p>
-                ) : null}
-                {visibilityError ? (
-                  <p
-                    role="alert"
-                    className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100"
-                  >
-                    {visibilityError}
-                  </p>
-                ) : null}
-                {excludeError ? (
-                  <p
-                    role="alert"
-                    className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100"
-                  >
-                    {excludeError}
-                  </p>
-                ) : null}
-                {trimError ? (
-                  <p
-                    role="alert"
-                    className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100"
-                  >
-                    {trimError}
-                  </p>
-                ) : null}
-              </div>
-            ) : (
-              <p className="text-xs uppercase tracking-[0.16em] text-zinc-600">
-                Visibility · {visibility}
-              </p>
-            )}
-
-            {laps.length ? (
-              <LapList
-                laps={laps}
-                selectedId={selected?.id}
-                onSelect={(lap) => selectLap(lap)}
-                videoLapIds={dedicatedVideoLapIds}
-                syncedLapIds={syncedLapIds}
-                sessionVideo={Boolean(coverage.sessionLevel)}
-                canEdit={mine}
-                onExcludeChange={mine ? onExcludeChange : undefined}
-                excludeBusyId={excludeBusyId}
-              />
-            ) : (
-              <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-8 text-center text-sm text-zinc-500">
-                No laps in this session.
-              </p>
-            )}
-
-            {(mine || videos.length > 0) && (
-              <details
-                open={videos.length === 0}
-                className="group rounded-xl border border-zinc-800/80 bg-zinc-950/40"
-              >
-                <summary className="cursor-pointer list-none px-4 py-3 text-xs uppercase tracking-[0.16em] text-zinc-400 marker:content-none [&::-webkit-details-marker]:hidden">
-                  Bulk YouTube / catalog
-                  <span className="ml-2 font-normal normal-case tracking-normal text-zinc-600">
-                    per-lap sync on selected lap →
-                  </span>
-                </summary>
-                <div className="border-t border-zinc-900 px-3 pb-3 pt-2">
-                  <SessionVideosCard
-                    session={{
-                      id: session.id,
-                      trackId: session.track_id ?? undefined,
-                      sessionDate: session.session_date ?? undefined,
-                      startedAtMs: Number.isFinite(startedAtMs)
-                        ? startedAtMs
-                        : undefined,
-                      created_at: session.created_at,
-                      laps: laps.map((lap) => ({
-                        id: lap.id,
-                        lap_number: lap.lap_number,
-                        lap_time_ms: lap.lap_time_ms,
-                      })),
-                    }}
-                    videos={videos}
-                    onChange={mine ? onVideosChange : () => {}}
-                    readOnly={!mine}
-                  />
-                </div>
-              </details>
-            )}
-          </div>
-
-          <div className="min-w-0">
-            {selectedRow ? (
-              <SessionLapDetail
-                sessionId={session.id}
-                lap={{
-                  id: selectedRow.id,
-                  lap_number: selectedRow.lap_number,
-                  lap_time_ms: selectedRow.lap_time_ms,
-                  start_offset_sec: selectedRow.start_offset_sec,
-                  telemetry: (selectedRow.telemetry ?? []) as TelemetryPoint[],
-                  excluded: selectedRow.excluded ?? false,
-                  exclude_reason: selectedRow.exclude_reason ?? null,
-                  start_offset_override:
-                    selectedRow.start_offset_override ?? null,
-                  end_offset_override: selectedRow.end_offset_override ?? null,
-                }}
-                siblingLaps={detailLaps}
-                videos={videos}
-                videoParam={videoParam}
-                trackId={session.track_id}
-                sessionStartedAtMs={
-                  Number.isFinite(startedAtMs) ? startedAtMs : undefined
-                }
-                canEdit={mine}
-                onExcludeChange={mine ? onExcludeChange : undefined}
-                excludeBusy={excludeBusyId === selectedRow.id}
-                onTrimChange={mine ? onTrimChange : undefined}
-                onTrimReset={mine ? onTrimReset : undefined}
-                onMergeNext={mine ? onMergeNext : undefined}
-                onSplit={mine ? onSplit : undefined}
-                trimBusy={trimBusy}
-                onVideoChange={
-                  mine
-                    ? async (next) => {
-                        setVideos((prev) => {
-                          const exists = prev.some((v) => v.id === next.id);
-                          return exists
-                            ? prev.map((v) => (v.id === next.id ? next : v))
-                            : [...prev, next];
-                        });
-                        try {
-                          const supabase = createClient();
-                          if (userId) {
-                            await upsertSessionVideo(
-                              supabase,
-                              session.id,
-                              userId,
-                              next,
-                            );
-                          } else {
-                            await updateSessionVideoSync(supabase, next);
-                          }
-                        } catch {
-                          // keep local UI state
+        <div className="min-h-0 flex-1 overflow-y-auto lg:overflow-hidden">
+          {selectedRow ? (
+            <SessionLapDetail
+              sessionId={session.id}
+              layout="workspace"
+              sidebar={lapSidebar}
+              extraToolTabs={sessionToolTabs}
+              lap={{
+                id: selectedRow.id,
+                lap_number: selectedRow.lap_number,
+                lap_time_ms: selectedRow.lap_time_ms,
+                start_offset_sec: selectedRow.start_offset_sec,
+                telemetry: (selectedRow.telemetry ?? []) as TelemetryPoint[],
+                excluded: selectedRow.excluded ?? false,
+                exclude_reason: selectedRow.exclude_reason ?? null,
+                start_offset_override:
+                  selectedRow.start_offset_override ?? null,
+                end_offset_override: selectedRow.end_offset_override ?? null,
+              }}
+              siblingLaps={detailLaps}
+              videos={videos}
+              videoParam={videoParam}
+              trackId={session.track_id}
+              sessionStartedAtMs={
+                Number.isFinite(startedAtMs) ? startedAtMs : undefined
+              }
+              canEdit={mine}
+              onExcludeChange={mine ? onExcludeChange : undefined}
+              excludeBusy={excludeBusyId === selectedRow.id}
+              onTrimChange={mine ? onTrimChange : undefined}
+              onTrimReset={mine ? onTrimReset : undefined}
+              onMergeNext={mine ? onMergeNext : undefined}
+              onSplit={mine ? onSplit : undefined}
+              trimBusy={trimBusy}
+              onVideoChange={
+                mine
+                  ? async (next) => {
+                      setVideos((prev) => {
+                        const exists = prev.some((v) => v.id === next.id);
+                        return exists
+                          ? prev.map((v) => (v.id === next.id ? next : v))
+                          : [...prev, next];
+                      });
+                      try {
+                        const supabase = createClient();
+                        if (userId) {
+                          await upsertSessionVideo(
+                            supabase,
+                            session.id,
+                            userId,
+                            next,
+                          );
+                        } else {
+                          await updateSessionVideoSync(supabase, next);
                         }
+                      } catch {
+                        // keep local UI state
                       }
-                    : undefined
-                }
-              />
-            ) : laps.length ? (
-              <p className="text-sm text-zinc-500">Select a lap to view.</p>
-            ) : null}
-          </div>
+                    }
+                  : undefined
+              }
+            />
+          ) : laps.length ? (
+            <p className="text-sm text-zinc-500">Select a lap to view.</p>
+          ) : (
+            lapSidebar
+          )}
         </div>
       </main>
     </>

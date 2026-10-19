@@ -41,7 +41,7 @@ export function ChannelChart({
   onHoverIndex,
   syncId = "lap",
   yUnit,
-  heightClass = "h-[88px]",
+  heightClass = "h-[64px]",
   showLegend = false,
   showXAxis = true,
   compact = true,

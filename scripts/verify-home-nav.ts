@@ -57,10 +57,16 @@ assert(
 );
 
 const session = read("src/components/CloudSessionView.tsx");
-assert(session.includes("lg:grid-cols"), "session side-by-side");
+assert(
+  session.includes('layout="workspace"') || session.includes("100dvh"),
+  "session one-screen workspace",
+);
 assert(session.includes("SessionLapDetail"), "in-place lap detail");
 assert(session.includes("useSessionLapSelection"), "lap query selection");
 assert(session.includes("LapChips"), "lap chips");
+const syncedLap = read("src/components/video/SyncedLapView.tsx");
+assert(syncedLap.includes("lg:grid-cols"), "session workspace side-by-side");
+assert(syncedLap.includes("SessionToolsPanel"), "secondary tools drawer");
 const lapPage = read("src/app/sessions/[id]/laps/[lapId]/page.tsx");
 assert(lapPage.includes("legacyLapRedirectHref"), "legacy lap redirect");
 assert(!lapPage.includes("CloudLapView"), "lap page no longer renders detail");
@@ -73,8 +79,8 @@ assert(
 );
 assert(!compare.includes("setChartPanel"), "compare has no chart tabs");
 assert(
-  compare.includes("lg:grid-cols-2") || compare.includes("lg:grid-cols-["),
-  "compare side-by-side",
+  compare.includes("lg:grid-cols") || compare.includes("100dvh"),
+  "compare one-screen / side-by-side",
 );
 
 const trackDetail = read("src/components/TrackDirectory.tsx");

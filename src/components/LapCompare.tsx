@@ -2,7 +2,10 @@
 
 import { hoverIndex } from "@/components/chart-hover";
 import { bindChartScrub } from "@/components/chart-scrub";
-import { GpsQualityBadge } from "@/components/GpsQualityBadge";
+import {
+  SessionToolsPanel,
+  type SessionToolTab,
+} from "@/components/SessionToolsPanel";
 import { MissingGps, TrackMap } from "@/components/TrackMap";
 import { compareChannelsForSeries } from "@/components/StackedTelemetry";
 import { DualSessionVideos } from "@/components/video/DualSessionVideos";
@@ -192,6 +195,7 @@ export function LapCompare({
   initialAnalysisMode,
   readOnly,
   onDraftChange,
+  extraToolTabs,
 }: {
   laps: LapRow[];
   /** Sessions available for cross-session compare (own / friends / public / local). */
@@ -209,6 +213,8 @@ export function LapCompare({
   /** Hide add/remove / set-ref when viewing a shared comparison read-only. */
   readOnly?: boolean;
   onDraftChange?: (draft: ComparisonDraftSnapshot) => void;
+  /** Secondary panels (notes, corners) for the tools drawer. */
+  extraToolTabs?: SessionToolTab[];
 }) {
   const allSessions = useMemo<CompareSessionOption[]>(() => {
     if (sessions?.length) return sessions;
@@ -560,15 +566,15 @@ export function LapCompare({
     color: item.color,
   }));
 
-  return (
-    <div className="flex flex-col gap-6">
+  const setupPanel = (
+    <div className="space-y-3">
       {trackOptions.length > 1 ? (
-        <label className="flex max-w-md flex-col gap-1.5 text-sm">
+        <label className="flex flex-col gap-1.5 text-sm">
           <span className="text-zinc-400">Track filter</span>
           <select
             value={trackFilter}
             onChange={(event) => setTrackFilter(event.target.value)}
-            className="min-h-12 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
+            className="min-h-10 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2"
           >
             {trackOptions.map((trackId) => (
               <option key={trackId} value={trackId}>
@@ -579,123 +585,133 @@ export function LapCompare({
         </label>
       ) : null}
 
-      <div className="space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
-            Laps ({slots.length}/{MAX_COMPARE_LAPS})
-            {readOnly ? " · read-only" : ""}
-          </p>
-          {!readOnly ? (
-            <button
-              type="button"
-              disabled={slots.length >= MAX_COMPARE_LAPS}
-              onClick={addSlot}
-              className="min-h-10 rounded-lg border border-zinc-800 px-3 text-sm text-zinc-300 hover:border-zinc-600 disabled:opacity-40"
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
+          Laps ({slots.length}/{MAX_COMPARE_LAPS})
+          {readOnly ? " · read-only" : ""}
+        </p>
+        {!readOnly ? (
+          <button
+            type="button"
+            disabled={slots.length >= MAX_COMPARE_LAPS}
+            onClick={addSlot}
+            className="min-h-9 rounded-lg border border-zinc-800 px-3 text-sm text-zinc-300 hover:border-zinc-600 disabled:opacity-40"
+          >
+            Add lap
+          </button>
+        ) : null}
+      </div>
+      <div className="grid gap-2">
+        {slots.map((slot, index) => {
+          const session =
+            filteredSessions.find((s) => s.id === slot.sessionId) ??
+            filteredSessions[0];
+          const color = COMPARE_COLORS[index % COMPARE_COLORS.length];
+          const isRef = index === refIndex;
+          return (
+            <div
+              key={slot.key}
+              className="space-y-2 rounded-xl border border-zinc-800/80 bg-zinc-950/40 p-2.5"
             >
-              Add lap
-            </button>
-          ) : null}
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          {slots.map((slot, index) => {
-            const session =
-              filteredSessions.find((s) => s.id === slot.sessionId) ??
-              filteredSessions[0];
-            const color = COMPARE_COLORS[index % COMPARE_COLORS.length];
-            const isRef = index === refIndex;
-            return (
-              <div
-                key={slot.key}
-                className="space-y-2 rounded-xl border border-zinc-800/80 bg-zinc-950/40 p-3"
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  <span
-                    className="inline-block h-2.5 w-2.5 rounded-full"
-                    style={{ background: color }}
-                  />
-                  <span className="text-xs uppercase tracking-[0.16em] text-zinc-500">
-                    {isRef ? "Reference" : `Lap ${index + 1}`}
-                  </span>
-                  {!readOnly ? (
-                    <div className="ml-auto flex gap-1">
-                      {!isRef ? (
-                        <button
-                          type="button"
-                          onClick={() => setRefIndex(index)}
-                          className="rounded-md px-2 py-1 text-[11px] uppercase tracking-[0.14em] text-orange-400 hover:bg-zinc-900"
-                        >
-                          Set ref
-                        </button>
-                      ) : null}
-                      {slots.length > 2 ? (
-                        <button
-                          type="button"
-                          onClick={() => removeSlot(slot.key)}
-                          className="rounded-md px-2 py-1 text-[11px] uppercase tracking-[0.14em] text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300"
-                        >
-                          Remove
-                        </button>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <span className="ml-auto text-[10px] uppercase tracking-[0.14em] text-zinc-600">
-                      {session?.name ?? ""}
-                    </span>
-                  )}
-                </div>
-                {multiSession && !readOnly ? (
-                  <SessionSelect
-                    label="Session"
-                    value={session?.id ?? ""}
-                    sessions={filteredSessions}
-                    onChange={(id) => {
-                      const next = filteredSessions.find((s) => s.id === id);
-                      const pair = defaultLapPair(next?.laps ?? []);
-                      updateSlot(slot.key, {
-                        sessionId: id,
-                        lapId: pair.ref,
-                      });
-                    }}
-                  />
-                ) : null}
+              <div className="flex flex-wrap items-center gap-2">
+                <span
+                  className="inline-block h-2.5 w-2.5 rounded-full"
+                  style={{ background: color }}
+                />
+                <span className="text-xs uppercase tracking-[0.16em] text-zinc-500">
+                  {isRef ? "Reference" : `Lap ${index + 1}`}
+                </span>
                 {!readOnly ? (
-                  <LapSelect
-                    label="Lap"
-                    value={slot.lapId}
-                    laps={session?.laps ?? []}
-                    onChange={(lapId) => updateSlot(slot.key, { lapId })}
-                  />
+                  <div className="ml-auto flex gap-1">
+                    {!isRef ? (
+                      <button
+                        type="button"
+                        onClick={() => setRefIndex(index)}
+                        className="rounded-md px-2 py-1 text-[11px] uppercase tracking-[0.14em] text-orange-400 hover:bg-zinc-900"
+                      >
+                        Set ref
+                      </button>
+                    ) : null}
+                    {slots.length > 2 ? (
+                      <button
+                        type="button"
+                        onClick={() => removeSlot(slot.key)}
+                        className="rounded-md px-2 py-1 text-[11px] uppercase tracking-[0.14em] text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300"
+                      >
+                        Remove
+                      </button>
+                    ) : null}
+                  </div>
                 ) : (
-                  <p className="text-sm text-zinc-300">
-                    Lap{" "}
-                    {session?.laps.find((l) => l.id === slot.lapId)?.lap_number ??
-                      "—"}{" "}
-                    <span className="font-mono text-zinc-500">
-                      {formatLapTime(
-                        session?.laps.find((l) => l.id === slot.lapId)
-                          ?.lap_time_ms ?? 0,
-                      )}
-                    </span>
-                  </p>
+                  <span className="ml-auto text-[10px] uppercase tracking-[0.14em] text-zinc-600">
+                    {session?.name ?? ""}
+                  </span>
                 )}
               </div>
-            );
-          })}
-        </div>
+              {multiSession && !readOnly ? (
+                <SessionSelect
+                  label="Session"
+                  value={session?.id ?? ""}
+                  sessions={filteredSessions}
+                  onChange={(id) => {
+                    const next = filteredSessions.find((s) => s.id === id);
+                    const pair = defaultLapPair(next?.laps ?? []);
+                    updateSlot(slot.key, {
+                      sessionId: id,
+                      lapId: pair.ref,
+                    });
+                  }}
+                />
+              ) : null}
+              {!readOnly ? (
+                <LapSelect
+                  label="Lap"
+                  value={slot.lapId}
+                  laps={session?.laps ?? []}
+                  onChange={(lapId) => updateSlot(slot.key, { lapId })}
+                />
+              ) : (
+                <p className="text-sm text-zinc-300">
+                  Lap{" "}
+                  {session?.laps.find((l) => l.id === slot.lapId)?.lap_number ??
+                    "—"}{" "}
+                  <span className="font-mono text-zinc-500">
+                    {formatLapTime(
+                      session?.laps.find((l) => l.id === slot.lapId)
+                        ?.lap_time_ms ?? 0,
+                    )}
+                  </span>
+                </p>
+              )}
+            </div>
+          );
+        })}
       </div>
+    </div>
+  );
+
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-2 lg:overflow-hidden">
+      <SessionToolsPanel
+        tabs={[
+          { id: "setup", label: "Laps", content: setupPanel },
+          ...(extraToolTabs ?? []),
+        ]}
+        defaultTab="setup"
+      />
 
       {sameLap || ordered.length < 2 ? (
         <p className="text-sm text-zinc-500">
-          Pick at least two different laps.
+          Pick at least two different laps (open Tools → Laps).
         </p>
       ) : (
         <>
-          <div className="flex flex-wrap items-end justify-between gap-4 rounded-2xl border border-zinc-800/80 bg-zinc-950/50 px-5 py-4">
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-xl border border-zinc-800/80 bg-zinc-950/50 px-3 py-2">
+            <div className="min-w-0">
+              <p className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">
                 vs reference
               </p>
-              <p className="mt-1 font-mono text-2xl text-zinc-50 sm:text-3xl">
+              <p className="font-mono text-lg text-zinc-50 sm:text-xl">
                 {ordered
                   .slice(1)
                   .map((item) =>
@@ -707,46 +723,32 @@ export function LapCompare({
                   .join(" · ")}
               </p>
             </div>
-            <div className="space-y-1 text-sm text-zinc-400">
+            <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-zinc-400">
               {ordered.map((item) => (
                 <p
                   key={item.lap.id}
-                  className="flex flex-wrap items-center gap-2"
+                  className="flex flex-wrap items-center gap-1.5"
                 >
                   <span
-                    className="mr-1 inline-block h-2 w-2 rounded-full"
+                    className="inline-block h-2 w-2 rounded-full"
                     style={{ background: item.color }}
                   />
                   {item.isRef ? (
-                    <span className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">
+                    <span className="text-[10px] uppercase tracking-[0.12em] text-zinc-500">
                       ref
                     </span>
                   ) : null}
-                  {item.session.name !== "This session"
-                    ? `${item.session.name} · `
-                    : ""}
                   Lap {item.lap.lap_number}{" "}
                   <span className="font-mono text-zinc-200">
                     {formatLapTime(item.lap.lap_time_ms)}
                   </span>
-                  <GpsQualityBadge
-                    quality={item.session.gpsQuality}
-                    sourceKind={item.session.sourceKind}
-                  />
                 </p>
               ))}
             </div>
           </div>
 
-          <div className="space-y-4">
-            <DualSessionVideos
-              sides={videoSides}
-              progress={progress}
-              onProgress={setProgress}
-            />
-
-            <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
-            <div className="space-y-4 lg:sticky lg:top-20">
+          <div className="grid min-h-0 flex-1 grid-cols-1 gap-2 overflow-y-auto lg:grid-cols-[minmax(220px,0.85fr)_minmax(0,1.25fr)] lg:overflow-hidden">
+            <aside className="flex min-h-[180px] flex-col lg:h-full lg:min-h-0">
               {showMap ? (
                 <TrackMap
                   traces={mapTraces}
@@ -756,17 +758,33 @@ export function LapCompare({
                   gpsMode={centerline ? gpsMode : undefined}
                   onGpsModeChange={centerline ? setGpsMode : undefined}
                   analysisMode={centerline ? analysisMode : undefined}
-                  onAnalysisModeChange={centerline ? setAnalysisMode : undefined}
+                  onAnalysisModeChange={
+                    centerline ? setAnalysisMode : undefined
+                  }
                   analysisDisabled={!hasAnalysisSnap}
                   defaultFollowId={ordered[0]?.lap.id}
+                  panel
+                  compact
+                  hideCameraControls
                 />
               ) : (
-                <MissingGps />
+                <div className="flex h-full items-center">
+                  <MissingGps />
+                </div>
               )}
-            </div>
+            </aside>
 
-            <div className="space-y-3">
-              <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
+            <div className="flex min-h-0 flex-col gap-2 lg:h-full lg:overflow-hidden">
+              <div className="shrink-0">
+                <DualSessionVideos
+                  sides={videoSides}
+                  progress={progress}
+                  onProgress={setProgress}
+                  compact
+                />
+              </div>
+              <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto">
+              <p className="shrink-0 text-[10px] uppercase tracking-[0.16em] text-zinc-500">
                 Telemetry · all channels
               </p>
 
@@ -1142,7 +1160,7 @@ export function LapCompare({
                   </ResponsiveContainer>
                 </ChartCard>
               ) : null}
-            </div>
+              </div>
             </div>
           </div>
         </>
@@ -1230,14 +1248,14 @@ function ChartCard({
   scrub?: ReturnType<typeof bindChartScrub>;
 }) {
   return (
-    <div className="h-[260px] max-w-full overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950/40 p-3 sm:h-[340px] sm:p-4">
-      <div className="mb-2 flex items-baseline justify-between gap-3">
-        <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
+    <div className="max-w-full overflow-hidden rounded-xl border border-zinc-800/80 bg-zinc-950/40 px-2.5 py-2">
+      <div className="mb-1 flex items-baseline justify-between gap-2">
+        <p className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">
           {title}
         </p>
-        <p className="hidden text-xs text-zinc-600 sm:block">{hint}</p>
+        <p className="truncate font-mono text-[10px] text-zinc-600">{hint}</p>
       </div>
-      <div className="h-[200px] touch-none sm:h-[280px]" {...scrub}>
+      <div className="h-[72px] touch-none" {...scrub}>
         {children}
       </div>
     </div>

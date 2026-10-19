@@ -187,6 +187,8 @@ function separateScrubPositions(
 const MAP_HEIGHT = {
   default: "h-[65vh] min-h-[320px] sm:min-h-[420px]",
   compact: "h-[220px] min-h-[180px] sm:h-[280px]",
+  /** Fill a flex panel in the one-screen session dashboard. */
+  panel: "h-full min-h-[120px]",
 } as const;
 
 export function LeafletTrackMap({
@@ -201,6 +203,7 @@ export function LeafletTrackMap({
   centerline,
   embedded = false,
   compact = false,
+  panel = false,
   headerSlot,
 }: {
   traces: TrackTrace[];
@@ -216,6 +219,8 @@ export function LeafletTrackMap({
   embedded?: boolean;
   /** Shorter map for home/hero embeds. */
   compact?: boolean;
+  /** Stretch to parent height (session dashboard left column). */
+  panel?: boolean;
   headerSlot?: ReactNode;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -543,12 +548,18 @@ export function LeafletTrackMap({
         }));
 
   const shellClass = embedded
-    ? "relative"
-    : "relative overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950/40 p-4";
+    ? "relative flex h-full min-h-0 flex-col"
+    : panel
+      ? "relative flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-zinc-800/80 bg-zinc-950/40 p-2"
+      : "relative overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950/40 p-4";
 
   return (
     <div className={shellClass}>
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+      <div
+        className={`flex flex-wrap items-center justify-between gap-2 ${
+          panel ? "mb-1.5 shrink-0" : "mb-3 gap-3"
+        }`}
+      >
         <div className="flex flex-wrap items-center gap-3">
           {gpsMode && onGpsModeChange ? (
             <GpsModeToggle
@@ -626,7 +637,13 @@ export function LeafletTrackMap({
       {headerSlot}
       <div
         ref={containerRef}
-        className={`${compact ? MAP_HEIGHT.compact : MAP_HEIGHT.default} w-full touch-none overflow-hidden rounded-xl [&_.leaflet-control-attribution]:bg-zinc-950/80 [&_.leaflet-control-attribution]:text-[10px] [&_.leaflet-control-attribution]:text-zinc-400 [&_.leaflet-container]:cursor-crosshair`}
+        className={`${
+          panel
+            ? `${MAP_HEIGHT.panel} min-h-0 flex-1`
+            : compact
+              ? MAP_HEIGHT.compact
+              : MAP_HEIGHT.default
+        } w-full touch-none overflow-hidden rounded-xl [&_.leaflet-control-attribution]:bg-zinc-950/80 [&_.leaflet-control-attribution]:text-[10px] [&_.leaflet-control-attribution]:text-zinc-400 [&_.leaflet-container]:cursor-crosshair`}
         data-apex-map="fixed-scrub"
       />
       {tooltipMarkers.length ? (

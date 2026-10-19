@@ -94,7 +94,7 @@ export function SpeedChart({
       <div
         ref={chartWrapRef}
         className={`relative touch-none ${
-          compact ? "h-[88px]" : "h-[200px] sm:h-[260px]"
+          compact ? "h-[64px]" : "h-[200px] sm:h-[260px]"
         }`}
         {...(dragging ? {} : scrub)}
         onPointerMove={onPointerMove}

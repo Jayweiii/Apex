@@ -87,9 +87,9 @@ export function LapList({
     : "grid-cols-[3.5rem_1fr_auto_auto] sm:grid-cols-[4rem_1fr_auto_auto]";
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-zinc-800/80">
+    <div className="overflow-hidden rounded-xl border-0 bg-transparent">
       <div
-        className={`grid gap-x-2 border-b border-zinc-800 bg-zinc-950/80 px-3 py-2 text-[11px] uppercase tracking-[0.18em] text-zinc-500 sm:px-4 ${gridCols}`}
+        className={`grid gap-x-2 border-b border-zinc-800/80 bg-zinc-950/60 px-2.5 py-1.5 text-[10px] uppercase tracking-[0.16em] text-zinc-500 sm:px-3 ${gridCols}`}
       >
         <span>Lap</span>
         <span>Time</span>
@@ -108,7 +108,7 @@ export function LapList({
           const selected = selectedId === lap.id;
           const busy = excludeBusyId === lap.id;
           const vid = videoMark(lap.id, dedicated, sessionVideo, synced);
-          const rowClass = `grid min-h-12 w-full items-center gap-x-2 px-3 py-2.5 text-left transition sm:px-4 ${gridCols} ${
+          const rowClass = `grid min-h-9 w-full items-center gap-x-2 px-2.5 py-1.5 text-left text-sm transition sm:px-3 ${gridCols} ${
             excluded ? "opacity-45" : ""
           } ${
             selected

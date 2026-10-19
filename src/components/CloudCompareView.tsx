@@ -326,40 +326,36 @@ export function CloudCompareView({
   return (
     <>
       <AppHeader email={email} />
-      <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-6 py-8">
-        <div>
-          <Link
-            href={`/sessions/${session.id}`}
-            className="text-xs uppercase tracking-[0.2em] text-zinc-500 hover:text-zinc-300"
-          >
-            {session.name}
-          </Link>
-          <h1 className="mt-3 text-2xl font-semibold tracking-tight text-zinc-50">
-            Compare laps
-          </h1>
-          <p className="mt-1 text-sm text-zinc-500">
-            Pick any lap from public uploads
-            {userId ? ", your sessions, or friends" : ""}
-            {session.track_id ? " — filter by track" : ""}.
-            {!userId
-              ? " Sign in only if you need Friends-visible peers."
-              : ""}
-          </p>
-          {error ? (
-            <p className="mt-2 text-sm text-amber-200">{error}</p>
-          ) : null}
+      <main className="mx-auto flex h-[calc(100dvh-3.5rem)] w-full max-w-[90rem] flex-1 flex-col overflow-hidden px-3 py-2 sm:px-4 lg:h-[calc(100dvh-3.75rem)]">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 pb-2">
+          <div className="min-w-0">
+            <Link
+              href={`/sessions/${session.id}`}
+              className="text-[10px] uppercase tracking-[0.18em] text-zinc-500 hover:text-zinc-300"
+            >
+              {session.name}
+            </Link>
+            <h1 className="truncate text-base font-semibold tracking-tight text-zinc-50 sm:text-lg">
+              Compare laps
+            </h1>
+            {error ? (
+              <p className="mt-0.5 text-xs text-amber-200">{error}</p>
+            ) : null}
+          </div>
+          <SaveComparisonControls draft={draft} />
         </div>
-        <SaveComparisonControls draft={draft} />
-        <LapCompare
-          laps={currentLaps}
-          sessions={compareSessions}
-          initialRef={initialRef}
-          initialOther={initialOther}
-          initialOtherSession={initialOtherSession}
-          initialLaps={initialLaps}
-          initialTrackId={session.track_id ?? undefined}
-          onDraftChange={onDraftChange}
-        />
+        <div className="min-h-0 flex-1 overflow-y-auto lg:overflow-hidden">
+          <LapCompare
+            laps={currentLaps}
+            sessions={compareSessions}
+            initialRef={initialRef}
+            initialOther={initialOther}
+            initialOtherSession={initialOtherSession}
+            initialLaps={initialLaps}
+            initialTrackId={session.track_id ?? undefined}
+            onDraftChange={onDraftChange}
+          />
+        </div>
       </main>
     </>
   );

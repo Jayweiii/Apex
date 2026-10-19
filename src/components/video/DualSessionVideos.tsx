@@ -91,10 +91,11 @@ function SidePlayer({
   );
 }
 
-function gridClass(count: number) {
-  if (count <= 1) return "grid gap-3";
-  if (count === 2) return "grid gap-3 lg:grid-cols-2";
-  return "grid gap-3 sm:grid-cols-2";
+function gridClass(count: number, compact: boolean) {
+  const gap = compact ? "gap-1.5" : "gap-3";
+  if (count <= 1) return `grid ${gap}`;
+  if (count === 2) return `grid ${gap} lg:grid-cols-2`;
+  return `grid ${gap} sm:grid-cols-2`;
 }
 
 /**
@@ -108,6 +109,7 @@ export function DualSessionVideos({
   otherSide,
   progress,
   onProgress,
+  compact = false,
 }: {
   sides?: MultiVideoSide[];
   /** @deprecated Prefer `sides`. */
@@ -116,6 +118,8 @@ export function DualSessionVideos({
   otherSide?: DualVideoSide;
   progress: number | null;
   onProgress: (next: number | null) => void;
+  /** Dense chrome for one-screen compare dashboard. */
+  compact?: boolean;
 }) {
   const resolved: MultiVideoSide[] = sides?.length
     ? sides.slice(0, 4)
@@ -407,19 +411,29 @@ export function DualSessionVideos({
     <div
       ref={rootRef}
       tabIndex={0}
-      className="w-full space-y-3 rounded-2xl border border-zinc-800/80 bg-zinc-950/40 p-3 outline-none focus-visible:ring-1 focus-visible:ring-orange-500/40 sm:p-4"
+      className={`w-full outline-none focus-visible:ring-1 focus-visible:ring-orange-500/40 ${
+        compact
+          ? "space-y-1.5 rounded-xl border border-zinc-800/80 bg-zinc-950/40 p-2"
+          : "space-y-3 rounded-2xl border border-zinc-800/80 bg-zinc-950/40 p-3 sm:p-4"
+      }`}
     >
-      <div>
-        <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
-          {count > 2 ? `${count}-way` : "Dual"} onboard · two-way sync
+      {!compact ? (
+        <div>
+          <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
+            {count > 2 ? `${count}-way` : "Dual"} onboard · two-way sync
+          </p>
+          <p className="mt-1 text-sm text-zinc-400">
+            Play track or any YouTube — all players and the shared cursor stay
+            locked; each side keeps its saved offset.
+          </p>
+        </div>
+      ) : (
+        <p className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">
+          {count > 2 ? `${count}-way` : "Dual"} onboard
         </p>
-        <p className="mt-1 text-sm text-zinc-400">
-          Play track or any YouTube — all players and the shared cursor stay
-          locked; each side keeps its saved offset.
-        </p>
-      </div>
+      )}
 
-      <div className={`${gridClass(count)} w-full`}>
+      <div className={`${gridClass(count, compact)} w-full`}>
         {resolved.map((side, index) => (
           <SidePlayer
             key={`${side.lap.id}-${index}`}
@@ -456,6 +470,8 @@ export function DualSessionVideos({
         durationMs={sharedMs}
         disabled={!canPlay && !hasMeta}
         label={count > 2 ? "Play all" : "Play both"}
+        compact={compact}
+        sticky={compact}
       />
     </div>
   );

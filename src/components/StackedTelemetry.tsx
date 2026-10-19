@@ -45,8 +45,17 @@ export function StackedLapTelemetry({
       ? points[activeIndex].t
       : null;
 
+  // Compact stacked channels; internal scroll when more than ~5 so the
+  // session dashboard can stay one screen.
+  const scrollable = channels.length > 5;
   return (
-    <div className={`flex flex-col gap-4 ${className ?? ""}`}>
+    <div
+      className={`flex min-h-0 flex-col gap-2 ${
+        scrollable
+          ? "max-h-[min(42vh,360px)] overflow-y-auto pr-0.5 lg:max-h-full"
+          : ""
+      } ${className ?? ""}`}
+    >
       {channels.map((id) => (
         <LapChannel
           key={id}
@@ -92,6 +101,7 @@ function LapChannel({
         syncId={syncId}
         trimMarkers={trimMarkers}
         onTrimBoundaryDrag={onTrimBoundaryDrag}
+        compact
       />
     );
   }
@@ -102,6 +112,7 @@ function LapChannel({
         activeIndex={activeIndex}
         onHoverIndex={onHoverIndex}
         syncId={syncId}
+        compact
       />
     );
   }

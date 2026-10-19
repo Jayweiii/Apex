@@ -58,7 +58,7 @@ export function GChart({
         </p>
       </div>
       <div
-        className={`touch-none ${compact ? "h-[88px]" : "h-[200px] sm:h-[260px]"}`}
+        className={`touch-none ${compact ? "h-[64px]" : "h-[200px] sm:h-[260px]"}`}
         {...scrub}
       >
         <ResponsiveContainer width="100%" height="100%">
