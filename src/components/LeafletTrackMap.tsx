@@ -94,7 +94,11 @@ type CarMarkerStyle = "ring" | "filled" | "square" | "diamond";
 const MARKER_STYLES: CarMarkerStyle[] = ["ring", "filled", "square", "diamond"];
 
 /** Compact HTML car marker — distinct shapes when up to 4 overlap. */
-function carMarkerIcon(color: string, style: CarMarkerStyle = "filled") {
+function carMarkerIcon(
+  color: string,
+  style: CarMarkerStyle = "filled",
+  ghost = false,
+) {
   const size = style === "ring" ? 11 : 9;
   const shapeClass =
     style === "ring"
@@ -104,9 +108,10 @@ function carMarkerIcon(color: string, style: CarMarkerStyle = "filled") {
         : style === "diamond"
           ? "apex-car-marker__dot apex-car-marker__dot--diamond"
           : "apex-car-marker__dot";
+  const ghostClass = ghost ? " apex-car-marker__dot--ghost" : "";
   return L.divIcon({
     className: "apex-car-marker",
-    html: `<div class="${shapeClass}" style="--apex-car:${color}"></div>`,
+    html: `<div class="${shapeClass}${ghostClass}" style="--apex-car:${color}"></div>`,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
   });
@@ -194,6 +199,8 @@ const MAP_HEIGHT = {
 export function LeafletTrackMap({
   traces,
   activeProgress = null,
+  previewProgress = null,
+  onPreviewProgress,
   onProgress,
   gpsMode,
   onGpsModeChange,
@@ -208,6 +215,9 @@ export function LeafletTrackMap({
 }: {
   traces: TrackTrace[];
   activeProgress?: number | null;
+  /** Hover-only ghost position — never seeks video/playback. */
+  previewProgress?: number | null;
+  onPreviewProgress?: (progress: number | null) => void;
   onProgress?: (progress: number | null) => void;
   gpsMode?: GpsDisplayMode;
   onGpsModeChange?: (mode: GpsDisplayMode) => void;
@@ -229,6 +239,7 @@ export function LeafletTrackMap({
   const markersRef = useRef<L.LayerGroup | null>(null);
   const tileRef = useRef<L.TileLayer | null>(null);
   const onProgressRef = useRef(onProgress);
+  const onPreviewProgressRef = useRef(onPreviewProgress);
   const drawableRef = useRef<Array<TrackTrace & { points: GpsPoint[] }>>([]);
   const fittedKeyRef = useRef<string>("");
   const [basemap, setBasemap] = useState<BasemapMode>("satellite");
@@ -237,6 +248,7 @@ export function LeafletTrackMap({
   );
 
   onProgressRef.current = onProgress;
+  onPreviewProgressRef.current = onPreviewProgress;
 
   const drawable = useMemo(
     () =>
@@ -299,41 +311,52 @@ export function LeafletTrackMap({
       maxZoom: 19,
     }).addTo(map);
 
-    const emitProgress = (
-      latlng: L.LatLng,
-      clientX?: number,
-      clientY?: number,
-    ) => {
+    const progressAt = (latlng: L.LatLng) => {
       const current = drawableRef.current;
-      if (!current.length) return;
-      const progress = nearestProgress(latlng, current);
-      onProgressRef.current?.(progress);
-      if (clientX != null && clientY != null) {
-        const rect = map.getContainer().getBoundingClientRect();
-        setHoverPos({ x: clientX - rect.left, y: clientY - rect.top });
-      }
+      if (!current.length) return null;
+      return nearestProgress(latlng, current);
     };
 
+    const setTooltipPos = (clientX?: number, clientY?: number) => {
+      if (clientX == null || clientY == null) return;
+      const rect = map.getContainer().getBoundingClientRect();
+      setHoverPos({ x: clientX - rect.left, y: clientY - rect.top });
+    };
+
+    // Hover = preview only (ghost marker + readout). Never seeks playback.
     const onMove = (event: L.LeafletMouseEvent) => {
-      emitProgress(
-        event.latlng,
-        event.originalEvent.clientX,
-        event.originalEvent.clientY,
-      );
+      const progress = progressAt(event.latlng);
+      if (progress == null) return;
+      onPreviewProgressRef.current?.(progress);
+      setTooltipPos(event.originalEvent.clientX, event.originalEvent.clientY);
+    };
+
+    // Click seeks playback + synced YouTube.
+    const onClick = (event: L.LeafletMouseEvent) => {
+      const progress = progressAt(event.latlng);
+      if (progress == null) return;
+      onPreviewProgressRef.current?.(null);
+      onProgressRef.current?.(progress);
+      setTooltipPos(event.originalEvent.clientX, event.originalEvent.clientY);
     };
 
     const onLeave = () => {
-      onProgressRef.current?.(null);
+      onPreviewProgressRef.current?.(null);
       setHoverPos(null);
     };
 
+    // Touch drag seeks (no separate hover on touch).
     const scrubFromTouch = (event: TouchEvent) => {
       const touch = event.touches[0] ?? event.changedTouches[0];
       if (!touch) return;
       const rect = map.getContainer().getBoundingClientRect();
       const point = L.point(touch.clientX - rect.left, touch.clientY - rect.top);
       const latlng = map.containerPointToLatLng(point);
-      emitProgress(latlng, touch.clientX, touch.clientY);
+      const progress = progressAt(latlng);
+      if (progress == null) return;
+      onPreviewProgressRef.current?.(null);
+      onProgressRef.current?.(progress);
+      setTooltipPos(touch.clientX, touch.clientY);
     };
 
     const onTouchStart = (event: TouchEvent) => {
@@ -347,7 +370,7 @@ export function LeafletTrackMap({
     };
 
     map.on("mousemove", onMove);
-    map.on("click", onMove);
+    map.on("click", onClick);
     const container = map.getContainer();
     // Prefer container mouseleave — Leaflet mouseout fires when crossing polylines.
     container.addEventListener("mouseleave", onLeave);
@@ -365,7 +388,7 @@ export function LeafletTrackMap({
       container.removeEventListener("touchstart", onTouchStart);
       container.removeEventListener("touchmove", onTouchMove);
       map.off("mousemove", onMove);
-      map.off("click", onMove);
+      map.off("click", onClick);
       map.remove();
       mapRef.current = null;
       layersRef.current = null;
@@ -472,79 +495,92 @@ export function LeafletTrackMap({
     }
   }, [drawable, centerlineGps, minSpeed, maxSpeed, drawKey]);
 
-  // Scrub markers follow shared progress (charts, map, video).
+  // Playback markers (solid) + optional hover ghost preview.
   useEffect(() => {
     const markers = markersRef.current;
     if (!markers) return;
     markers.clearLayers();
-    if (activeProgress == null || !drawable.length) return;
+    if (!drawable.length) return;
 
     const multi = drawable.length > 1;
-    const samples = drawable.map((trace) => {
-      const point = sampleAtProgress(trace.points, activeProgress);
-      return {
-        trace,
-        point,
-        lat: point.lat,
-        lon: point.lon,
-        bearing: trackBearing(trace.points, activeProgress),
-        color: trace.colorBySpeed ? "#f97316" : trace.color,
-      };
-    }).filter((s) => s.lat != null && s.lon != null);
 
-    const positions = separateScrubPositions(
-      samples.map((s) => ({
-        lat: s.lat,
-        lon: s.lon,
-        bearing: s.bearing,
-      })),
-      6,
-    );
+    const placeAt = (progress: number, ghost: boolean) => {
+      const samples = drawable
+        .map((trace) => {
+          const point = sampleAtProgress(trace.points, progress);
+          return {
+            trace,
+            point,
+            lat: point.lat,
+            lon: point.lon,
+            bearing: trackBearing(trace.points, progress),
+            color: trace.colorBySpeed ? "#f97316" : trace.color,
+          };
+        })
+        .filter((s) => s.lat != null && s.lon != null);
 
-    samples.forEach((sample, index) => {
-      // Distinct shapes when multiple markers overlap (ring = reference).
-      const style: CarMarkerStyle = multi
-        ? markerStyleForIndex(index)
-        : "filled";
-      const pos = positions[index] ?? sample;
-      markers.addLayer(
-        L.marker([pos.lat, pos.lon], {
-          icon: carMarkerIcon(sample.color, style),
-          interactive: false,
-          keyboard: false,
-          zIndexOffset: 1000 + index,
-        }),
+      const positions = separateScrubPositions(
+        samples.map((s) => ({
+          lat: s.lat,
+          lon: s.lon,
+          bearing: s.bearing,
+        })),
+        6,
       );
-    });
 
-    // Tiny gap labels vs reference (index 0) for each other lap.
-    if (samples.length >= 2) {
-      const ref = samples[0];
-      for (let i = 1; i < samples.length; i += 1) {
-        const other = samples[i];
-        const gapSec = other.point.t - ref.point.t;
-        if (!Number.isFinite(gapSec) || Math.abs(gapSec) >= 30) continue;
-        const pos = positions[i] ?? other;
+      samples.forEach((sample, index) => {
+        const style: CarMarkerStyle = multi
+          ? markerStyleForIndex(index)
+          : "filled";
+        const pos = positions[index] ?? sample;
         markers.addLayer(
           L.marker([pos.lat, pos.lon], {
-            icon: gapLabelIcon(formatGap(gapSec)),
+            icon: carMarkerIcon(sample.color, style, ghost),
             interactive: false,
             keyboard: false,
-            zIndexOffset: 1100 + i,
+            zIndexOffset: (ghost ? 900 : 1000) + index,
           }),
         );
+      });
+
+      if (!ghost && samples.length >= 2) {
+        const ref = samples[0];
+        for (let i = 1; i < samples.length; i += 1) {
+          const other = samples[i];
+          const gapSec = other.point.t - ref.point.t;
+          if (!Number.isFinite(gapSec) || Math.abs(gapSec) >= 30) continue;
+          const pos = positions[i] ?? other;
+          markers.addLayer(
+            L.marker([pos.lat, pos.lon], {
+              icon: gapLabelIcon(formatGap(gapSec)),
+              interactive: false,
+              keyboard: false,
+              zIndexOffset: 1100 + i,
+            }),
+          );
+        }
       }
+    };
+
+    if (activeProgress != null) placeAt(activeProgress, false);
+    if (
+      previewProgress != null &&
+      (activeProgress == null ||
+        Math.abs(previewProgress - activeProgress) > 0.002)
+    ) {
+      placeAt(previewProgress, true);
     }
-  }, [activeProgress, drawable]);
+  }, [activeProgress, previewProgress, drawable]);
 
   if (!drawable.length) return null;
 
+  const tooltipProgress = previewProgress ?? activeProgress;
   const tooltipMarkers =
-    activeProgress == null
+    tooltipProgress == null
       ? []
       : drawable.map((trace) => ({
           trace,
-          point: sampleAtProgress(trace.points, activeProgress),
+          point: sampleAtProgress(trace.points, tooltipProgress),
         }));
 
   const shellClass = embedded

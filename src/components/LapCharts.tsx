@@ -54,18 +54,28 @@ export function LapCharts({
     [matched, points, gpsMode, centerline],
   );
   const [progress, setProgress] = useState<number | null>(null);
+  const [previewProgress, setPreviewProgress] = useState<number | null>(null);
   const chartPoints = analysis;
+  const displayProgress = previewProgress ?? progress;
   const index =
-    progress == null || chartPoints.length < 2
+    displayProgress == null || chartPoints.length < 2
       ? null
-      : Math.round(progress * (chartPoints.length - 1));
+      : Math.round(displayProgress * (chartPoints.length - 1));
   const durationHint =
     chartPoints.length > 1
       ? chartPoints[chartPoints.length - 1].t - chartPoints[0].t
       : undefined;
 
-  const hoverFromChart = useCallback(
+  const previewFromChart = useCallback(
     (next: number | null) => {
+      setPreviewProgress(progressFromIndex(next, chartPoints.length));
+    },
+    [chartPoints.length],
+  );
+
+  const seekFromChart = useCallback(
+    (next: number | null) => {
+      setPreviewProgress(null);
       setProgress(progressFromIndex(next, chartPoints.length));
     },
     [chartPoints.length],
@@ -83,7 +93,12 @@ export function LapCharts({
         },
       ]}
       activeProgress={progress}
-      onProgress={setProgress}
+      previewProgress={previewProgress}
+      onPreviewProgress={setPreviewProgress}
+      onProgress={(next) => {
+        setPreviewProgress(null);
+        setProgress(next);
+      }}
       centerline={centerline}
       gpsMode={centerline ? gpsMode : undefined}
       onGpsModeChange={centerline ? setGpsMode : undefined}
@@ -103,7 +118,10 @@ export function LapCharts({
             src={videoSrc}
             progress={progress}
             durationHint={durationHint}
-            onProgress={setProgress}
+            onProgress={(next) => {
+              setPreviewProgress(null);
+              setProgress(next);
+            }}
           />
         ) : null}
         {mapBlock}
@@ -111,7 +129,8 @@ export function LapCharts({
       <StackedLapTelemetry
         points={chartPoints}
         activeIndex={index}
-        onHoverIndex={hoverFromChart}
+        onPreviewIndex={previewFromChart}
+        onSeekIndex={seekFromChart}
         syncId="lap-detail"
       />
     </div>

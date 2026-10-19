@@ -403,10 +403,12 @@ export function SyncedLapView({
     [activeVideo, locked, applyVideoTime, clock, player, videoTime],
   );
 
+  const [previewProgress, setPreviewProgress] = useState<number | null>(null);
+  const displayProgress = previewProgress ?? clock.progress;
   const index =
     chartData.length < 2
       ? null
-      : Math.round(clock.progress * (chartData.length - 1));
+      : Math.round(displayProgress * (chartData.length - 1));
   const cursorPoint =
     index != null && chartData[Math.round(index)]
       ? chartData[Math.round(index)]
@@ -417,6 +419,7 @@ export function SyncedLapView({
   const setProgressFromUi = useCallback(
     (next: number | null) => {
       if (next == null) return;
+      setPreviewProgress(null);
       authorityRef.current = "clock";
       clock.pause();
       clock.setProgress(next);
@@ -426,7 +429,14 @@ export function SyncedLapView({
     [clock, locked, seekVideoToProgress],
   );
 
-  const hoverFromChart = useCallback(
+  const previewFromChart = useCallback(
+    (next: number | null) => {
+      setPreviewProgress(progressFromIndex(next, chartData.length));
+    },
+    [chartData.length],
+  );
+
+  const seekFromChart = useCallback(
     (next: number | null) => {
       const nextProgress = progressFromIndex(next, chartData.length);
       if (nextProgress == null) return;
@@ -511,6 +521,8 @@ export function SyncedLapView({
         },
       ]}
       activeProgress={clock.progress}
+      previewProgress={previewProgress}
+      onPreviewProgress={setPreviewProgress}
       onProgress={setProgressFromUi}
       panel={workspace}
       compact={workspace}
@@ -614,7 +626,8 @@ export function SyncedLapView({
     <StackedLapTelemetry
       points={chartData}
       activeIndex={index}
-      onHoverIndex={hoverFromChart}
+      onPreviewIndex={previewFromChart}
+      onSeekIndex={seekFromChart}
       syncId="lap-detail"
       trimMarkers={trimMarkers ?? undefined}
       onTrimBoundaryDrag={onTrimBoundaryDrag}

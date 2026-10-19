@@ -1,6 +1,6 @@
 "use client";
 
-import { hoverIndex } from "@/components/chart-hover";
+import { hoverIndex, isSeekPointer } from "@/components/chart-hover";
 import { bindChartScrub } from "@/components/chart-scrub";
 import { useCallback, useRef, useState } from "react";
 import {
@@ -24,7 +24,8 @@ const tooltipStyle = {
 export function SpeedChart({
   points,
   activeIndex = null,
-  onHoverIndex,
+  onPreviewIndex,
+  onSeekIndex,
   syncId = "lap",
   trimMarkers,
   onTrimBoundaryDrag,
@@ -32,7 +33,8 @@ export function SpeedChart({
 }: {
   points: { t: number; speed: number }[];
   activeIndex?: number | null;
-  onHoverIndex?: (index: number | null) => void;
+  onPreviewIndex?: (index: number | null) => void;
+  onSeekIndex?: (index: number | null) => void;
   syncId?: string;
   /** Lap-local time markers for start/end trim (drag when onTrimBoundaryDrag set). */
   trimMarkers?: { startT: number; endT: number };
@@ -41,7 +43,10 @@ export function SpeedChart({
   compact?: boolean;
 }) {
   const active = activeIndex != null ? points[activeIndex] : null;
-  const scrub = bindChartScrub(points.length, onHoverIndex);
+  const scrub = bindChartScrub(points.length, {
+    onPreviewIndex,
+    onSeekIndex,
+  });
   const [dragging, setDragging] = useState<"start" | "end" | null>(null);
   const chartWrapRef = useRef<HTMLDivElement | null>(null);
 
@@ -108,12 +113,12 @@ export function SpeedChart({
             margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
             onMouseMove={(state) => {
               if (dragging) return;
-              const native = (state as { event?: MouseEvent }).event;
-              if (native && native.buttons === 0) return;
-              onHoverIndex?.(hoverIndex(state));
+              const index = hoverIndex(state);
+              if (isSeekPointer(state)) onSeekIndex?.(index);
+              else onPreviewIndex?.(index);
             }}
             onMouseLeave={() => {
-              if (!dragging) onHoverIndex?.(null);
+              if (!dragging) onPreviewIndex?.(null);
             }}
           >
             <defs>

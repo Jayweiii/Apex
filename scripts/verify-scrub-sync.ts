@@ -75,7 +75,7 @@ function main() {
       mapToChart: "indexFromProgress",
       distanceAware: true,
       carMarkers: "divIcon on shared progress",
-      mapInteraction: "scrub-only",
+      mapInteraction: "hover-preview click-seek",
     }),
   );
 }

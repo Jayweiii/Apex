@@ -26,6 +26,9 @@ export type TrackTrace = {
 type MapProps = {
   traces: TrackTrace[];
   activeProgress?: number | null;
+  /** Hover preview — ghost marker only; never seeks video. */
+  previewProgress?: number | null;
+  onPreviewProgress?: (progress: number | null) => void;
   onProgress?: (progress: number | null) => void;
   gpsMode?: GpsDisplayMode;
   onGpsModeChange?: (mode: GpsDisplayMode) => void;
@@ -251,6 +254,8 @@ export function TrackMap(props: MapProps) {
         <ChaseTrackMap
           traces={props.traces}
           activeProgress={props.activeProgress}
+          previewProgress={props.previewProgress}
+          onPreviewProgress={props.onPreviewProgress}
           onProgress={props.onProgress}
           prefs={prefs}
         />

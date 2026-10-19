@@ -1,6 +1,6 @@
 "use client";
 
-import { hoverIndex } from "@/components/chart-hover";
+import { hoverIndex, isSeekPointer } from "@/components/chart-hover";
 import { bindChartScrub } from "@/components/chart-scrub";
 import { formatG } from "@/lib/format";
 import {
@@ -25,19 +25,26 @@ const tooltipStyle = {
 export function GChart({
   points,
   activeIndex = null,
-  onHoverIndex,
+  onPreviewIndex,
+  onSeekIndex,
   syncId = "lap",
   compact = false,
 }: {
   points: { t: number; latG: number; lonG: number }[];
   activeIndex?: number | null;
-  onHoverIndex?: (index: number | null) => void;
+  /** Hover preview only — never seeks video. */
+  onPreviewIndex?: (index: number | null) => void;
+  /** Click/drag seeks playback. */
+  onSeekIndex?: (index: number | null) => void;
   syncId?: string;
   /** Short height for stacked telemetry columns. */
   compact?: boolean;
 }) {
   const active = activeIndex != null ? points[activeIndex] : null;
-  const scrub = bindChartScrub(points.length, onHoverIndex);
+  const scrub = bindChartScrub(points.length, {
+    onPreviewIndex,
+    onSeekIndex,
+  });
 
   return (
     <div
@@ -67,12 +74,11 @@ export function GChart({
             syncId={syncId}
             margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
             onMouseMove={(state) => {
-              // Hover alone must not scrub — chart-scrub handles drag via pointer.
-              const native = (state as { event?: MouseEvent }).event;
-              if (native && native.buttons === 0) return;
-              onHoverIndex?.(hoverIndex(state));
+              const index = hoverIndex(state);
+              if (isSeekPointer(state)) onSeekIndex?.(index);
+              else onPreviewIndex?.(index);
             }}
-            onMouseLeave={() => onHoverIndex?.(null)}
+            onMouseLeave={() => onPreviewIndex?.(null)}
           >
             <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
             <XAxis
