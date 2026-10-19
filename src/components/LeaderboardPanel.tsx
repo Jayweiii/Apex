@@ -166,7 +166,7 @@ export function LeaderboardPanel({
           No sessions yet, upload one.
         </p>
       ) : (
-        <ol className="mt-4 divide-y divide-zinc-900 overflow-hidden rounded-xl border border-zinc-800/80">
+        <ol className="mt-4 max-h-[min(40vh,360px)] divide-y divide-zinc-900 overflow-y-auto rounded-xl border border-zinc-800/80">
           {filtered.slice(0, 20).map((row, index) => (
             <li key={`${row.sessionId}-${row.driver}-${row.car}`}>
               <Link
