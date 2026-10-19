@@ -89,21 +89,31 @@ function tracesKey(traces: Array<TrackTrace & { points: GpsPoint[] }>) {
     .join("|");
 }
 
-type CarMarkerStyle = "filled" | "ring";
+type CarMarkerStyle = "ring" | "filled" | "square" | "diamond";
 
-/** Compact HTML car marker — avoids SVG custom-pane renderer issues. */
+const MARKER_STYLES: CarMarkerStyle[] = ["ring", "filled", "square", "diamond"];
+
+/** Compact HTML car marker — distinct shapes when up to 4 overlap. */
 function carMarkerIcon(color: string, style: CarMarkerStyle = "filled") {
   const size = style === "ring" ? 11 : 9;
-  const cls =
+  const shapeClass =
     style === "ring"
       ? "apex-car-marker__dot apex-car-marker__dot--ring"
-      : "apex-car-marker__dot";
+      : style === "square"
+        ? "apex-car-marker__dot apex-car-marker__dot--square"
+        : style === "diamond"
+          ? "apex-car-marker__dot apex-car-marker__dot--diamond"
+          : "apex-car-marker__dot";
   return L.divIcon({
     className: "apex-car-marker",
-    html: `<div class="${cls}" style="--apex-car:${color}"></div>`,
+    html: `<div class="${shapeClass}" style="--apex-car:${color}"></div>`,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
   });
+}
+
+export function markerStyleForIndex(index: number): CarMarkerStyle {
+  return MARKER_STYLES[index % MARKER_STYLES.length] ?? "filled";
 }
 
 function gapLabelIcon(label: string) {
@@ -474,8 +484,10 @@ export function LeafletTrackMap({
     );
 
     samples.forEach((sample, index) => {
-      // Reference (first) = hollow ring; others = filled — readable when stacked.
-      const style: CarMarkerStyle = multi && index === 0 ? "ring" : "filled";
+      // Distinct shapes when multiple markers overlap (ring = reference).
+      const style: CarMarkerStyle = multi
+        ? markerStyleForIndex(index)
+        : "filled";
       const pos = positions[index] ?? sample;
       markers.addLayer(
         L.marker([pos.lat, pos.lon], {
@@ -487,21 +499,20 @@ export function LeafletTrackMap({
       );
     });
 
-    // Tiny gap label when comparing two laps (skip absurd outliers).
-    if (samples.length === 2) {
-      const [ref, other] = samples;
-      const gapSec = other.point.t - ref.point.t;
-      if (Number.isFinite(gapSec) && Math.abs(gapSec) < 30) {
-        const mid = {
-          lat: (positions[0].lat + positions[1].lat) / 2,
-          lon: (positions[0].lon + positions[1].lon) / 2,
-        };
+    // Tiny gap labels vs reference (index 0) for each other lap.
+    if (samples.length >= 2) {
+      const ref = samples[0];
+      for (let i = 1; i < samples.length; i += 1) {
+        const other = samples[i];
+        const gapSec = other.point.t - ref.point.t;
+        if (!Number.isFinite(gapSec) || Math.abs(gapSec) >= 30) continue;
+        const pos = positions[i] ?? other;
         markers.addLayer(
-          L.marker([mid.lat, mid.lon], {
+          L.marker([pos.lat, pos.lon], {
             icon: gapLabelIcon(formatGap(gapSec)),
             interactive: false,
             keyboard: false,
-            zIndexOffset: 1100,
+            zIndexOffset: 1100 + i,
           }),
         );
       }

@@ -7,7 +7,12 @@ export default async function ComparePage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ ref?: string; other?: string; otherSession?: string }>;
+  searchParams: Promise<{
+    ref?: string;
+    other?: string;
+    otherSession?: string;
+    laps?: string;
+  }>;
 }) {
   const { id } = await params;
   const query = await searchParams;
@@ -19,6 +24,7 @@ export default async function ComparePage({
         initialRef={query.ref}
         initialOther={query.other}
         initialOtherSession={query.otherSession}
+        initialLaps={query.laps}
       />
     );
   }
@@ -29,6 +35,7 @@ export default async function ComparePage({
       initialRef={query.ref}
       initialOther={query.other}
       initialOtherSession={query.otherSession}
+      initialLaps={query.laps}
     />
   );
 }

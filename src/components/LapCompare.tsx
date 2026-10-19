@@ -7,10 +7,17 @@ import { MissingGps, TrackMap } from "@/components/TrackMap";
 import { DualSessionVideos } from "@/components/video/DualSessionVideos";
 import { useAnalysisMode } from "@/lib/analysis-mode";
 import { resolveTrackCenterline } from "@/lib/cloud-tracks";
-import { compareLaps, defaultLapPair, hasGps } from "@/lib/compare";
 import {
-  type CompareSessionOption,
-} from "@/lib/compare-sessions";
+  COMPARE_COLORS,
+  compareMany,
+  defaultLapIds,
+  defaultLapPair,
+  hasGps,
+  MAX_COMPARE_LAPS,
+  parseCompareSlots,
+  type MultiComparedPoint,
+} from "@/lib/compare";
+import { type CompareSessionOption } from "@/lib/compare-sessions";
 import { lapAsSyncLap } from "@/lib/dual-video-sync";
 import { formatG, formatGap, formatLapTime } from "@/lib/format";
 import { enrichTelemetry } from "@/lib/gforce";
@@ -24,21 +31,6 @@ import { progressFromIndex } from "@/lib/scrub";
 import { getTrack } from "@/lib/tracks";
 import type { LapRow, SessionVideo } from "@/lib/types";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-
-function pickVideoForLap(
-  session: CompareSessionOption | null | undefined,
-  lapId: string | undefined,
-): SessionVideo | null {
-  const videos = (session?.videos ?? []).filter(
-    (video) => video.provider === "youtube" && video.youtubeId,
-  );
-  if (!videos.length) return null;
-  return (
-    videos.find((video) => video.lapId === lapId) ??
-    videos[0] ??
-    null
-  );
-}
 import {
   CartesianGrid,
   Legend,
@@ -53,8 +45,24 @@ import {
 
 export type { CompareSessionOption };
 
-const REF_COLOR = "#f97316";
-const OTHER_COLOR = "#38bdf8";
+type SlotState = {
+  key: string;
+  sessionId: string;
+  lapId: string;
+};
+
+function pickVideoForLap(
+  session: CompareSessionOption | null | undefined,
+  lapId: string | undefined,
+): SessionVideo | null {
+  const videos = (session?.videos ?? []).filter(
+    (video) => video.provider === "youtube" && video.youtubeId,
+  );
+  if (!videos.length) return null;
+  return (
+    videos.find((video) => video.lapId === lapId) ?? videos[0] ?? null
+  );
+}
 
 function formatDistance(meters: number) {
   if (meters >= 1000) return `${(meters / 1000).toFixed(1)} km`;
@@ -66,7 +74,102 @@ function findSessionForLap(
   lapId: string | undefined,
 ) {
   if (!lapId) return sessions[0] ?? null;
-  return sessions.find((session) => session.laps.some((lap) => lap.id === lapId)) ?? null;
+  return (
+    sessions.find((session) => session.laps.some((lap) => lap.id === lapId)) ??
+    null
+  );
+}
+
+function newSlotKey() {
+  return `slot-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function seedSlots(args: {
+  sessions: CompareSessionOption[];
+  initialRef?: string;
+  initialOther?: string;
+  initialOtherSession?: string;
+  initialLaps?: string;
+  baseSessionId: string;
+}): SlotState[] {
+  const parsed = parseCompareSlots({
+    ref: args.initialRef,
+    other: args.initialOther,
+    otherSession: args.initialOtherSession,
+    laps: args.initialLaps,
+    baseSessionId: args.baseSessionId,
+  }).filter((slot) =>
+    args.sessions.some(
+      (session) =>
+        session.id === slot.sessionId &&
+        session.laps.some((lap) => lap.id === slot.lapId),
+    ),
+  );
+
+  if (parsed.length >= 2) {
+    return parsed.map((slot) => ({
+      key: newSlotKey(),
+      sessionId: slot.sessionId,
+      lapId: slot.lapId,
+    }));
+  }
+
+  const primary = args.sessions[0];
+  if (!primary?.laps.length) return [];
+
+  // Prefer fastest two from primary; fill from peers if needed.
+  const ids = defaultLapIds(primary.laps, 2);
+  const slots: SlotState[] = ids.map((lapId) => ({
+    key: newSlotKey(),
+    sessionId: primary.id,
+    lapId,
+  }));
+
+  if (slots.length < 2) {
+    for (const session of args.sessions) {
+      if (slots.length >= 2) break;
+      const pair = defaultLapPair(session.laps);
+      const candidate = pair.ref;
+      if (!candidate) continue;
+      if (slots.some((s) => s.lapId === candidate && s.sessionId === session.id)) {
+        continue;
+      }
+      slots.push({
+        key: newSlotKey(),
+        sessionId: session.id,
+        lapId: candidate,
+      });
+    }
+  }
+
+  if (args.initialRef) {
+    const refSession =
+      findSessionForLap(args.sessions, args.initialRef) ?? primary;
+    if (refSession.laps.some((lap) => lap.id === args.initialRef)) {
+      slots[0] = {
+        key: slots[0]?.key ?? newSlotKey(),
+        sessionId: refSession.id,
+        lapId: args.initialRef,
+      };
+    }
+  }
+  if (args.initialOther && slots[1]) {
+    const otherSession =
+      (args.initialOtherSession &&
+        args.sessions.find((s) => s.id === args.initialOtherSession)) ||
+      findSessionForLap(args.sessions, args.initialOther) ||
+      args.sessions.find((s) => s.id !== slots[0].sessionId) ||
+      primary;
+    if (otherSession.laps.some((lap) => lap.id === args.initialOther)) {
+      slots[1] = {
+        key: slots[1].key,
+        sessionId: otherSession.id,
+        lapId: args.initialOther,
+      };
+    }
+  }
+
+  return slots.slice(0, MAX_COMPARE_LAPS);
 }
 
 export function LapCompare({
@@ -75,6 +178,7 @@ export function LapCompare({
   initialRef,
   initialOther,
   initialOtherSession,
+  initialLaps,
   initialTrackId,
 }: {
   laps: LapRow[];
@@ -83,6 +187,8 @@ export function LapCompare({
   initialRef?: string;
   initialOther?: string;
   initialOtherSession?: string;
+  /** `sessionId:lapId,...` from URL. */
+  initialLaps?: string;
   /** Prefer filtering pickers to this track when multiple tracks are present. */
   initialTrackId?: string;
 }) {
@@ -96,6 +202,8 @@ export function LapCompare({
       },
     ];
   }, [sessions, laps]);
+
+  const baseSessionId = allSessions[0]?.id ?? "current";
 
   const trackOptions = useMemo(() => {
     const ids = [
@@ -136,114 +244,114 @@ export function LapCompare({
     return matched.length ? matched : allSessions;
   }, [allSessions, trackFilter]);
 
-  const [refSessionId, setRefSessionId] = useState(
-    () =>
-      findSessionForLap(filteredSessions, initialRef)?.id ??
-      filteredSessions[0]?.id ??
-      "",
+  const [slots, setSlots] = useState<SlotState[]>(() =>
+    seedSlots({
+      sessions: filteredSessions,
+      initialRef,
+      initialOther,
+      initialOtherSession,
+      initialLaps,
+      baseSessionId,
+    }),
   );
-  const [otherSessionId, setOtherSessionId] = useState(() => {
-    if (
-      initialOtherSession &&
-      filteredSessions.some((s) => s.id === initialOtherSession)
-    ) {
-      return initialOtherSession;
-    }
-    const fromOther = findSessionForLap(filteredSessions, initialOther);
-    if (fromOther) return fromOther.id;
-    const otherPeer = filteredSessions.find(
-      (session) =>
-        session.id !== filteredSessions[0]?.id &&
-        (session.kind === "upload" ||
-          session.kind === "friends" ||
-          session.kind === "public"),
-    );
-    return (
-      otherPeer?.id ??
-      filteredSessions[1]?.id ??
-      filteredSessions[0]?.id ??
-      ""
-    );
-  });
+  /** Index into `slots` that is the reference (delta baseline). */
+  const [refIndex, setRefIndex] = useState(0);
+
+  // Keep slots valid when session list / filter changes.
+  useEffect(() => {
+    setSlots((prev) => {
+      if (!filteredSessions.length) return prev;
+      const next = prev
+        .map((slot) => {
+          const session =
+            filteredSessions.find((s) => s.id === slot.sessionId) ??
+            filteredSessions[0];
+          if (!session) return null;
+          const lap =
+            session.laps.find((item) => item.id === slot.lapId) ??
+            session.laps[0];
+          if (!lap) return null;
+          return { ...slot, sessionId: session.id, lapId: lap.id };
+        })
+        .filter((slot): slot is SlotState => slot != null);
+
+      if (next.length >= 2) return next.slice(0, MAX_COMPARE_LAPS);
+      return seedSlots({
+        sessions: filteredSessions,
+        initialRef,
+        initialOther,
+        initialOtherSession,
+        initialLaps,
+        baseSessionId: filteredSessions[0]?.id ?? baseSessionId,
+      });
+    });
+  }, [
+    filteredSessions,
+    initialRef,
+    initialOther,
+    initialOtherSession,
+    initialLaps,
+    baseSessionId,
+  ]);
 
   useEffect(() => {
-    if (!filteredSessions.some((session) => session.id === refSessionId)) {
-      setRefSessionId(filteredSessions[0]?.id ?? "");
-    }
-    if (!filteredSessions.some((session) => session.id === otherSessionId)) {
-      const peer =
-        filteredSessions.find((session) => session.id !== refSessionId) ??
-        filteredSessions[0];
-      setOtherSessionId(peer?.id ?? "");
-    }
-  }, [filteredSessions, refSessionId, otherSessionId]);
+    if (refIndex >= slots.length) setRefIndex(0);
+  }, [refIndex, slots.length]);
 
-  const refSession =
-    filteredSessions.find((session) => session.id === refSessionId) ??
-    filteredSessions[0];
-  const otherSession =
-    filteredSessions.find((session) => session.id === otherSessionId) ??
-    filteredSessions[1] ??
-    filteredSessions[0];
+  type ResolvedSlot = {
+    slot: SlotState;
+    index: number;
+    session: CompareSessionOption;
+    lap: LapRow;
+    color: string;
+    isRef: boolean;
+  };
 
-  const [refId, setRefId] = useState(() => {
-    if (initialRef && refSession?.laps.some((lap) => lap.id === initialRef)) {
-      return initialRef;
-    }
-    return defaultLapPair(refSession?.laps ?? []).ref;
-  });
-  const [otherId, setOtherId] = useState(() => {
-    if (initialOther && otherSession?.laps.some((lap) => lap.id === initialOther)) {
-      return initialOther;
-    }
-    const pair = defaultLapPair(otherSession?.laps ?? []);
-    if (otherSession?.id === refSession?.id) return pair.other || pair.ref;
-    return pair.ref;
-  });
+  const resolved = useMemo((): ResolvedSlot[] => {
+    const out: ResolvedSlot[] = [];
+    slots.forEach((slot, index) => {
+      const session =
+        filteredSessions.find((s) => s.id === slot.sessionId) ?? null;
+      const lap = session?.laps.find((item) => item.id === slot.lapId) ?? null;
+      if (!session || !lap) return;
+      out.push({
+        slot,
+        index,
+        session,
+        lap,
+        color: COMPARE_COLORS[index % COMPARE_COLORS.length] ?? COMPARE_COLORS[0],
+        isRef: index === refIndex,
+      });
+    });
+    return out;
+  }, [slots, filteredSessions, refIndex]);
 
-  useEffect(() => {
-    if (!refSession?.laps.some((lap) => lap.id === refId)) {
-      setRefId(defaultLapPair(refSession?.laps ?? []).ref);
-    }
-  }, [refSession, refId]);
+  // Reorder so reference is first for map/charts/video (color follows slot index).
+  const ordered = useMemo((): ResolvedSlot[] => {
+    if (!resolved.length) return [];
+    const ref = resolved.find((item) => item.isRef) ?? resolved[0];
+    const others = resolved.filter((item) => item.lap.id !== ref.lap.id);
+    return [ref, ...others];
+  }, [resolved]);
 
-  useEffect(() => {
-    if (!otherSession?.laps.some((lap) => lap.id === otherId)) {
-      const pair = defaultLapPair(otherSession?.laps ?? []);
-      setOtherId(
-        otherSession?.id === refSession?.id ? pair.other || pair.ref : pair.ref,
-      );
-    }
-  }, [otherSession, otherId, refSession?.id]);
-
-  const reference =
-    refSession?.laps.find((lap) => lap.id === refId) ?? refSession?.laps[0];
-  const other =
-    otherSession?.laps.find((lap) => lap.id === otherId) ??
-    otherSession?.laps[0] ??
-    reference;
-  const sameLap = reference?.id === other?.id;
+  const uniqueLapIds = new Set(ordered.map((item) => item.lap.id));
+  const sameLap = ordered.length >= 2 && uniqueLapIds.size < 2;
 
   const centerline = useMemo(() => {
-    const sampleLaps = [
-      ...(reference?.telemetry ? [reference.telemetry] : []),
-      ...(other?.telemetry && other.id !== reference?.id
-        ? [other.telemetry]
-        : []),
-      ...(refSession?.laps.map((lap) => lap.telemetry) ?? []),
-    ];
+    const sampleLaps = ordered.map((item) => item.lap.telemetry);
+    for (const session of filteredSessions) {
+      for (const lap of session.laps) sampleLaps.push(lap.telemetry);
+    }
     return resolveTrackCenterline(trackFilter || undefined, null, sampleLaps);
-  }, [trackFilter, reference, other, refSession]);
+  }, [trackFilter, ordered, filteredSessions]);
 
-  const refMatched = useMemo(
-    () =>
-      reference ? mapMatchLap(reference.telemetry, centerline) : null,
-    [reference, centerline],
-  );
-  const otherMatched = useMemo(
-    () => (other ? mapMatchLap(other.telemetry, centerline) : null),
-    [other, centerline],
-  );
+  const matchedByLapId = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof mapMatchLap>>();
+    for (const item of ordered) {
+      map.set(item.lap.id, mapMatchLap(item.lap.telemetry, centerline));
+    }
+    return map;
+  }, [ordered, centerline]);
 
   const [gpsMode, setGpsMode] = useState<GpsDisplayMode>("snapped");
   const {
@@ -252,38 +360,41 @@ export function LapCompare({
     hasSnap: hasAnalysisSnap,
   } = useAnalysisMode(Boolean(centerline));
 
-  const series = useMemo(
-    () =>
-      reference && other && !sameLap
-        ? compareLaps(
-            analysisPoints(refMatched, reference.telemetry, analysisMode),
-            analysisPoints(otherMatched, other.telemetry, analysisMode),
-          )
-        : [],
-    [reference, other, sameLap, refMatched, otherMatched, analysisMode],
-  );
-  const refPoints = useMemo(
-    () =>
-      enrichTelemetry(
+  const series: MultiComparedPoint[] = useMemo(() => {
+    if (ordered.length < 2 || sameLap) return [];
+    const ref = ordered[0];
+    const others = ordered.slice(1);
+    return compareMany(
+      analysisPoints(
+        matchedByLapId.get(ref.lap.id) ?? null,
+        ref.lap.telemetry,
+        analysisMode,
+      ),
+      others.map((item) =>
+        analysisPoints(
+          matchedByLapId.get(item.lap.id) ?? null,
+          item.lap.telemetry,
+          analysisMode,
+        ),
+      ),
+    );
+  }, [ordered, sameLap, matchedByLapId, analysisMode]);
+
+  const mapTraces = useMemo(() => {
+    return ordered.map((item) => ({
+      id: item.lap.id,
+      label: `Lap ${item.lap.lap_number}`,
+      color: item.color,
+      points: enrichTelemetry(
         displayPoints(
-          refMatched,
-          reference?.telemetry ?? [],
+          matchedByLapId.get(item.lap.id) ?? null,
+          item.lap.telemetry,
           centerline ? gpsMode : "raw",
         ),
       ),
-    [reference, refMatched, gpsMode, centerline],
-  );
-  const otherPoints = useMemo(
-    () =>
-      enrichTelemetry(
-        displayPoints(
-          otherMatched,
-          other?.telemetry ?? [],
-          centerline ? gpsMode : "raw",
-        ),
-      ),
-    [other, otherMatched, gpsMode, centerline],
-  );
+    }));
+  }, [ordered, matchedByLapId, gpsMode, centerline]);
+
   const [progress, setProgress] = useState<number | null>(null);
   const hoverAt =
     progress == null || series.length < 2
@@ -297,17 +408,51 @@ export function LapCompare({
     [series.length],
   );
   const chartScrub = bindChartScrub(series.length, hoverFromChart);
-  const gapMs =
-    reference && other ? other.lap_time_ms - reference.lap_time_ms : 0;
-  const showMap =
-    reference &&
-    other &&
-    (hasGps(reference.telemetry) || hasGps(other.telemetry));
+
+  const showMap = ordered.some((item) => hasGps(item.lap.telemetry));
   const multiSession = filteredSessions.length > 1;
   const totalLaps = filteredSessions.reduce(
     (sum, session) => sum + session.laps.length,
     0,
   );
+
+  function updateSlot(key: string, patch: Partial<SlotState>) {
+    setSlots((prev) =>
+      prev.map((slot) => (slot.key === key ? { ...slot, ...patch } : slot)),
+    );
+  }
+
+  function addSlot() {
+    if (slots.length >= MAX_COMPARE_LAPS) return;
+    const used = new Set(slots.map((s) => `${s.sessionId}:${s.lapId}`));
+    let session = filteredSessions[0];
+    let lapId = "";
+    for (const candidate of filteredSessions) {
+      for (const lap of [...candidate.laps].sort(
+        (a, b) => a.lap_time_ms - b.lap_time_ms,
+      )) {
+        const key = `${candidate.id}:${lap.id}`;
+        if (used.has(key)) continue;
+        session = candidate;
+        lapId = lap.id;
+        break;
+      }
+      if (lapId) break;
+    }
+    if (!session || !lapId) return;
+    setSlots((prev) => [
+      ...prev,
+      { key: newSlotKey(), sessionId: session!.id, lapId },
+    ]);
+  }
+
+  function removeSlot(key: string) {
+    if (slots.length <= 2) return;
+    const index = slots.findIndex((slot) => slot.key === key);
+    setSlots((prev) => prev.filter((slot) => slot.key !== key));
+    if (index >= 0 && index === refIndex) setRefIndex(0);
+    else if (index >= 0 && index < refIndex) setRefIndex((r) => r - 1);
+  }
 
   if (totalLaps < 2) {
     return (
@@ -317,6 +462,16 @@ export function LapCompare({
       </p>
     );
   }
+
+  const videoSides = ordered.map((item) => ({
+    lap: lapAsSyncLap(item.lap),
+    video: pickVideoForLap(item.session, item.lap.id),
+    label:
+      item.session.name !== "This session"
+        ? `${item.session.name} · L${item.lap.lap_number}`
+        : `Lap ${item.lap.lap_number}`,
+    color: item.color,
+  }));
 
   return (
     <div className="flex flex-col gap-6">
@@ -336,134 +491,152 @@ export function LapCompare({
           </select>
         </label>
       ) : null}
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="grid gap-3">
-          {multiSession ? (
-            <SessionSelect
-              label="Reference session"
-              value={refSession?.id ?? ""}
-              sessions={filteredSessions}
-              onChange={(id) => {
-                setRefSessionId(id);
-                const next = filteredSessions.find((session) => session.id === id);
-                setRefId(defaultLapPair(next?.laps ?? []).ref);
-              }}
-            />
-          ) : null}
-          <LapSelect
-            label="Reference lap"
-            value={reference?.id ?? ""}
-            laps={refSession?.laps ?? []}
-            onChange={setRefId}
-          />
+
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
+            Laps ({slots.length}/{MAX_COMPARE_LAPS})
+          </p>
+          <button
+            type="button"
+            disabled={slots.length >= MAX_COMPARE_LAPS}
+            onClick={addSlot}
+            className="min-h-10 rounded-lg border border-zinc-800 px-3 text-sm text-zinc-300 hover:border-zinc-600 disabled:opacity-40"
+          >
+            Add lap
+          </button>
         </div>
-        <div className="grid gap-3">
-          {multiSession ? (
-            <SessionSelect
-              label="Compared session"
-              value={otherSession?.id ?? ""}
-              sessions={filteredSessions}
-              onChange={(id) => {
-                setOtherSessionId(id);
-                const next = filteredSessions.find((session) => session.id === id);
-                const pair = defaultLapPair(next?.laps ?? []);
-                setOtherId(id === refSessionId ? pair.other || pair.ref : pair.ref);
-              }}
-            />
-          ) : null}
-          <LapSelect
-            label="Compared lap"
-            value={other?.id ?? ""}
-            laps={otherSession?.laps ?? []}
-            onChange={setOtherId}
-          />
+        <div className="grid gap-3 sm:grid-cols-2">
+          {slots.map((slot, index) => {
+            const session =
+              filteredSessions.find((s) => s.id === slot.sessionId) ??
+              filteredSessions[0];
+            const color = COMPARE_COLORS[index % COMPARE_COLORS.length];
+            const isRef = index === refIndex;
+            return (
+              <div
+                key={slot.key}
+                className="space-y-2 rounded-xl border border-zinc-800/80 bg-zinc-950/40 p-3"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <span
+                    className="inline-block h-2.5 w-2.5 rounded-full"
+                    style={{ background: color }}
+                  />
+                  <span className="text-xs uppercase tracking-[0.16em] text-zinc-500">
+                    {isRef ? "Reference" : `Lap ${index + 1}`}
+                  </span>
+                  <div className="ml-auto flex gap-1">
+                    {!isRef ? (
+                      <button
+                        type="button"
+                        onClick={() => setRefIndex(index)}
+                        className="rounded-md px-2 py-1 text-[11px] uppercase tracking-[0.14em] text-orange-400 hover:bg-zinc-900"
+                      >
+                        Set ref
+                      </button>
+                    ) : null}
+                    {slots.length > 2 ? (
+                      <button
+                        type="button"
+                        onClick={() => removeSlot(slot.key)}
+                        className="rounded-md px-2 py-1 text-[11px] uppercase tracking-[0.14em] text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300"
+                      >
+                        Remove
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+                {multiSession ? (
+                  <SessionSelect
+                    label="Session"
+                    value={session?.id ?? ""}
+                    sessions={filteredSessions}
+                    onChange={(id) => {
+                      const next = filteredSessions.find((s) => s.id === id);
+                      const pair = defaultLapPair(next?.laps ?? []);
+                      updateSlot(slot.key, {
+                        sessionId: id,
+                        lapId: pair.ref,
+                      });
+                    }}
+                  />
+                ) : null}
+                <LapSelect
+                  label="Lap"
+                  value={slot.lapId}
+                  laps={session?.laps ?? []}
+                  onChange={(lapId) => updateSlot(slot.key, { lapId })}
+                />
+              </div>
+            );
+          })}
         </div>
       </div>
 
-      {sameLap ? (
-        <p className="text-sm text-zinc-500">Pick two different laps.</p>
+      {sameLap || ordered.length < 2 ? (
+        <p className="text-sm text-zinc-500">
+          Pick at least two different laps.
+        </p>
       ) : (
         <>
           <div className="flex flex-wrap items-end justify-between gap-4 rounded-2xl border border-zinc-800/80 bg-zinc-950/50 px-5 py-4">
             <div>
               <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
-                Lap time gap
+                vs reference
               </p>
-              <p className="mt-1 font-mono text-3xl text-zinc-50">
-                {formatGap(gapMs / 1000)}
+              <p className="mt-1 font-mono text-2xl text-zinc-50 sm:text-3xl">
+                {ordered
+                  .slice(1)
+                  .map((item) =>
+                    formatGap(
+                      (item.lap.lap_time_ms - ordered[0].lap.lap_time_ms) /
+                        1000,
+                    ),
+                  )
+                  .join(" · ")}
               </p>
             </div>
-            <div className="text-sm text-zinc-400">
-              <p className="flex flex-wrap items-center gap-2">
-                <span className="mr-2 inline-block h-2 w-2 rounded-full bg-orange-500" />
-                {refSession && refSession.name !== "This session"
-                  ? `${refSession.name} · `
-                  : ""}
-                Lap {reference?.lap_number}{" "}
-                <span className="font-mono text-zinc-200">
-                  {formatLapTime(reference?.lap_time_ms ?? 0)}
-                </span>
-                <GpsQualityBadge
-                  quality={refSession?.gpsQuality}
-                  sourceKind={refSession?.sourceKind}
-                />
-              </p>
-              <p className="mt-1 flex flex-wrap items-center gap-2">
-                <span className="mr-2 inline-block h-2 w-2 rounded-full bg-sky-400" />
-                {otherSession && otherSession.name !== "This session"
-                  ? `${otherSession.name} · `
-                  : ""}
-                Lap {other?.lap_number}{" "}
-                <span className="font-mono text-zinc-200">
-                  {formatLapTime(other?.lap_time_ms ?? 0)}
-                </span>
-                <GpsQualityBadge
-                  quality={otherSession?.gpsQuality}
-                  sourceKind={otherSession?.sourceKind}
-                />
-              </p>
+            <div className="space-y-1 text-sm text-zinc-400">
+              {ordered.map((item) => (
+                <p
+                  key={item.lap.id}
+                  className="flex flex-wrap items-center gap-2"
+                >
+                  <span
+                    className="mr-1 inline-block h-2 w-2 rounded-full"
+                    style={{ background: item.color }}
+                  />
+                  {item.isRef ? (
+                    <span className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">
+                      ref
+                    </span>
+                  ) : null}
+                  {item.session.name !== "This session"
+                    ? `${item.session.name} · `
+                    : ""}
+                  Lap {item.lap.lap_number}{" "}
+                  <span className="font-mono text-zinc-200">
+                    {formatLapTime(item.lap.lap_time_ms)}
+                  </span>
+                  <GpsQualityBadge
+                    quality={item.session.gpsQuality}
+                    sourceKind={item.session.sourceKind}
+                  />
+                </p>
+              ))}
             </div>
           </div>
 
-          {reference && other && !sameLap ? (
-            <DualSessionVideos
-              refSide={{
-                lap: lapAsSyncLap(reference),
-                video: pickVideoForLap(refSession, reference.id),
-                label:
-                  refSession && refSession.name !== "This session"
-                    ? refSession.name
-                    : `Lap ${reference.lap_number}`,
-              }}
-              otherSide={{
-                lap: lapAsSyncLap(other),
-                video: pickVideoForLap(otherSession, other.id),
-                label:
-                  otherSession && otherSession.name !== "This session"
-                    ? otherSession.name
-                    : `Lap ${other.lap_number}`,
-              }}
-              progress={progress}
-              onProgress={setProgress}
-            />
-          ) : null}
+          <DualSessionVideos
+            sides={videoSides}
+            progress={progress}
+            onProgress={setProgress}
+          />
 
-          {showMap && reference && other ? (
+          {showMap ? (
             <TrackMap
-              traces={[
-                {
-                  id: reference.id,
-                  label: `Lap ${reference.lap_number}`,
-                  color: REF_COLOR,
-                  points: refPoints,
-                },
-                {
-                  id: other.id,
-                  label: `Lap ${other.lap_number}`,
-                  color: OTHER_COLOR,
-                  points: otherPoints,
-                },
-              ]}
+              traces={mapTraces}
               activeProgress={progress}
               onProgress={setProgress}
               centerline={centerline}
@@ -512,24 +685,18 @@ export function LapCompare({
                     strokeDasharray="4 4"
                   />
                 ) : null}
-                <Line
-                  type="monotone"
-                  dataKey="refSpeed"
-                  name={`Lap ${reference?.lap_number}`}
-                  stroke={REF_COLOR}
-                  strokeWidth={2}
-                  dot={false}
-                  isAnimationActive={false}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="otherSpeed"
-                  name={`Lap ${other?.lap_number}`}
-                  stroke={OTHER_COLOR}
-                  strokeWidth={2}
-                  dot={false}
-                  isAnimationActive={false}
-                />
+                {ordered.map((item, index) => (
+                  <Line
+                    key={item.lap.id}
+                    type="monotone"
+                    dataKey={`speed${index}`}
+                    name={`Lap ${item.lap.lap_number}`}
+                    stroke={item.color}
+                    strokeWidth={2}
+                    dot={false}
+                    isAnimationActive={false}
+                  />
+                ))}
               </LineChart>
             </ResponsiveContainer>
           </ChartCard>
@@ -538,8 +705,8 @@ export function LapCompare({
             title="Delta"
             hint={
               analysisMode === "snapped"
-                ? "Snapped · positive means compared lap is behind"
-                : "Raw · positive means compared lap is behind"
+                ? "Snapped · positive means behind reference"
+                : "Raw · positive means behind reference"
             }
             scrub={chartScrub}
           >
@@ -561,6 +728,7 @@ export function LapCompare({
                 />
                 <YAxis stroke="#71717a" fontSize={11} unit=" s" width={48} />
                 <Tooltip content={<CompareTooltip mode="delta" />} />
+                <Legend />
                 {hoverAt != null ? (
                   <ReferenceLine
                     x={series[hoverAt]?.dist}
@@ -569,15 +737,18 @@ export function LapCompare({
                   />
                 ) : null}
                 <ReferenceLine y={0} stroke="#52525b" />
-                <Line
-                  type="monotone"
-                  dataKey="delta"
-                  name="Gap"
-                  stroke="#fbbf24"
-                  strokeWidth={2}
-                  dot={false}
-                  isAnimationActive={false}
-                />
+                {ordered.slice(1).map((item, index) => (
+                  <Line
+                    key={item.lap.id}
+                    type="monotone"
+                    dataKey={`delta${index + 1}`}
+                    name={`Δ Lap ${item.lap.lap_number}`}
+                    stroke={item.color}
+                    strokeWidth={2}
+                    dot={false}
+                    isAnimationActive={false}
+                  />
+                ))}
               </LineChart>
             </ResponsiveContainer>
           </ChartCard>
@@ -609,24 +780,18 @@ export function LapCompare({
                     strokeDasharray="4 4"
                   />
                 ) : null}
-                <Line
-                  type="monotone"
-                  dataKey="refG"
-                  name={`Lap ${reference?.lap_number}`}
-                  stroke={REF_COLOR}
-                  strokeWidth={2}
-                  dot={false}
-                  isAnimationActive={false}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="otherG"
-                  name={`Lap ${other?.lap_number}`}
-                  stroke={OTHER_COLOR}
-                  strokeWidth={2}
-                  dot={false}
-                  isAnimationActive={false}
-                />
+                {ordered.map((item, index) => (
+                  <Line
+                    key={item.lap.id}
+                    type="monotone"
+                    dataKey={`g${index}`}
+                    name={`Lap ${item.lap.lap_number}`}
+                    stroke={item.color}
+                    strokeWidth={2}
+                    dot={false}
+                    isAnimationActive={false}
+                  />
+                ))}
               </LineChart>
             </ResponsiveContainer>
           </ChartCard>
@@ -717,7 +882,9 @@ function ChartCard({
   return (
     <div className="h-[260px] max-w-full overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950/40 p-3 sm:h-[340px] sm:p-4">
       <div className="mb-2 flex items-baseline justify-between gap-3">
-        <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">{title}</p>
+        <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
+          {title}
+        </p>
         <p className="hidden text-xs text-zinc-600 sm:block">{hint}</p>
       </div>
       <div className="h-[200px] touch-none sm:h-[280px]" {...scrub}>

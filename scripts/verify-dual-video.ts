@@ -80,9 +80,15 @@ assert(tMid != null && tMid > 10, "mid progress advances video");
 const advanced = advanceSharedProgress(0, 10, 100_000, 102_000);
 assert(Math.abs(advanced - 0.1) < 1e-6, `10s of 100s lap → 0.1, got ${advanced}`);
 assert(advanceSharedProgress(0.99, 5, 100_000, 50_000) === 1, "clamps at 1");
+const advanced4 = advanceSharedProgress(0, 9, 100_000, 90_000, 95_000, 120_000);
+assert(
+  Math.abs(advanced4 - 0.1) < 1e-6,
+  `4-lap min clock 90s: 9s → 0.1, got ${advanced4}`,
+);
 
 console.log("verify-dual-video ok", {
   t0,
   tMid,
   advanced,
+  advanced4,
 });
