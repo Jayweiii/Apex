@@ -18,7 +18,7 @@ When the session has a UTC `started_at` (e.g. Dragy VBO), offset is auto-suggest
 
 `offsetSec ≈ (videoStartedAtMs − sessionStartedAtMs) / 1000`
 
-**Do not** use GoPro GPS9 `sample.date` / `daysSince2000` for this — that clock has been observed wrong vs the real record day. Same-file GPMF still uses video time ≡ GPS `cts` (offset 0).
+For GoPro sessions, `sessionStartedAtMs` prefers **GPS-derived** wall-clock (`sample.date − cts`) when plausible (≥2015 and not far in the future), then MP4 `creation_time`, then manual Sync-panel override. Same-file GPMF still uses video time ≡ GPS `cts` (offset 0).
 
 ## Manual sync (lap page)
 

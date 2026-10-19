@@ -33,8 +33,9 @@ export default function GoProImportDocsPage() {
               <strong className="text-zinc-200">GoPro Hero5+ MP4 / LRV / MOV</strong>{" "}
               — GPMF extracted client-side (block File.slice, up to ~2GB, not
               uploaded wholesale). Uses GPS9 when present, else GPS5; drops
-              unlocked (fix=0) samples. Prefer MP4 creation_time over GPS dates
-              for sync. ACCL/GYRO when present.
+              unlocked (fix=0) samples. Session clock prefers GPS date/time,
+              falling back to MP4 creation_time when GPS is missing/implausible.
+              ACCL/GYRO when present.
             </li>
             <li>
               <strong className="text-zinc-200">Quik / Telemetry Overlay</strong>{" "}

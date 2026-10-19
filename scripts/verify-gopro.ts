@@ -21,13 +21,16 @@ import {
 import {
   GOPRO_NO_FIX_MESSAGE,
   GOPRO_NO_GPS_MESSAGE,
+  GPS_CLOCK_MIN_MS,
   gpsDopFromSample,
   gpsFixFromSample,
   inferGpsDerivedStartedAtMs,
   isGoProMediaFilename,
+  isPlausibleSessionClockMs,
   isUsableGpsRow,
   parseGoProRawData,
   pointsFromGpsSamples,
+  resolveGoProStartedAtMs,
 } from "../src/lib/parse-gopro";
 import { splitLapsByStartFinish } from "../src/lib/split-laps";
 import type { TelemetryPoint } from "../src/lib/types";
@@ -142,13 +145,40 @@ async function main() {
     `lat ${built.points[0].lat}`,
   );
 
-  // GPS-derived clock exists but must not be trusted for session sync.
+  // GPS-derived clock is valid absolute time (Jason: 2026-02-23 was a real older day).
   const gpsClock = inferGpsDerivedStartedAtMs(syntheticGps9);
   assert(gpsClock != null, "gps derived clock present");
   assert(
     new Date(gpsClock!).toISOString().startsWith("2026-02-23"),
-    "fixture uses wrong GPS calendar day (like Jason)",
+    "fixture GPS calendar day",
   );
+  assert(isPlausibleSessionClockMs(gpsClock!), "2026-02-23 is plausible");
+  assert(!isPlausibleSessionClockMs(Date.UTC(2010, 0, 1)), "pre-2015 rejected");
+  assert(
+    !isPlausibleSessionClockMs(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    "far-future rejected",
+  );
+  assert(GPS_CLOCK_MIN_MS === Date.UTC(2015, 0, 1), "min clock floor");
+
+  const preferGps = resolveGoProStartedAtMs({
+    gpsDerivedStartedAtMs: gpsClock!,
+    mp4CreationTimeMs: Date.parse("2026-10-17T16:17:00Z"),
+  });
+  assert(preferGps.clockSource === "gps", "prefer GPS over MP4 creation_time");
+  assert(preferGps.startedAtMs === gpsClock, "GPS startedAt");
+
+  const fallbackMp4 = resolveGoProStartedAtMs({
+    gpsDerivedStartedAtMs: Date.UTC(1999, 0, 1),
+    mp4CreationTimeMs: Date.parse("2026-10-17T16:17:00Z"),
+  });
+  assert(fallbackMp4.clockSource === "mp4", "implausible GPS → MP4 fallback");
+
+  const manual = resolveGoProStartedAtMs({
+    gpsDerivedStartedAtMs: gpsClock!,
+    mp4CreationTimeMs: Date.parse("2026-10-17T16:17:00Z"),
+    overrideStartedAtMs: Date.parse("2026-03-01T12:00:00Z"),
+  });
+  assert(manual.clockSource === "override", "manual override wins");
 
   // GPS5 sticky fix path still works.
   const gps5Sample = {
@@ -211,14 +241,20 @@ ${oval
       videoStartedAtMs: Date.parse("2026-10-17T16:17:00Z"),
     });
     gpmfOk = parsed.pointCount > 0 || parsed.laps.length >= 0;
-    gpmfDetail = `stream=${parsed.gpsStream} points=${parsed.pointCount} laps=${parsed.laps.length} quality=${parsed.gpsQuality.label}`;
+    gpmfDetail = `stream=${parsed.gpsStream} points=${parsed.pointCount} laps=${parsed.laps.length} quality=${parsed.gpsQuality.label} clock=${parsed.clockSource}`;
     assert(typeof parsed.gpsQuality.label === "string", "quality label");
     assert(parsed.gpsQuality.rank > 0, "quality rank");
-    assert(parsed.gpsClockUnreliable === true, "GPS clock flagged unreliable");
     assert(
-      parsed.startedAtMs === Date.parse("2026-10-17T16:17:00Z"),
-      "trusted creation_time wins over GPS date",
+      parsed.clockSource === "gps" ||
+        parsed.clockSource === "mp4" ||
+        parsed.clockSource === "none",
+      `clockSource ${parsed.clockSource}`,
     );
+    // When GPS samples carry a plausible date, it wins over MP4 creation_time.
+    if (parsed.gpsDerivedStartedAtMs != null && isPlausibleSessionClockMs(parsed.gpsDerivedStartedAtMs)) {
+      assert(parsed.clockSource === "gps", "GPS clock preferred when plausible");
+      assert(parsed.startedAtMs === parsed.gpsDerivedStartedAtMs, "startedAt = GPS");
+    }
   } catch (err) {
     // Official gopro-telemetry .raw samples are short clips — may lack a full lap.
     // Graceful path must still throw an actionable GoPro-specific message.

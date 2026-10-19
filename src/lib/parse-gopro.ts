@@ -179,20 +179,22 @@ export async function runGoProTelemetry(
   );
 }
 
+export type GoProClockSource = "gps" | "mp4" | "override" | "none";
+
 export type GoProParseResult = {
   laps: ParsedLap[];
   pointCount: number;
   gpsStream: "GPS5" | "GPS9" | "GPS" | "unknown";
   /**
-   * Wall-clock at video t=0 when trusted (MP4 creation_time / caller override).
-   * GPS-derived sample.date / GPS9 daysSince2000 is NOT used — Jason saw
-   * 2026-02-23 from GPS9 on a 2026-10-17 clip.
+   * Absolute wall-clock at video t=0 for session date / time-of-day sync.
+   * Prefer GPS-derived (sample.date − cts); fall back to MP4 creation_time
+   * when GPS is missing or implausible. Manual override wins when provided.
    */
   startedAtMs?: number;
   sessionDate?: string;
-  /** Present when GPS emitted a clock we deliberately ignored. */
+  /** Raw GPS clock before plausibility / override resolution. */
   gpsDerivedStartedAtMs?: number;
-  gpsClockUnreliable: boolean;
+  clockSource: GoProClockSource;
   gpsQuality: GpsQuality;
   /** True when GYRO samples were present (not yet used in charts). */
   hasGyro: boolean;
@@ -207,11 +209,58 @@ export type GoProParseOptions = {
   /** Override gopro-telemetry GPSFix minimum. */
   gpsFixMin?: number;
   /**
-   * Trusted wall-clock at video t=0 (from MP4 mvhd / QuickTime creationdate).
-   * Preferred over any GPS-derived date.
+   * MP4 mvhd / QuickTime creationdate — used when GPS clock is missing or
+   * implausible (before 2015 or more than ~1 day in the future).
    */
   videoStartedAtMs?: number;
+  /** Manual absolute clock at video t=0 (wins over GPS and MP4). */
+  overrideStartedAtMs?: number;
 };
+
+/** GoPro / Apex era floor — reject epoch-zero and ancient garbage clocks. */
+export const GPS_CLOCK_MIN_MS = Date.UTC(2015, 0, 1);
+
+export function isPlausibleSessionClockMs(
+  ms: number,
+  nowMs: number = Date.now(),
+): boolean {
+  if (!Number.isFinite(ms)) return false;
+  if (ms < GPS_CLOCK_MIN_MS) return false;
+  // Allow ~1 day of future skew (device clock / TZ quirks).
+  if (ms > nowMs + 24 * 60 * 60 * 1000) return false;
+  return true;
+}
+
+/**
+ * Resolve session absolute time: override → plausible GPS → plausible MP4.
+ */
+export function resolveGoProStartedAtMs(input: {
+  gpsDerivedStartedAtMs?: number;
+  mp4CreationTimeMs?: number;
+  overrideStartedAtMs?: number;
+  nowMs?: number;
+}): { startedAtMs?: number; clockSource: GoProClockSource } {
+  const now = input.nowMs ?? Date.now();
+  if (
+    input.overrideStartedAtMs != null &&
+    isPlausibleSessionClockMs(input.overrideStartedAtMs, now)
+  ) {
+    return { startedAtMs: input.overrideStartedAtMs, clockSource: "override" };
+  }
+  if (
+    input.gpsDerivedStartedAtMs != null &&
+    isPlausibleSessionClockMs(input.gpsDerivedStartedAtMs, now)
+  ) {
+    return { startedAtMs: input.gpsDerivedStartedAtMs, clockSource: "gps" };
+  }
+  if (
+    input.mp4CreationTimeMs != null &&
+    isPlausibleSessionClockMs(input.mp4CreationTimeMs, now)
+  ) {
+    return { startedAtMs: input.mp4CreationTimeMs, clockSource: "mp4" };
+  }
+  return { clockSource: "none" };
+}
 
 function sessionDateFromMs(ms: number): string {
   const d = new Date(ms);
@@ -221,7 +270,7 @@ function sessionDateFromMs(ms: number): string {
   return `${y}-${m}-${day}`;
 }
 
-/** GPS sample.date − cts — informative only; do not use for cross-device sync. */
+/** GPS sample.date − cts → absolute wall-clock at video t=0. */
 export function inferGpsDerivedStartedAtMs(
   samples: GpsSample[],
 ): number | undefined {
@@ -358,8 +407,12 @@ export async function parseGoProRawData(
 
   const gpsStream = labelGpsStream(streams);
   const gpsDerivedStartedAtMs = inferGpsDerivedStartedAtMs(gpsSamples);
-  // Never trust GPS clock for cross-device sync (Jason: GPS9 date ≠ record day).
-  const startedAtMs = options.videoStartedAtMs;
+  const resolved = resolveGoProStartedAtMs({
+    gpsDerivedStartedAtMs,
+    mp4CreationTimeMs: options.videoStartedAtMs,
+    overrideStartedAtMs: options.overrideStartedAtMs,
+  });
+  const startedAtMs = resolved.startedAtMs;
   const hasGyro = Boolean(readGyroStream(streams)?.samples?.length);
 
   const accel = readAccelStream(streams);
@@ -404,7 +457,7 @@ export async function parseGoProRawData(
     startedAtMs,
     sessionDate: startedAtMs != null ? sessionDateFromMs(startedAtMs) : undefined,
     gpsDerivedStartedAtMs,
-    gpsClockUnreliable: true,
+    clockSource: resolved.clockSource,
     hasGyro,
     gpsQuality: buildGpsQuality({
       stream: gpsStream,
@@ -474,16 +527,18 @@ export async function parseGoProChapters(
   const allPoints: TelemetryPoint[] = [];
   let timeOffset = 0;
   let gpsStream: GoProParseResult["gpsStream"] = "unknown";
-  let startedAtMs: number | undefined = options.videoStartedAtMs;
+  let startedAtMs: number | undefined;
   let gpsDerivedStartedAtMs: number | undefined;
+  let clockSource: GoProClockSource = "none";
   let hasGyro = false;
   let qualityParts: GpsQuality[] = [];
 
   for (let i = 0; i < files.length; i += 1) {
     const chapter = await parseGoProFile(files[i], {
       ...options,
-      // Only first chapter supplies creation_time wall-clock.
+      // Only first chapter supplies absolute clocks.
       videoStartedAtMs: i === 0 ? options.videoStartedAtMs : undefined,
+      overrideStartedAtMs: i === 0 ? options.overrideStartedAtMs : undefined,
       onProgress: (percent) => {
         const overall = ((i + percent / 100) / files.length) * 100;
         options.onProgress?.(overall);
@@ -495,6 +550,7 @@ export async function parseGoProChapters(
     if (i === 0) {
       startedAtMs = chapter.startedAtMs;
       gpsDerivedStartedAtMs = chapter.gpsDerivedStartedAtMs;
+      clockSource = chapter.clockSource;
     }
 
     let chapterEnd = 0;
@@ -534,7 +590,7 @@ export async function parseGoProChapters(
     startedAtMs,
     sessionDate: startedAtMs != null ? sessionDateFromMs(startedAtMs) : undefined,
     gpsDerivedStartedAtMs,
-    gpsClockUnreliable: true,
+    clockSource,
     hasGyro,
     gpsQuality: buildGpsQuality({
       stream: gpsStream,

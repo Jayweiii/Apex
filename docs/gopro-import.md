@@ -6,7 +6,7 @@ Apex prefers **GoPro GPS** over phone CSV for speed, laps, and the track map (Dr
 
 | Source | Format | Notes |
 |--------|--------|--------|
-| GoPro Hero5+ media | `.mp4`, `.lrv`, `.mov` | GPMF extracted client-side (`gpmf-extract` block-reads the File — up to ~2GB without loading the whole video). **Always `await` gopro-telemetry** (v1.2 returns a Promise). Uses **GPS9** when present, else **GPS5**. Drops `fix=0` / lat·lon=0 samples. DOP + fix read from GPS9 `value[7]`/`value[8]`. ACCL/GYRO when present. **Do not trust GPS sample dates for sync** — prefer MP4 `creation_time` or manual sync. |
+| GoPro Hero5+ media | `.mp4`, `.lrv`, `.mov` | GPMF extracted client-side (`gpmf-extract` block-reads the File — up to ~2GB without loading the whole video). **Always `await` gopro-telemetry** (v1.2 returns a Promise). Uses **GPS9** when present, else **GPS5**. Drops `fix=0` / lat·lon=0 samples. DOP + fix read from GPS9 `value[7]`/`value[8]`. ACCL/GYRO when present. Session UTC clock: **prefer GPS-derived date/time**; fall back to MP4 `creation_time` if GPS is missing or implausible (&lt;2015 or far future); manual override still wins. |
 | Quik / Telemetry Overlay | `.gpx`, `.json`, `.csv` | Export GPS track separately; no MP4 required. |
 | GPX (any logger) | `.gpx` | Track points with time + speed/extensions. |
 | VBO (RaceLogic / Dragy) | `.vbo` | Dragy DRG71: `sats time lat long velocity heading height`; time = UTC `hhmmss.sss` + `UTC Date Started`; lat/lon = signed minutes; **positive lon = west**; velocity km/h; sats → GPS quality. |
@@ -34,7 +34,7 @@ Apex prefers **GoPro GPS** over phone CSV for speed, laps, and the track map (Dr
 - Optional: check **Also upload the video** to store on R2 (when configured) or IndexedDB for onboard sync.
 - Prefer linking a **YouTube URL** when the onboard is already online.
 - Multi-chapter: select several chapter files together; Apex concatenates by cts.
-- Wall-clock for session/video sync comes from **MP4 creation_time** (mvhd / QuickTime), not GPS9 `daysSince2000` (known wrong on some Heroes).
+- Wall-clock for session date / time-of-day sync: **GPS sample.date − cts** when plausible; else MP4 `creation_time` (mvhd / QuickTime); Sync panel can still override manually.
 
 ## Laps
 

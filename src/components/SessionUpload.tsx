@@ -423,7 +423,7 @@ export function SessionUpload({
       let videoStartedAtMs: number | undefined;
 
       if (isMp4) {
-        setProgress("Reading video creation_time (not GPS clock)…");
+        setProgress("Reading MP4 creation_time (GPS clock preferred when present)…");
         try {
           const creation = await readMp4CreationTime(files[0]);
           videoStartedAtMs = creation.creationTimeMs ?? undefined;
@@ -438,15 +438,16 @@ export function SessionUpload({
             );
           },
           startFinish,
+          // Fallback only — parseGoPro prefers plausible GPS-derived time.
           videoStartedAtMs,
         });
         laps = parsed.laps;
-        // Prefer MP4 creation_time; never trust GPS9 sample.date for sync.
-        startedAtMs = videoStartedAtMs ?? parsed.startedAtMs;
-        sessionDate =
-          startedAtMs != null
-            ? new Date(startedAtMs).toISOString().slice(0, 10)
-            : parsed.sessionDate;
+        startedAtMs = parsed.startedAtMs;
+        sessionDate = parsed.sessionDate;
+        // Align attached video wall-clock with the resolved session clock.
+        if (parsed.startedAtMs != null) {
+          videoStartedAtMs = parsed.startedAtMs;
+        }
         sourceKind = "gopro";
         gpsQuality = parsed.gpsQuality;
       } else {
