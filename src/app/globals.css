@@ -16,16 +16,34 @@
 
 html {
   overflow-x: clip;
+  /* Solid base so fixed glow layer never leaves transparent gaps. */
+  background-color: var(--background);
 }
 
 body {
+  /* Gradients live on a fixed viewport layer (body::before) so tall pages
+     do not tile the radial washes every background-size / scroll height. */
+  background-color: transparent;
+  color: var(--foreground);
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  overflow-x: clip;
+  min-height: 100%;
+}
+
+/* Viewport-locked atmosphere: paints once, stays put while content scrolls.
+   Prefer fixed layer over background-attachment:fixed (broken on iOS Safari). */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
   background:
     radial-gradient(900px 420px at 8% -8%, rgba(249, 115, 22, 0.14), transparent 55%),
     radial-gradient(700px 360px at 92% 0%, rgba(56, 189, 248, 0.06), transparent 50%),
     var(--background);
-  color: var(--foreground);
-  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
-  overflow-x: clip;
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
 }
 
 * {
