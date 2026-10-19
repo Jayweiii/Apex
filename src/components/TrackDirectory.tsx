@@ -17,7 +17,10 @@ import {
   listCustomTracks,
   listSharedTracksCache,
   popularTracks,
+  resolveBuiltinAlias,
+  resolveCanonicalTrack,
   setSharedTracksCache,
+  trackEquivalentIds,
   type Track,
 } from "@/lib/tracks";
 import type { DataKind } from "@/lib/attribution";
@@ -35,8 +38,13 @@ type TrackRow = {
 };
 
 function rowsForTrack(trackId: string, local: StoredSession[]): TrackRow[] {
+  const aliases = new Set(trackEquivalentIds(trackId));
   return local
-    .filter((session) => session.trackId === trackId)
+    .filter(
+      (session) =>
+        session.trackId != null &&
+        (aliases.has(session.trackId) || session.trackId === trackId),
+    )
     .map((session) => ({
       id: session.id,
       name: session.name,
@@ -106,105 +114,18 @@ function useExtraTracks() {
   return extra;
 }
 
+/** @deprecated Home is HomeLanding; keep export for any leftover imports. */
 export function TrackHome() {
-  const [query, setQuery] = useState("");
-  const extraTracks = useExtraTracks();
-  const tracks = useMemo(
-    () => popularTracks(query, extraTracks),
-    [query, extraTracks],
-  );
-
-  return (
-    <>
-      <AppHeader />
-      <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-8 px-4 py-6 sm:gap-10 sm:px-6 sm:py-10">
-        <section className="flex flex-col gap-3">
-          <p className="text-[11px] uppercase tracking-[0.22em] text-orange-400/90">
-            Lap times · GPS · compare
-          </p>
-          <h1 className="max-w-xl text-3xl font-semibold tracking-tight text-zinc-50 sm:text-4xl">
-            Upload sessions and compare real laps
-          </h1>
-          <p className="max-w-2xl text-sm leading-relaxed text-zinc-400 sm:text-base">
-            Upload a CSV or GoPro — no account required. Guests save to the
-            cloud (default Public link); add an email later to keep sessions
-            across devices.
-          </p>
-        </section>
-
-        <SessionUpload />
-
-        <YourSessions />
-
-        <PublicCloudSessions />
-
-        <LeaderboardPanel />
-
-        <label className="flex flex-col gap-2">
-          <span className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
-            Search tracks
-          </span>
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Thunderhill, Buttonwillow…"
-            className="min-h-12 rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:text-sm"
-          />
-        </label>
-
-        <section className="flex flex-col gap-3">
-          <h2 className="text-sm font-medium text-zinc-300">
-            {query.trim() ? "Matching tracks" : "Tracks"}
-          </h2>
-          {tracks.length === 0 ? (
-            <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-8 text-center text-sm text-zinc-500">
-              No tracks match that search. Try “Thunderhill” or clear the filter.
-            </p>
-          ) : (
-            <ul className="grid gap-3">
-              {tracks.map((track) => {
-                return (
-                  <li key={track.id}>
-                    <Link
-                      href={`/tracks/${track.id}`}
-                      className="flex min-h-16 items-center justify-between gap-4 rounded-2xl border border-zinc-800/80 bg-zinc-950/50 px-4 py-4 transition hover:border-zinc-700 hover:bg-zinc-900/60 sm:px-5"
-                    >
-                      <div className="min-w-0">
-                        <p className="font-medium text-zinc-100">
-                          {track.name}
-                          {track.id.startsWith("custom-") ? (
-                            <span className="ml-2 text-xs font-normal text-zinc-500">
-                              {track.location === "Added in this browser"
-                                ? "this browser"
-                                : "community"}
-                            </span>
-                          ) : null}
-                        </p>
-                        <p className="mt-1 text-xs text-zinc-500">
-                          {track.location}
-                          {" · upload your sessions"}
-                        </p>
-                      </div>
-                      <p className="shrink-0 font-mono text-lg text-orange-400">
-                        —
-                      </p>
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
-      </main>
-    </>
-  );
+  return null;
 }
 
 function overviewPointsForTrack(
   track: Track,
   local: StoredSession[] | null,
 ): TelemetryPoint[] | null {
-  const centerline = builtinCenterline(track.id);
+  const centerline =
+    builtinCenterline(track.id) ??
+    builtinCenterline(resolveBuiltinAlias(track.id));
   if (centerline) {
     return centerline.map((point, index) => ({
       t: index,
@@ -250,7 +171,9 @@ function TrackOverviewMap({
     () => overviewPointsForTrack(track, local),
     [track, local],
   );
-  const centerline = builtinCenterline(track.id);
+  const centerline =
+    builtinCenterline(track.id) ??
+    builtinCenterline(resolveBuiltinAlias(track.id));
   if (!mapPoints || mapPoints.length < 2) return null;
 
   return (
@@ -270,14 +193,32 @@ function TrackOverviewMap({
 }
 
 export function TrackDetail({ id }: { id: string }) {
-  const [track, setTrack] = useState<Track | null>(() => getTrack(id));
+  const [track, setTrack] = useState<Track | null>(
+    () => resolveCanonicalTrack(id) ?? getTrack(id),
+  );
   const local = useLocalSessions();
 
   useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      if (hasSupabaseConfig()) {
+        try {
+          const shared = await fetchSharedTracks(createClient());
+          if (!cancelled) setSharedTracksCache(shared);
+        } catch {
+          // keep cache
+        }
+      }
+      if (cancelled) return;
+      setTrack(resolveCanonicalTrack(id) ?? getTrack(id));
+    }
     const frame = window.requestAnimationFrame(() => {
-      setTrack(getTrack(id));
+      void load();
     });
-    return () => window.cancelAnimationFrame(frame);
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(frame);
+    };
   }, [id]);
 
   if (!track) {

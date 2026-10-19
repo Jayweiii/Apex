@@ -8,6 +8,8 @@ import {
   builtinTrack,
   findTrackByName,
   normalizeTrackQuery,
+  resolveBuiltinAlias,
+  trackIdentityKey,
   type Track,
 } from "@/lib/tracks";
 import type { TelemetryPoint } from "@/lib/types";
@@ -84,7 +86,8 @@ export function resolveTrackCenterline(
 ): LatLon[] | null {
   const fromDb = parseCenterline(stored);
   if (fromDb) return fromDb;
-  const builtin = builtinCenterline(trackId);
+  const alias = resolveBuiltinAlias(trackId) ?? trackId;
+  const builtin = builtinCenterline(alias) ?? builtinCenterline(trackId);
   if (builtin) return builtin;
   if (sampleLaps?.length) return buildCenterlineFromLaps(sampleLaps);
   return null;
@@ -95,7 +98,8 @@ export async function fetchTrackCenterline(
   trackId: string | null | undefined,
 ): Promise<LatLon[] | null> {
   if (!trackId) return builtinCenterline(trackId);
-  const builtin = builtinCenterline(trackId);
+  const alias = resolveBuiltinAlias(trackId) ?? trackId;
+  const builtin = builtinCenterline(alias) ?? builtinCenterline(trackId);
   try {
     const { data, error } = await client
       .from("tracks")
@@ -160,7 +164,8 @@ export async function fetchSharedTracks(
 
 /**
  * Find or create a shared track by name (+ optional location).
- * Matches built-ins and existing cloud rows first to avoid duplicates.
+ * Matches existing cloud rows first (keeps sessions on community ids),
+ * then built-ins, using fuzzy identity so "Thunderhill West" ≡ preset West.
  */
 export async function ensureSharedTrack(
   client: SupabaseLike,
@@ -175,21 +180,24 @@ export async function ensureSharedTrack(
   if (!trimmed) throw new Error("Enter a track name");
 
   const location = (input.location ?? "Community").trim() || "Community";
-  const existingBuiltin = findTrackByName(trimmed);
-  if (existingBuiltin && builtinTrack(existingBuiltin.id)) {
-    return existingBuiltin;
-  }
+  const needleKey = trackIdentityKey(trimmed);
 
   const shared = await fetchSharedTracks(client);
-  const byName = findTrackByName(trimmed, shared);
-  if (byName) {
+  const byShared = findTrackByName(trimmed, shared);
+  if (byShared) {
     // Prefer exact location match when several share a name.
     const sameLocation = shared.find(
       (track) =>
-        normalizeTrackQuery(track.name) === normalizeTrackQuery(trimmed) &&
+        trackIdentityKey(track.name) === needleKey &&
         normalizeTrackQuery(track.location) === normalizeTrackQuery(location),
     );
-    return sameLocation ?? byName;
+    return sameLocation ?? byShared;
+  }
+
+  // No community row — reuse builtin preset when the name is the same circuit.
+  const existingBuiltin = findTrackByName(trimmed, []);
+  if (existingBuiltin && builtinTrack(existingBuiltin.id)) {
+    return existingBuiltin;
   }
 
   const {
@@ -200,13 +208,15 @@ export async function ensureSharedTrack(
   const derived = input.firstLapPoints
     ? centerFromPoints(input.firstLapPoints)
     : null;
-  const namedBuiltin = findTrackByName(trimmed);
-  const preferredLine = builtinCenterline(namedBuiltin?.id);
+  const namedBuiltin = findTrackByName(trimmed, []);
+  const preferredLine =
+    builtinCenterline(namedBuiltin?.id) ??
+    builtinCenterline(resolveBuiltinAlias(namedBuiltin?.id));
 
   const base = `custom-${slugify(trimmed)}`;
   const taken = new Set([
     ...shared.map((track) => track.id),
-    ...(existingBuiltin ? [existingBuiltin.id] : []),
+    ...(namedBuiltin ? [namedBuiltin.id] : []),
   ]);
   // Also avoid colliding with builtins.
   let id = base;
@@ -241,7 +251,7 @@ export async function ensureSharedTrack(
       const match =
         again.find(
           (track) =>
-            normalizeTrackQuery(track.name) === normalizeTrackQuery(trimmed) &&
+            trackIdentityKey(track.name) === needleKey &&
             normalizeTrackQuery(track.location) ===
               normalizeTrackQuery(location),
         ) ?? findTrackByName(trimmed, again);

@@ -30,5 +30,9 @@ const shared = [
 ];
 assert(findTrackByName("thunderhill west", shared)?.id === row.id, "find by name");
 assert(findTrackByName("THUNDERHILL WEST", shared)?.id === row.id, "case insensitive");
+assert(
+  findTrackByName("Thunderhill Raceway — West", shared)?.id === row.id,
+  "fuzzy identity matches builtin-style name to community row",
+);
 
 console.log("verify-cloud-tracks ok", { id: row.id });

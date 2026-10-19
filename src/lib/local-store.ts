@@ -4,6 +4,7 @@ import type { ParsedLap, SessionVideo, TelemetryPoint } from "./types";
 
 const STORAGE_KEY = "apex.local-sessions";
 const DRIVERS_KEY = "apex.local-drivers";
+const KNOWN_CARS_KEY = "apex.local-cars";
 
 export type StoredLap = {
   id: string;
@@ -222,8 +223,40 @@ export function saveLocalSession(
   return session;
 }
 
+function readRememberedCars(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(KNOWN_CARS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((value): value is string => typeof value === "string")
+      .map((value) => value.trim())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/** Persist a car name locally so the picker stays filled without cloud. */
+export function rememberKnownCar(name: string): void {
+  const trimmed = name.trim();
+  if (!trimmed || typeof window === "undefined") return;
+  const names = new Set(readRememberedCars());
+  names.add(trimmed);
+  window.localStorage.setItem(
+    KNOWN_CARS_KEY,
+    JSON.stringify([...names].sort((a, b) => a.localeCompare(b))),
+  );
+}
+
+/**
+ * Cars known in this browser: remembered names + cars used on local sessions.
+ * Cloud / shared cars are merged by the upload form separately.
+ */
 export function listKnownCars(): string[] {
-  const names = new Set<string>();
+  const names = new Set<string>(readRememberedCars());
   for (const session of listLocalSessions()) {
     const car = session.car?.trim();
     if (car) names.add(car);
@@ -278,13 +311,21 @@ export type LeaderboardRow = {
 
 export function localLeaderboard(filters?: {
   trackId?: string;
+  /** When set, match any of these track ids (preset ↔ community aliases). */
+  trackIds?: string[];
   carClass?: string;
   driver?: string;
 }): LeaderboardRow[] {
   const rows: LeaderboardRow[] = [];
+  const trackAllow =
+    filters?.trackIds && filters.trackIds.length
+      ? new Set(filters.trackIds)
+      : filters?.trackId
+        ? new Set([filters.trackId])
+        : null;
   for (const session of listLocalSessions()) {
     if (!session.trackId || !session.laps.length) continue;
-    if (filters?.trackId && session.trackId !== filters.trackId) continue;
+    if (trackAllow && !trackAllow.has(session.trackId)) continue;
     if (filters?.carClass && (session.carClass || "Open") !== filters.carClass) {
       continue;
     }

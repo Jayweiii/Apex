@@ -2,7 +2,7 @@
 
 import { formatLapTime } from "@/lib/format";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
-import { getTrack } from "@/lib/tracks";
+import { getTrack, trackEquivalentIds } from "@/lib/tracks";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
@@ -38,8 +38,14 @@ export function PublicCloudSessions({ trackId }: { trackId?: string }) {
           .select("id, name, track_id, car, driver_name, created_at")
           .eq("visibility", "public")
           .order("created_at", { ascending: false })
-          .limit(20);
-        if (trackId) query = query.eq("track_id", trackId);
+          .limit(40);
+        if (trackId) {
+          const aliases = trackEquivalentIds(trackId);
+          query =
+            aliases.length > 1
+              ? query.in("track_id", aliases)
+              : query.eq("track_id", trackId);
+        }
         const { data, error } = await query;
         if (cancelled) return;
         if (error) {

@@ -7,6 +7,7 @@ import { readMp4CreationTime } from "@/lib/mp4-creation-time";
 import {
   listDrivers,
   listKnownCars,
+  rememberKnownCar,
   saveLocalSession,
 } from "@/lib/local-store";
 import { parseGoProChapters } from "@/lib/parse-gopro";
@@ -20,6 +21,11 @@ import {
 import { parseTelemetryCsv } from "@/lib/parse-telemetry";
 import { SessionVisibilityControl } from "@/components/SessionVisibilityControl";
 import { assertFileWithinLimits } from "@/lib/abuse-limits";
+import {
+  ensureSharedCar,
+  fetchCarsFromSessions,
+  fetchSharedCars,
+} from "@/lib/cloud-cars";
 import { ensureSharedTrack, fetchSharedTracks } from "@/lib/cloud-tracks";
 import type { GpsQuality } from "@/lib/gps-quality";
 import {
@@ -171,10 +177,34 @@ export function SessionUpload({
         if (!merged.some((item) => item.id === track.id)) merged.push(track);
       }
       setExtraTracks(merged);
-      const cars = listKnownCars();
+
+      const localCars = listKnownCars();
+      let sharedCars: string[] = [];
+      let sessionCars: string[] = [];
+      if (hasSupabaseConfig()) {
+        try {
+          const supabase = createClient();
+          const [fromTable, fromSessions] = await Promise.all([
+            fetchSharedCars(supabase),
+            fetchCarsFromSessions(supabase),
+          ]);
+          sharedCars = fromTable;
+          sessionCars = fromSessions;
+        } catch {
+          // Keep local cars when shared cars are unavailable.
+        }
+      }
+      if (cancelled) return;
+      const carNames = new Set<string>([
+        ...sharedCars,
+        ...sessionCars,
+        ...localCars,
+      ]);
+      const cars = [...carNames].sort((a, b) => a.localeCompare(b));
       setKnownCars(cars);
       setCarChoice((current) => {
         if (current) return current;
+        // Empty list → open "add your own" so the picker isn't a blank dead-end.
         return cars.length ? "" : NEW_CAR;
       });
     }
@@ -505,6 +535,16 @@ export function SessionUpload({
         .filter(Boolean);
       const carName = car.trim();
       if (!carName) throw new Error("Enter the car");
+      rememberKnownCar(carName);
+      setKnownCars((current) => {
+        if (
+          current.some((value) => value.toLowerCase() === carName.toLowerCase())
+        ) {
+          return current;
+        }
+        return [...current, carName].sort((a, b) => a.localeCompare(b));
+      });
+      setCarChoice(carName);
 
       const ytId = parseYouTubeId(youtubeUrl);
       const videos: SessionVideo[] = [];
@@ -532,6 +572,22 @@ export function SessionUpload({
         const effectiveVisibility = visibilityTouched
           ? visibility
           : defaultVisibilityForUser(guest);
+
+        // Persist car to shared catalog so it appears for everyone next time.
+        try {
+          setProgress("Saving car…");
+          await ensureSharedCar(supabase, carName);
+        } catch (err) {
+          // Soft-fail if cars migration isn't applied yet — session still saves.
+          if (
+            !(
+              err instanceof Error &&
+              /shared cars need migration/i.test(err.message)
+            )
+          ) {
+            throw err;
+          }
+        }
 
         // GoPro media never counts toward upload bytes (telemetry-only).
         const uploadBytes = isMp4
@@ -748,7 +804,7 @@ export function SessionUpload({
                     {value}
                   </option>
                 ))}
-                <option value={NEW_CAR}>+ Create new car…</option>
+                <option value={NEW_CAR}>+ Add your own car…</option>
               </select>
             </label>
             {creatingCar ? (

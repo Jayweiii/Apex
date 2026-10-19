@@ -6,7 +6,7 @@ import {
   type LeaderboardRow,
 } from "@/lib/local-store";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
-import { getTrack } from "@/lib/tracks";
+import { getTrack, trackEquivalentIds } from "@/lib/tracks";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -23,7 +23,11 @@ export function LeaderboardPanel({
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      const local = localLeaderboard({ trackId });
+      const aliases = trackId ? trackEquivalentIds(trackId) : [];
+      const local = localLeaderboard({
+        trackId,
+        trackIds: aliases.length ? aliases : undefined,
+      });
       let cloud: LeaderboardRow[] = [];
       if (hasSupabaseConfig()) {
         try {
@@ -37,7 +41,12 @@ export function LeaderboardPanel({
             .select("id, name, track_id, car, car_class, driver_name, tires, weather")
             .order("created_at", { ascending: false })
             .limit(100);
-          if (trackId) query = query.eq("track_id", trackId);
+          if (trackId) {
+            query =
+              aliases.length > 1
+                ? query.in("track_id", aliases)
+                : query.eq("track_id", trackId);
+          }
           const { data: sessions } = await query;
           const ids = (sessions ?? []).map((s) => s.id);
           if (ids.length) {
