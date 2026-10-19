@@ -20,7 +20,8 @@ const CHANNEL_COLORS = ["#f97316", "#38bdf8", "#a3e635", "#e879f9"] as const;
 export function StackedLapTelemetry({
   points,
   activeIndex = null,
-  onHoverIndex,
+  onPreviewIndex,
+  onSeekIndex,
   syncId = "lap-detail",
   trimMarkers,
   onTrimBoundaryDrag,
@@ -29,7 +30,8 @@ export function StackedLapTelemetry({
 }: {
   points: TelemetryPoint[];
   activeIndex?: number | null;
-  onHoverIndex?: (index: number | null) => void;
+  onPreviewIndex?: (index: number | null) => void;
+  onSeekIndex?: (index: number | null) => void;
   syncId?: string;
   trimMarkers?: { startT: number; endT: number };
   onTrimBoundaryDrag?: (which: "start" | "end", lapLocalT: number) => void;
@@ -45,30 +47,49 @@ export function StackedLapTelemetry({
       ? points[activeIndex].t
       : null;
 
-  // Compact stacked channels; internal scroll when more than ~5 so the
-  // session dashboard can stay one screen.
-  const scrollable = channels.length > 5;
+  const others = channels.filter((id) => id !== "speed");
+  const hasSpeed = channels.includes("speed");
+
+  // Speed ~40% of the panel; remaining channels shorter but readable.
   return (
-    <div
-      className={`flex min-h-0 flex-col gap-2 ${
-        scrollable
-          ? "max-h-[min(42vh,360px)] overflow-y-auto pr-0.5 lg:max-h-full"
-          : ""
-      } ${className ?? ""}`}
-    >
-      {channels.map((id) => (
-        <LapChannel
-          key={id}
-          id={id}
-          points={points}
-          activeIndex={activeIndex}
-          activeT={activeT}
-          onHoverIndex={onHoverIndex}
-          syncId={syncId}
-          trimMarkers={trimMarkers}
-          onTrimBoundaryDrag={onTrimBoundaryDrag}
-        />
-      ))}
+    <div className={`flex min-h-0 flex-col gap-2 ${className ?? ""}`}>
+      {hasSpeed ? (
+        <div className="flex min-h-[140px] basis-[40%] flex-col overflow-hidden">
+          <SpeedChart
+            points={points}
+            activeIndex={activeIndex}
+            onPreviewIndex={onPreviewIndex}
+            onSeekIndex={onSeekIndex}
+            syncId={syncId}
+            trimMarkers={trimMarkers}
+            onTrimBoundaryDrag={onTrimBoundaryDrag}
+            compact
+            fill
+          />
+        </div>
+      ) : null}
+      <div
+        className={`flex min-h-0 flex-col gap-2 ${
+          others.length > 3
+            ? "min-h-0 flex-1 overflow-y-auto pr-0.5"
+            : "shrink-0"
+        }`}
+      >
+        {others.map((id) => (
+          <LapChannel
+            key={id}
+            id={id}
+            points={points}
+            activeIndex={activeIndex}
+            activeT={activeT}
+            onPreviewIndex={onPreviewIndex}
+            onSeekIndex={onSeekIndex}
+            syncId={syncId}
+            trimMarkers={trimMarkers}
+            onTrimBoundaryDrag={onTrimBoundaryDrag}
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -78,7 +99,8 @@ function LapChannel({
   points,
   activeIndex,
   activeT,
-  onHoverIndex,
+  onPreviewIndex,
+  onSeekIndex,
   syncId,
   trimMarkers,
   onTrimBoundaryDrag,
@@ -87,7 +109,8 @@ function LapChannel({
   points: TelemetryPoint[];
   activeIndex?: number | null;
   activeT: number | null;
-  onHoverIndex?: (index: number | null) => void;
+  onPreviewIndex?: (index: number | null) => void;
+  onSeekIndex?: (index: number | null) => void;
   syncId: string;
   trimMarkers?: { startT: number; endT: number };
   onTrimBoundaryDrag?: (which: "start" | "end", lapLocalT: number) => void;
@@ -97,7 +120,8 @@ function LapChannel({
       <SpeedChart
         points={points}
         activeIndex={activeIndex}
-        onHoverIndex={onHoverIndex}
+        onPreviewIndex={onPreviewIndex}
+          onSeekIndex={onSeekIndex}
         syncId={syncId}
         trimMarkers={trimMarkers}
         onTrimBoundaryDrag={onTrimBoundaryDrag}
@@ -110,7 +134,8 @@ function LapChannel({
       <GChart
         points={points as { t: number; latG: number; lonG: number }[]}
         activeIndex={activeIndex}
-        onHoverIndex={onHoverIndex}
+        onPreviewIndex={onPreviewIndex}
+          onSeekIndex={onSeekIndex}
         syncId={syncId}
         compact
       />
@@ -128,7 +153,8 @@ function LapChannel({
           { dataKey: "brake", name: "Brake", stroke: "#f87171" },
         ]}
         activeX={activeT}
-        onHoverIndex={onHoverIndex}
+        onPreviewIndex={onPreviewIndex}
+          onSeekIndex={onSeekIndex}
         syncId={syncId}
       />
     );
@@ -142,7 +168,8 @@ function LapChannel({
         xKey="t"
         series={[{ dataKey: "steering", name: "Steering", stroke: "#38bdf8" }]}
         activeX={activeT}
-        onHoverIndex={onHoverIndex}
+        onPreviewIndex={onPreviewIndex}
+          onSeekIndex={onSeekIndex}
         syncId={syncId}
       />
     );
@@ -158,7 +185,8 @@ function LapChannel({
           { dataKey: "gear", name: "Gear", stroke: "#fbbf24" },
         ]}
         activeX={activeT}
-        onHoverIndex={onHoverIndex}
+        onPreviewIndex={onPreviewIndex}
+          onSeekIndex={onSeekIndex}
         syncId={syncId}
       />
     );
@@ -172,7 +200,8 @@ function LapChannel({
         xKey="t"
         series={[{ dataKey: "heading", name: "Heading", stroke: "#94a3b8" }]}
         activeX={activeT}
-        onHoverIndex={onHoverIndex}
+        onPreviewIndex={onPreviewIndex}
+          onSeekIndex={onSeekIndex}
         syncId={syncId}
       />
     );

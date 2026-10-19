@@ -1,6 +1,6 @@
 "use client";
 
-import { hoverIndex } from "@/components/chart-hover";
+import { hoverIndex, isSeekPointer } from "@/components/chart-hover";
 import { bindChartScrub } from "@/components/chart-scrub";
 import {
   CartesianGrid,
@@ -38,10 +38,11 @@ export function ChannelChart({
   xTick,
   series,
   activeX,
-  onHoverIndex,
+  onPreviewIndex,
+  onSeekIndex,
   syncId = "lap",
   yUnit,
-  heightClass = "h-[64px]",
+  heightClass = "h-[72px]",
   showLegend = false,
   showXAxis = true,
   compact = true,
@@ -53,7 +54,8 @@ export function ChannelChart({
   xTick?: (value: number) => string;
   series: Series[];
   activeX?: number | null;
-  onHoverIndex?: (index: number | null) => void;
+  onPreviewIndex?: (index: number | null) => void;
+  onSeekIndex?: (index: number | null) => void;
   syncId?: string;
   yUnit?: string;
   heightClass?: string;
@@ -61,7 +63,10 @@ export function ChannelChart({
   showXAxis?: boolean;
   compact?: boolean;
 }) {
-  const scrub = bindChartScrub(points.length, onHoverIndex);
+  const scrub = bindChartScrub(points.length, {
+    onPreviewIndex,
+    onSeekIndex,
+  });
   if (!points.length || !series.length) return null;
 
   return (
@@ -85,11 +90,11 @@ export function ChannelChart({
             syncId={syncId}
             margin={{ top: 4, right: 4, left: 0, bottom: 0 }}
             onMouseMove={(state) => {
-              const native = (state as { event?: MouseEvent }).event;
-              if (native && native.buttons === 0) return;
-              onHoverIndex?.(hoverIndex(state));
+              const index = hoverIndex(state);
+              if (isSeekPointer(state)) onSeekIndex?.(index);
+              else onPreviewIndex?.(index);
             }}
-            onMouseLeave={() => onHoverIndex?.(null)}
+            onMouseLeave={() => onPreviewIndex?.(null)}
           >
             <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
             <XAxis

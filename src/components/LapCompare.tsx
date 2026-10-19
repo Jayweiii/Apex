@@ -1,6 +1,6 @@
 "use client";
 
-import { hoverIndex } from "@/components/chart-hover";
+import { hoverIndex, isSeekPointer } from "@/components/chart-hover";
 import { bindChartScrub } from "@/components/chart-scrub";
 import {
   SessionToolsPanel,
@@ -452,6 +452,8 @@ export function LapCompare({
   }, [ordered, matchedByLapId, gpsMode, centerline]);
 
   const [progress, setProgress] = useState<number | null>(null);
+  const [previewProgress, setPreviewProgress] = useState<number | null>(null);
+  const displayProgress = previewProgress ?? progress;
 
   const draftKey = resolved
     .map((item) => `${item.session.id}:${item.lap.id}:${item.isRef ? "r" : ""}`)
@@ -484,17 +486,35 @@ export function LapCompare({
   }, [onDraftChange, draftKey, analysisMode]);
 
   const hoverAt =
-    progress == null || series.length < 2
+    displayProgress == null || series.length < 2
       ? null
-      : Math.round(progress * (series.length - 1));
+      : Math.round(displayProgress * (series.length - 1));
 
-  const hoverFromChart = useCallback(
+  const previewFromChart = useCallback(
     (next: number | null) => {
+      setPreviewProgress(progressFromIndex(next, series.length));
+    },
+    [series.length],
+  );
+  const seekFromChart = useCallback(
+    (next: number | null) => {
+      setPreviewProgress(null);
       setProgress(progressFromIndex(next, series.length));
     },
     [series.length],
   );
-  const chartScrub = bindChartScrub(series.length, hoverFromChart);
+  const chartScrub = bindChartScrub(series.length, {
+    onPreviewIndex: previewFromChart,
+    onSeekIndex: seekFromChart,
+  });
+  const onChartMouseMove = useCallback(
+    (state: Parameters<typeof hoverIndex>[0]) => {
+      const index = hoverIndex(state);
+      if (isSeekPointer(state)) seekFromChart(index);
+      else previewFromChart(index);
+    },
+    [previewFromChart, seekFromChart],
+  );
 
   const showMap = ordered.some((item) => hasGps(item.lap.telemetry));
   const multiSession = filteredSessions.length > 1;
@@ -753,7 +773,12 @@ export function LapCompare({
                 <TrackMap
                   traces={mapTraces}
                   activeProgress={progress}
-                  onProgress={setProgress}
+                  previewProgress={previewProgress}
+                  onPreviewProgress={setPreviewProgress}
+                  onProgress={(next) => {
+                    setPreviewProgress(null);
+                    setProgress(next);
+                  }}
                   centerline={centerline}
                   gpsMode={centerline ? gpsMode : undefined}
                   onGpsModeChange={centerline ? setGpsMode : undefined}
@@ -779,7 +804,10 @@ export function LapCompare({
                 <DualSessionVideos
                   sides={videoSides}
                   progress={progress}
-                  onProgress={setProgress}
+                  onProgress={(next) => {
+                    setPreviewProgress(null);
+                    setProgress(next);
+                  }}
                   compact
                 />
               </div>
@@ -803,12 +831,8 @@ export function LapCompare({
                       data={series}
                       syncId="compare"
                       margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
-                      onMouseMove={(state) => {
-                        const native = (state as { event?: MouseEvent }).event;
-                        if (native && native.buttons === 0) return;
-                        hoverFromChart(hoverIndex(state));
-                      }}
-                      onMouseLeave={() => setProgress(null)}
+                      onMouseMove={onChartMouseMove}
+                      onMouseLeave={() => setPreviewProgress(null)}
                     >
                       <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
                       <XAxis
@@ -860,12 +884,8 @@ export function LapCompare({
                       data={series}
                       syncId="compare"
                       margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
-                      onMouseMove={(state) => {
-                        const native = (state as { event?: MouseEvent }).event;
-                        if (native && native.buttons === 0) return;
-                        hoverFromChart(hoverIndex(state));
-                      }}
-                      onMouseLeave={() => setProgress(null)}
+                      onMouseMove={onChartMouseMove}
+                      onMouseLeave={() => setPreviewProgress(null)}
                     >
                       <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
                       <XAxis
@@ -910,12 +930,8 @@ export function LapCompare({
                       data={series}
                       syncId="compare"
                       margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
-                      onMouseMove={(state) => {
-                        const native = (state as { event?: MouseEvent }).event;
-                        if (native && native.buttons === 0) return;
-                        hoverFromChart(hoverIndex(state));
-                      }}
-                      onMouseLeave={() => setProgress(null)}
+                      onMouseMove={onChartMouseMove}
+                      onMouseLeave={() => setPreviewProgress(null)}
                     >
                       <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
                       <XAxis
@@ -972,12 +988,8 @@ export function LapCompare({
                       data={series}
                       syncId="compare"
                       margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
-                      onMouseMove={(state) => {
-                        const native = (state as { event?: MouseEvent }).event;
-                        if (native && native.buttons === 0) return;
-                        hoverFromChart(hoverIndex(state));
-                      }}
-                      onMouseLeave={() => setProgress(null)}
+                      onMouseMove={onChartMouseMove}
+                      onMouseLeave={() => setPreviewProgress(null)}
                     >
                       <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
                       <XAxis
@@ -1021,12 +1033,8 @@ export function LapCompare({
                       data={series}
                       syncId="compare"
                       margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
-                      onMouseMove={(state) => {
-                        const native = (state as { event?: MouseEvent }).event;
-                        if (native && native.buttons === 0) return;
-                        hoverFromChart(hoverIndex(state));
-                      }}
-                      onMouseLeave={() => setProgress(null)}
+                      onMouseMove={onChartMouseMove}
+                      onMouseLeave={() => setPreviewProgress(null)}
                     >
                       <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
                       <XAxis
@@ -1070,12 +1078,8 @@ export function LapCompare({
                       data={series}
                       syncId="compare"
                       margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
-                      onMouseMove={(state) => {
-                        const native = (state as { event?: MouseEvent }).event;
-                        if (native && native.buttons === 0) return;
-                        hoverFromChart(hoverIndex(state));
-                      }}
-                      onMouseLeave={() => setProgress(null)}
+                      onMouseMove={onChartMouseMove}
+                      onMouseLeave={() => setPreviewProgress(null)}
                     >
                       <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
                       <XAxis
@@ -1119,12 +1123,8 @@ export function LapCompare({
                       data={series}
                       syncId="compare"
                       margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
-                      onMouseMove={(state) => {
-                        const native = (state as { event?: MouseEvent }).event;
-                        if (native && native.buttons === 0) return;
-                        hoverFromChart(hoverIndex(state));
-                      }}
-                      onMouseLeave={() => setProgress(null)}
+                      onMouseMove={onChartMouseMove}
+                      onMouseLeave={() => setPreviewProgress(null)}
                     >
                       <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
                       <XAxis

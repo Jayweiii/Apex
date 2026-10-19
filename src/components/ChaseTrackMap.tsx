@@ -76,12 +76,17 @@ function gapHtml(label: string) {
 export function ChaseTrackMap({
   traces,
   activeProgress,
+  previewProgress = null,
+  onPreviewProgress,
   onProgress,
   prefs,
   pitch = 35,
 }: {
   traces: ChaseTrace[];
   activeProgress?: number | null;
+  /** Chart hover preview — markers/camera without seeking video. */
+  previewProgress?: number | null;
+  onPreviewProgress?: (progress: number | null) => void;
   onProgress?: (progress: number | null) => void;
   prefs: MapViewPrefs;
   pitch?: number;
@@ -91,7 +96,9 @@ export function ChaseTrackMap({
   const markersRef = useRef<Marker[]>([]);
   const bearingRef = useRef<number | null>(null);
   const onProgressRef = useRef(onProgress);
+  const onPreviewProgressRef = useRef(onPreviewProgress);
   onProgressRef.current = onProgress;
+  onPreviewProgressRef.current = onPreviewProgress;
 
   const drawable = useMemo(
     () =>
@@ -146,9 +153,9 @@ export function ChaseTrackMap({
       map.resize();
     });
 
-    const scrubAt = (clientX: number, clientY: number) => {
+    const progressAt = (clientX: number, clientY: number) => {
       const current = drawableRef.current;
-      if (!current.length) return;
+      if (!current.length) return null;
       const rect = map.getContainer().getBoundingClientRect();
       const x = clientX - rect.left;
       const y = clientY - rect.top;
@@ -163,21 +170,41 @@ export function ChaseTrackMap({
         );
         if (candidate.distance < best.distance) best = candidate;
       }
-      onProgressRef.current?.(best.progress);
+      return best.progress;
     };
 
     const onClick = (event: maplibregl.MapMouseEvent) => {
-      scrubAt(event.originalEvent.clientX, event.originalEvent.clientY);
+      const progress = progressAt(
+        event.originalEvent.clientX,
+        event.originalEvent.clientY,
+      );
+      if (progress == null) return;
+      onPreviewProgressRef.current?.(null);
+      onProgressRef.current?.(progress);
     };
     const onMove = (event: maplibregl.MapMouseEvent) => {
+      const progress = progressAt(
+        event.originalEvent.clientX,
+        event.originalEvent.clientY,
+      );
+      if (progress == null) return;
       if (event.originalEvent.buttons === 1) {
-        scrubAt(event.originalEvent.clientX, event.originalEvent.clientY);
+        onPreviewProgressRef.current?.(null);
+        onProgressRef.current?.(progress);
+        return;
       }
+      onPreviewProgressRef.current?.(progress);
+    };
+    const onLeave = () => {
+      onPreviewProgressRef.current?.(null);
     };
     map.on("click", onClick);
     map.on("mousemove", onMove);
+    const container = map.getContainer();
+    container.addEventListener("mouseleave", onLeave);
 
     return () => {
+      container.removeEventListener("mouseleave", onLeave);
       markersRef.current.forEach((marker) => marker.remove());
       markersRef.current = [];
       map.remove();
@@ -240,7 +267,7 @@ export function ChaseTrackMap({
     const map = mapRef.current;
     if (!map || !drawable.length) return;
 
-    const progress = activeProgress ?? 0;
+    const progress = previewProgress ?? activeProgress ?? 0;
     const zoom = clampChaseZoom(prefs.chaseZoom);
 
     const samples = drawable.map((trace) => {
@@ -338,7 +365,14 @@ export function ChaseTrackMap({
         });
       }
     }
-  }, [activeProgress, drawable, prefs.chaseZoom, prefs.followId, pitch]);
+  }, [
+    activeProgress,
+    previewProgress,
+    drawable,
+    prefs.chaseZoom,
+    prefs.followId,
+    pitch,
+  ]);
 
   // Expose raw bearing helper for tests without pulling map.
   void bearingAtProgress;

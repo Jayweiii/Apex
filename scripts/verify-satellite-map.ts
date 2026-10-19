@@ -37,7 +37,11 @@ assert(leaflet.includes("divIcon") || leaflet.includes("apex-car-marker"), "HTML
 assert(leaflet.includes("apex-car-marker__dot--ring") || leaflet.includes('"ring"'), "ring vs filled markers");
 assert(leaflet.includes("separateScrubPositions"), "overlap separation");
 assert(leaflet.includes("gapLabelIcon") || leaflet.includes("apex-car-marker__gap"), "gap label");
-assert(leaflet.includes("mousemove"), "map scrub on move");
+assert(leaflet.includes("mousemove"), "map hover preview on move");
+assert(
+  leaflet.includes("onPreviewProgress") || leaflet.includes("previewProgress"),
+  "map hover is preview-only (no seek)",
+);
 
 const globals = readFileSync(resolve(root, "src/app/globals.css"), "utf8");
 assert(

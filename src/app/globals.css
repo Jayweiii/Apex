@@ -98,6 +98,12 @@ video {
   transform: rotate(45deg);
 }
 
+/* Hover preview — translucent ghost; playback marker stays solid. */
+.apex-car-marker__dot--ghost {
+  opacity: 0.45;
+  box-shadow: none;
+}
+
 /* Chase map: slightly smaller markers stay readable when zoomed in. */
 .apex-car-marker__dot--chase {
   width: 8px;

@@ -17,32 +17,47 @@ export function indexFromClientX(
   return Math.round(fraction * (length - 1));
 }
 
+export type ChartScrubHandlers = {
+  /** Hover / touch-move without press — preview only (cursor, readout, ghost). */
+  onPreviewIndex?: (index: number | null) => void;
+  /** Click or drag — seeks playback + synced video. */
+  onSeekIndex?: (index: number | null) => void;
+};
+
 /**
- * Bind pointer scrub so chart hover updates shared cursor even when Recharts
- * onMouseMove / activeTooltipIndex is missing (common with number axes).
+ * Bind pointer scrub so charts can preview on hover and seek only on
+ * click/drag. Hover must never drive video/playback.
  */
-export function bindChartScrub(
-  length: number,
-  onHoverIndex?: (index: number | null) => void,
-) {
-  const scrubAt = (event: ReactPointerEvent<HTMLDivElement>) => {
+export function bindChartScrub(length: number, handlers?: ChartScrubHandlers) {
+  const previewAt = (event: ReactPointerEvent<HTMLDivElement>) => {
     const index = indexFromClientX(
       event.clientX,
       event.currentTarget,
       length,
     );
-    if (index != null) onHoverIndex?.(index);
+    if (index != null) handlers?.onPreviewIndex?.(index);
+  };
+
+  const seekAt = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const index = indexFromClientX(
+      event.clientX,
+      event.currentTarget,
+      length,
+    );
+    if (index != null) handlers?.onSeekIndex?.(index);
   };
 
   return {
-    onMouseLeave: () => onHoverIndex?.(null),
-    onTouchEnd: () => onHoverIndex?.(null),
-    onTouchCancel: () => onHoverIndex?.(null),
-    onPointerDown: scrubAt,
-    // Only scrub while a button is held — hover must not seek/play video.
+    onMouseLeave: () => handlers?.onPreviewIndex?.(null),
+    onTouchEnd: () => handlers?.onPreviewIndex?.(null),
+    onTouchCancel: () => handlers?.onPreviewIndex?.(null),
+    onPointerDown: seekAt,
     onPointerMove: (event: ReactPointerEvent<HTMLDivElement>) => {
-      if (event.buttons === 0) return;
-      scrubAt(event);
+      if (event.buttons !== 0) {
+        seekAt(event);
+        return;
+      }
+      previewAt(event);
     },
   };
 }
