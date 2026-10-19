@@ -7,10 +7,9 @@ const SYNCED_SOURCES: ReadonlySet<VideoSyncSource> = new Set([
   "manual",
   "auto",
   "time_of_day",
-  "lap_match",
 ]);
 
-/** True when the clip has a saved point-match (or other) sync, not only an attach. */
+/** True when the clip has a real start-line sync, not only an attach. */
 export function isVideoSynced(
   video: Pick<SessionVideo, "syncSource"> | null | undefined,
 ): boolean {
@@ -31,8 +30,8 @@ export function syncBadgeForVideo(
 }
 
 /**
- * Point-match: offset so this video frame aligns with absolute session time.
- * `offsetSec = videoTime - telemetrySessionTime` (rate = 1).
+ * Point-match helper (optional advanced): offset so this video frame aligns
+ * with absolute session time. `offsetSec = videoTime - telemetrySessionTime`.
  */
 export function offsetFromPointMatch(
   videoTime: number,
@@ -82,25 +81,19 @@ export function guessOffsetFromClipLength(
 export type SyncGuideStep = 1 | 2 | 3 | 4;
 
 export const SYNC_GUIDE_STEPS: Array<{ id: SyncGuideStep; label: string }> = [
-  { id: 1, label: "Pick lap + paste YouTube" },
-  { id: 2, label: "Click a moment on the speed chart" },
-  { id: 3, label: "Pause video at that same moment" },
-  { id: 4, label: "Sync here" },
+  { id: 1, label: "Paste YouTube link" },
+  { id: 2, label: "Mark start line" },
+  { id: 3, label: "Check the sync" },
+  { id: 4, label: "Saved" },
 ];
 
-/**
- * Which stepper step to highlight.
- * - 1: no clip yet
- * - 2: clip attached, telemetry pin not set
- * - 3: pin set, waiting for Sync here
- * - 4: already synced (or just saved)
- */
+/** Which stepper step to highlight given current video state. */
 export function syncGuideStepForVideo(
   video: SessionVideo | null | undefined,
-  options?: { telemetryPinned?: boolean; justSaved?: boolean },
+  options?: { justSaved?: boolean },
 ): SyncGuideStep {
   if (!video?.youtubeId && video?.provider !== "mp4") return 1;
-  if (options?.justSaved || isVideoSynced(video)) return 4;
-  if (options?.telemetryPinned) return 3;
-  return 2;
+  if (options?.justSaved) return 4;
+  if (!isVideoSynced(video)) return 2;
+  return 3;
 }

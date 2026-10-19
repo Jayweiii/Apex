@@ -27,19 +27,26 @@ function videoMark(
   lapId: string,
   dedicated: Set<string>,
   sessionVideo: boolean,
+  syncedLapIds?: Set<string>,
 ): { text: string; className: string; title: string } | null {
   if (dedicated.has(lapId)) {
+    const synced = syncedLapIds?.has(lapId) ?? false;
     return {
-      text: "YT",
-      className: "text-orange-400",
-      title: "Dedicated YouTube for this lap",
+      text: synced ? "Synced" : "Not synced",
+      className: synced ? "text-emerald-300" : "text-orange-300",
+      title: synced
+        ? "YouTube attached and start line synced"
+        : "YouTube attached — mark start line to sync",
     };
   }
   if (sessionVideo) {
+    const synced = syncedLapIds?.has("__session__") ?? false;
     return {
-      text: "sess",
-      className: "text-zinc-500",
-      title: "Session-level YouTube",
+      text: synced ? "Synced" : "sess",
+      className: synced ? "text-emerald-300" : "text-zinc-500",
+      title: synced
+        ? "Session-level YouTube is synced"
+        : "Session-level YouTube — open a lap to sync",
     };
   }
   return null;
@@ -50,6 +57,7 @@ export function LapList({
   selectedId,
   onSelect,
   videoLapIds,
+  syncedLapIds,
   sessionVideo = false,
   canEdit = false,
   onExcludeChange,
@@ -61,6 +69,8 @@ export function LapList({
   onSelect?: (lap: LapRow) => void;
   /** Lap ids with a dedicated YouTube clip. */
   videoLapIds?: Set<string> | string[];
+  /** Lap ids whose video syncSource is intentional (manual/auto/time_of_day). */
+  syncedLapIds?: Set<string> | string[];
   /** Session-level video covers all laps. */
   sessionVideo?: boolean;
   /** Session owner — show exclude icon per row. */
@@ -71,6 +81,7 @@ export function LapList({
   const fastest = bestLapTimeMs(laps);
   const flags = suspicionByLapId(laps);
   const dedicated = toDedicatedSet(videoLapIds);
+  const synced = toDedicatedSet(syncedLapIds);
   const gridCols = canEdit
     ? "grid-cols-[3rem_1fr_auto_auto_auto] sm:grid-cols-[3.5rem_1fr_auto_auto_auto]"
     : "grid-cols-[3.5rem_1fr_auto_auto] sm:grid-cols-[4rem_1fr_auto_auto]";
@@ -96,7 +107,7 @@ export function LapList({
             !excluded && fastest != null ? lap.lap_time_ms - fastest : null;
           const selected = selectedId === lap.id;
           const busy = excludeBusyId === lap.id;
-          const vid = videoMark(lap.id, dedicated, sessionVideo);
+          const vid = videoMark(lap.id, dedicated, sessionVideo, synced);
           const rowClass = `grid min-h-12 w-full items-center gap-x-2 px-3 py-2.5 text-left transition sm:px-4 ${gridCols} ${
             excluded ? "opacity-45" : ""
           } ${
@@ -215,16 +226,19 @@ export function LapChips({
   selectedId,
   onSelect,
   videoLapIds,
+  syncedLapIds,
   sessionVideo = false,
 }: {
   laps: LapRow[];
   selectedId?: string | null;
   onSelect: (lap: LapRow) => void;
   videoLapIds?: Set<string> | string[];
+  syncedLapIds?: Set<string> | string[];
   sessionVideo?: boolean;
 }) {
   const fastest = bestLapTimeMs(laps);
   const dedicated = toDedicatedSet(videoLapIds);
+  const synced = toDedicatedSet(syncedLapIds);
 
   return (
     <div
@@ -237,7 +251,7 @@ export function LapChips({
         const excluded = isLapExcluded(lap);
         const isFastest =
           !excluded && fastest != null && lap.lap_time_ms === fastest;
-        const vid = videoMark(lap.id, dedicated, sessionVideo);
+        const vid = videoMark(lap.id, dedicated, sessionVideo, synced);
         return (
           <button
             key={lap.id}
