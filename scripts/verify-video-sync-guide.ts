@@ -1,7 +1,11 @@
+/**
+ * Guided sync UI helpers — point-matching stepper (Jason).
+ */
 import {
   formatOffsetReadout,
   guessOffsetFromClipLength,
   isVideoSynced,
+  offsetFromPointMatch,
   SYNC_GUIDE_STEPS,
   syncBadgeForVideo,
   syncGuideStepForVideo,
@@ -50,9 +54,12 @@ const guessed = guessOffsetFromClipLength(140, 120_000, 0);
 assert(guessed != null && Math.abs(guessed - 10) < 1e-9, `guess ${guessed}`);
 assert(guessOffsetFromClipLength(null, 120_000, 0) == null, "no duration");
 
-assert(SYNC_GUIDE_STEPS[0].label.includes("Paste"), "step1");
-assert(SYNC_GUIDE_STEPS[1].label.includes("Mark start"), "step2");
-assert(SYNC_GUIDE_STEPS[2].label.includes("Check"), "step3");
+assert(Math.abs(offsetFromPointMatch(42.5, 10) - 32.5) < 1e-9, "point match");
+
+assert(SYNC_GUIDE_STEPS[0].label.includes("Pick lap"), "step1");
+assert(SYNC_GUIDE_STEPS[1].label.includes("speed chart"), "step2");
+assert(SYNC_GUIDE_STEPS[2].label.includes("Pause video"), "step3");
+assert(SYNC_GUIDE_STEPS[3].label === "Sync here", "step4");
 
 const bare: SessionVideo = {
   id: "1",
@@ -62,10 +69,14 @@ const bare: SessionVideo = {
   syncSource: "unsynced",
 };
 assert(syncGuideStepForVideo(null) === 1, "step paste");
-assert(syncGuideStepForVideo(bare) === 2, "step mark");
+assert(syncGuideStepForVideo(bare) === 2, "step pin chart");
 assert(
-  syncGuideStepForVideo({ ...bare, syncSource: "manual", offsetSec: 4 }) === 3,
-  "step check",
+  syncGuideStepForVideo(bare, { telemetryPinned: true }) === 3,
+  "step pause video",
+);
+assert(
+  syncGuideStepForVideo({ ...bare, syncSource: "manual", offsetSec: 4 }) === 4,
+  "step synced",
 );
 assert(
   syncGuideStepForVideo(bare, { justSaved: true }) === 4,
@@ -76,9 +87,11 @@ const guideSrc = readFileSync(
   resolve(import.meta.dirname, "../src/components/video/LapVideoSyncGuide.tsx"),
   "utf8",
 );
-assert(guideSrc.includes("Mark start line here"), "big mark button");
+assert(guideSrc.includes("Sync here"), "big sync button");
+assert(!guideSrc.includes("Mark start line here"), "no start-line CTA");
 assert(guideSrc.includes("How syncing works"), "help link");
 assert(guideSrc.includes("Auto-guess"), "auto-guess");
 assert(guideSrc.includes("Play map + video"), "check play");
+assert(guideSrc.includes("offsetFromPointMatch") || guideSrc.includes("offset = video"), "point math");
 
 console.log("verify-video-sync-guide: ok");
