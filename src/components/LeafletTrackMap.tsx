@@ -192,7 +192,7 @@ function separateScrubPositions(
 const MAP_HEIGHT = {
   default: "h-[65vh] min-h-[320px] sm:min-h-[420px]",
   compact: "h-[220px] min-h-[180px] sm:h-[280px]",
-  /** Fill a flex panel in the one-screen session dashboard. */
+  /** Fill a sized parent (prefer compact fixed heights for page scroll). */
   panel: "h-full min-h-[120px]",
 } as const;
 

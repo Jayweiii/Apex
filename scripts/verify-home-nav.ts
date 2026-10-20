@@ -58,8 +58,12 @@ assert(
 
 const session = read("src/components/CloudSessionView.tsx");
 assert(
-  session.includes('layout="workspace"') || session.includes("100dvh"),
-  "session one-screen workspace",
+  session.includes('layout="workspace"'),
+  "session workspace two-column layout",
+);
+assert(
+  session.includes("min-h-dvh") && !session.includes("overflow-hidden"),
+  "session page scrolls naturally (no h-dvh overflow trap)",
 );
 assert(session.includes("SessionLapDetail"), "in-place lap detail");
 assert(session.includes("useSessionLapSelection"), "lap query selection");
@@ -104,9 +108,10 @@ assert(
   "compare stacked telemetry (no tabs)",
 );
 assert(!compare.includes("setChartPanel"), "compare has no chart tabs");
+assert(compare.includes("lg:grid-cols"), "compare side-by-side on desktop");
 assert(
-  compare.includes("lg:grid-cols") || compare.includes("100dvh"),
-  "compare one-screen / side-by-side",
+  !compare.includes("overflow-y-auto"),
+  "compare has no nested overflow panes",
 );
 
 const trackDetail = read("src/components/TrackDirectory.tsx");

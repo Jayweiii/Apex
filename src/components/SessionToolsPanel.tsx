@@ -161,7 +161,7 @@ export function SessionToolsPanel({
           id={`${baseId}-panel`}
           role="region"
           aria-label={`${current.label} tools`}
-          className="mt-2 max-h-[min(36vh,16rem)] overflow-y-auto rounded-xl border border-zinc-800/80 bg-zinc-950/80 p-3 sm:max-h-[min(50vh,24rem)]"
+          className="mt-2 rounded-xl border border-zinc-800/80 bg-zinc-950/80 p-3"
         >
           <div className="mb-2 flex items-center justify-between gap-2">
             <p className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">

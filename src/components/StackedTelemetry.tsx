@@ -66,12 +66,12 @@ export function StackedLapTelemetry({
   const hasSpeed = channels.includes("speed");
 
   // Speed stays dominant; other channels keep fixed min heights (no flex
-  // slivers). Stack scrolls when the viewport is short.
+  // slivers). Page scrolls — no nested overflow pane.
   // HoverCursorScope: pointer-x SoT, dashed hover lines via rAF, leave only
   // clears when leaving the whole stack (no inter-chart flicker).
   return (
     <HoverCursorScope
-      className={`flex min-h-0 flex-col gap-2 overflow-y-auto ${className ?? ""}`}
+      className={`flex flex-col gap-2 ${className ?? ""}`}
       playbackIndex={activeIndex}
       onPreviewIndex={onPreviewIndex}
     >

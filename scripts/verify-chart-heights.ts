@@ -23,7 +23,14 @@ assert(
 );
 
 const stacked = read("src/components/StackedTelemetry.tsx");
-assert(stacked.includes("overflow-y-auto"), "stacked telemetry scrolls");
+assert(
+  stacked.includes("min-h-[160px]") || stacked.includes("sm:min-h-[200px]"),
+  "stacked speed keeps real min height",
+);
+assert(
+  !stacked.includes("overflow-y-auto"),
+  "stacked telemetry uses page scroll (no nested overflow pane)",
+);
 assert(
   !stacked.includes("basis-[40%]"),
   "removed flex-basis squashing that made sliver charts",

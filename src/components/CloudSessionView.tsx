@@ -846,7 +846,7 @@ export function CloudSessionView({ id }: { id: string }) {
   );
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden">
+    <div className="flex min-h-dvh flex-col">
       <AppHeader email={email} />
       {mine ? (
         <UnsavedChangesBar
@@ -858,8 +858,8 @@ export function CloudSessionView({ id }: { id: string }) {
           onDiscard={discardEdits}
         />
       ) : null}
-      <main className="mx-auto flex min-h-0 w-full max-w-[90rem] flex-1 flex-col overflow-hidden px-3 py-1.5 sm:px-4">
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 pb-1.5">
+      <main className="mx-auto w-full max-w-[90rem] flex-1 px-3 py-1.5 pb-8 sm:px-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 pb-1.5">
           <div className="min-w-0">
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
               <Link
@@ -893,7 +893,7 @@ export function CloudSessionView({ id }: { id: string }) {
         </div>
 
         {mine ? (
-          <div className="mb-2 shrink-0 space-y-2">
+          <div className="mb-2 space-y-2">
             <div
               className="flex flex-wrap gap-1.5"
               role="toolbar"
@@ -990,13 +990,13 @@ export function CloudSessionView({ id }: { id: string }) {
         ) : null}
 
         {unsplit && !reparseOpen ? (
-          <div className="shrink-0 pb-2 lg:hidden">
+          <div className="pb-2 lg:hidden">
             <UnsplitLapsBanner onClick={openReparse} />
           </div>
         ) : null}
 
         {laps.length ? (
-          <div className="shrink-0 pb-2 lg:hidden">
+          <div className="pb-2 lg:hidden">
             <LapChips
               laps={laps}
               selectedId={selected?.id}
@@ -1008,61 +1008,59 @@ export function CloudSessionView({ id }: { id: string }) {
           </div>
         ) : null}
 
-        <div className="min-h-0 flex-1 overflow-y-auto lg:overflow-hidden">
-          {selectedRow ? (
-            <SessionLapDetail
-              key={`lap-detail-${lapsEpoch}-${selectedRow.id}-${selectedRow.start_offset_sec ?? 0}-${selectedRow.lap_time_ms}`}
-              sessionId={session.id}
-              layout="workspace"
-              sidebar={lapSidebar}
-              extraToolTabs={sessionToolTabs}
-              toolsOpenRequest={toolsOpenRequest}
-              toolsShowButtons={false}
-              lap={{
-                id: selectedRow.id,
-                lap_number: selectedRow.lap_number,
-                lap_time_ms: selectedRow.lap_time_ms,
-                start_offset_sec: selectedRow.start_offset_sec,
-                telemetry: (selectedRow.telemetry ?? []) as TelemetryPoint[],
-                excluded: selectedRow.excluded ?? false,
-                exclude_reason: selectedRow.exclude_reason ?? null,
-                start_offset_override:
-                  selectedRow.start_offset_override ?? null,
-                end_offset_override: selectedRow.end_offset_override ?? null,
-              }}
-              siblingLaps={detailLaps}
-              videos={videos}
-              videoParam={videoParam}
-              trackId={session.track_id}
-              sessionStartedAtMs={
-                Number.isFinite(startedAtMs) ? startedAtMs : undefined
-              }
-              canEdit={mine}
-              onExcludeChange={mine ? onExcludeChange : undefined}
-              onTrimChange={mine ? onTrimChange : undefined}
-              onTrimReset={mine ? onTrimReset : undefined}
-              onMergeNext={mine ? onMergeNext : undefined}
-              onSplit={mine ? onSplit : undefined}
-              onVideoChange={
-                mine
-                  ? (next) => {
-                      setVideos((prev) => {
-                        const exists = prev.some((v) => v.id === next.id);
-                        return exists
-                          ? prev.map((v) => (v.id === next.id ? next : v))
-                          : [...prev, next];
-                      });
-                      markDirty();
-                    }
-                  : undefined
-              }
-            />
-          ) : laps.length ? (
-            <p className="text-sm text-zinc-500">Select a lap to view.</p>
-          ) : (
-            lapSidebar
-          )}
-        </div>
+        {selectedRow ? (
+          <SessionLapDetail
+            key={`lap-detail-${lapsEpoch}-${selectedRow.id}-${selectedRow.start_offset_sec ?? 0}-${selectedRow.lap_time_ms}`}
+            sessionId={session.id}
+            layout="workspace"
+            sidebar={lapSidebar}
+            extraToolTabs={sessionToolTabs}
+            toolsOpenRequest={toolsOpenRequest}
+            toolsShowButtons={false}
+            lap={{
+              id: selectedRow.id,
+              lap_number: selectedRow.lap_number,
+              lap_time_ms: selectedRow.lap_time_ms,
+              start_offset_sec: selectedRow.start_offset_sec,
+              telemetry: (selectedRow.telemetry ?? []) as TelemetryPoint[],
+              excluded: selectedRow.excluded ?? false,
+              exclude_reason: selectedRow.exclude_reason ?? null,
+              start_offset_override:
+                selectedRow.start_offset_override ?? null,
+              end_offset_override: selectedRow.end_offset_override ?? null,
+            }}
+            siblingLaps={detailLaps}
+            videos={videos}
+            videoParam={videoParam}
+            trackId={session.track_id}
+            sessionStartedAtMs={
+              Number.isFinite(startedAtMs) ? startedAtMs : undefined
+            }
+            canEdit={mine}
+            onExcludeChange={mine ? onExcludeChange : undefined}
+            onTrimChange={mine ? onTrimChange : undefined}
+            onTrimReset={mine ? onTrimReset : undefined}
+            onMergeNext={mine ? onMergeNext : undefined}
+            onSplit={mine ? onSplit : undefined}
+            onVideoChange={
+              mine
+                ? (next) => {
+                    setVideos((prev) => {
+                      const exists = prev.some((v) => v.id === next.id);
+                      return exists
+                        ? prev.map((v) => (v.id === next.id ? next : v))
+                        : [...prev, next];
+                    });
+                    markDirty();
+                  }
+                : undefined
+            }
+          />
+        ) : laps.length ? (
+          <p className="text-sm text-zinc-500">Select a lap to view.</p>
+        ) : (
+          lapSidebar
+        )}
       </main>
     </div>
   );

@@ -122,7 +122,10 @@ assert(
   stackedSrc.includes("min-h-[160px]") || stackedSrc.includes("sm:min-h-[200px]"),
   "speed channel should keep a solid min height (no flex sliver)",
 );
-assert(stackedSrc.includes("overflow-y-auto"), "stack scrolls instead of squashing");
+assert(
+  !stackedSrc.includes("overflow-y-auto"),
+  "stack uses page scroll instead of nested overflow / squashing",
+);
 assert(stackedSrc.includes("fill"), "speed chart should fill its flex slot");
 
 const gChartSrc = fs.readFileSync(

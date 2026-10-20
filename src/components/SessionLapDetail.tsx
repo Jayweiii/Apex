@@ -324,16 +324,12 @@ export function SessionLapDetail({
 
   return (
     <section
-      className={
-        workspace
-          ? "flex h-full min-h-0 flex-col gap-2"
-          : "space-y-4"
-      }
+      className={workspace ? "flex flex-col gap-2" : "space-y-4"}
       aria-label={`Lap ${lap.lap_number}`}
     >
       <div
         className={`flex flex-wrap items-end justify-between gap-2 ${
-          workspace ? "shrink-0" : "gap-3"
+          workspace ? "" : "gap-3"
         }`}
       >
         <div>
@@ -374,7 +370,7 @@ export function SessionLapDetail({
         </div>
       </div>
 
-      <div className={workspace ? "min-h-0 flex-1" : undefined}>
+      <div>
         <SyncedLapView
           sessionId={sessionId}
           layout={layout}

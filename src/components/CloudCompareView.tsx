@@ -324,10 +324,10 @@ export function CloudCompareView({
   }
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden">
+    <div className="flex min-h-dvh flex-col">
       <AppHeader email={email} />
-      <main className="mx-auto flex min-h-0 w-full max-w-[90rem] flex-1 flex-col overflow-hidden px-3 py-1.5 sm:px-4">
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 pb-1.5">
+      <main className="mx-auto w-full max-w-[90rem] flex-1 px-3 py-1.5 pb-8 sm:px-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 pb-1.5">
           <div className="min-w-0">
             <Link
               href={`/sessions/${session.id}`}
@@ -344,18 +344,16 @@ export function CloudCompareView({
           </div>
           <SaveComparisonControls draft={draft} />
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto lg:overflow-hidden">
-          <LapCompare
-            laps={currentLaps}
-            sessions={compareSessions}
-            initialRef={initialRef}
-            initialOther={initialOther}
-            initialOtherSession={initialOtherSession}
-            initialLaps={initialLaps}
-            initialTrackId={session.track_id ?? undefined}
-            onDraftChange={onDraftChange}
-          />
-        </div>
+        <LapCompare
+          laps={currentLaps}
+          sessions={compareSessions}
+          initialRef={initialRef}
+          initialOther={initialOther}
+          initialOtherSession={initialOtherSession}
+          initialLaps={initialLaps}
+          initialTrackId={session.track_id ?? undefined}
+          onDraftChange={onDraftChange}
+        />
       </main>
     </div>
   );

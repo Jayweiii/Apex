@@ -712,7 +712,7 @@ export function LapCompare({
   );
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2 lg:overflow-hidden">
+    <div className="flex flex-col gap-2">
       <SessionToolsPanel
         tabs={[
           { id: "setup", label: "Laps", content: setupPanel },
@@ -728,7 +728,7 @@ export function LapCompare({
         </p>
       ) : (
         <>
-          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-xl border border-zinc-800/80 bg-zinc-950/50 px-3 py-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-zinc-800/80 bg-zinc-950/50 px-3 py-2">
             <div className="min-w-0">
               <p className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">
                 vs reference
@@ -769,8 +769,8 @@ export function LapCompare({
             </div>
           </div>
 
-          <div className="grid min-h-0 flex-1 grid-cols-1 gap-2 overflow-y-auto lg:grid-cols-[minmax(220px,0.85fr)_minmax(0,1.25fr)] lg:overflow-hidden">
-            <aside className="flex min-h-[180px] flex-col lg:h-full lg:min-h-0">
+          <div className="grid grid-cols-1 gap-2 lg:grid-cols-[minmax(220px,0.85fr)_minmax(0,1.25fr)] lg:items-start">
+            <aside className="flex min-h-[180px] flex-col">
               {showMap ? (
                 <TrackMap
                   traces={mapTraces}
@@ -790,19 +790,18 @@ export function LapCompare({
                   }
                   analysisDisabled={!hasAnalysisSnap}
                   defaultFollowId={ordered[0]?.lap.id}
-                  panel
                   compact
                   hideCameraControls
                 />
               ) : (
-                <div className="flex h-full items-center">
+                <div className="flex items-center">
                   <MissingGps />
                 </div>
               )}
             </aside>
 
-            <div className="flex min-h-0 flex-col gap-2 lg:h-full lg:min-h-0 lg:overflow-hidden">
-              <div className="shrink-0">
+            <div className="flex flex-col gap-2">
+              <div>
                 <DualSessionVideos
                   sides={videoSides}
                   progress={progress}
@@ -813,8 +812,8 @@ export function LapCompare({
                   compact
                 />
               </div>
-              <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain">
-              <p className="shrink-0 text-[10px] uppercase tracking-[0.16em] text-zinc-500">
+              <div className="flex flex-col gap-2">
+              <p className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">
                 Telemetry · all channels
               </p>
 
@@ -1251,7 +1250,7 @@ function LapChipPicker({
         />
       ) : null}
       <div
-        className="flex max-h-28 flex-wrap gap-1 overflow-y-auto"
+        className="flex flex-wrap gap-1"
         role="listbox"
         aria-label="Lap"
       >
@@ -1286,8 +1285,7 @@ function LapChipPicker({
 }
 
 /**
- * Fixed plot height so Recharts ResponsiveContainer never collapses to 0
- * inside a flex + min-h-0 scroll column.
+ * Fixed plot height so Recharts ResponsiveContainer never collapses to 0.
  */
 function ChartCard({
   title,

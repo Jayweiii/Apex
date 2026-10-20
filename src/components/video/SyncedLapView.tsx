@@ -599,7 +599,6 @@ export function SyncedLapView({
       previewProgress={previewProgress}
       onPreviewProgress={setPreviewProgress}
       onProgress={setProgressFromUi}
-      panel={workspace}
       compact={workspace}
       hideCameraControls={workspace}
       {...mapProps}
@@ -727,28 +726,24 @@ export function SyncedLapView({
 
   if (workspace) {
     return (
-      <div
-        ref={rootRef}
-        tabIndex={0}
-        className="flex h-full min-h-0 flex-col outline-none"
-      >
-        <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-[minmax(220px,0.85fr)_minmax(0,1.35fr)] lg:gap-3">
-          <aside className="flex min-h-0 flex-col gap-2 lg:h-full">
-            <div className="min-h-[180px] flex-[1.15] lg:min-h-0">{mapBlock}</div>
+      <div ref={rootRef} tabIndex={0} className="flex flex-col gap-3 outline-none">
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(220px,0.85fr)_minmax(0,1.35fr)] lg:items-start lg:gap-3">
+          <aside className="flex flex-col gap-2">
+            <div className="min-h-[180px]">{mapBlock}</div>
             {sidebar ? (
-              <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-zinc-800/80 bg-zinc-950/40">
-                <div className="min-h-0 flex-1 overflow-y-auto">{sidebar}</div>
+              <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/40">
+                {sidebar}
               </div>
             ) : null}
           </aside>
 
-          <section className="flex min-h-0 flex-col gap-2 lg:h-full">
-            <div className="shrink-0">
+          <section className="flex flex-col gap-2">
+            <div>
               {videoBlock}
               {metaRow}
             </div>
-            <div className="shrink-0">{playbackBar}</div>
-            <div className="min-h-0 flex-1 overflow-hidden">{telemetry}</div>
+            <div>{playbackBar}</div>
+            <div>{telemetry}</div>
           </section>
         </div>
 

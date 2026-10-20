@@ -246,10 +246,10 @@ export function LocalCompare({
       : [];
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden">
+    <div className="flex min-h-dvh flex-col">
       <AppHeader />
-      <main className="mx-auto flex min-h-0 w-full max-w-[90rem] flex-1 flex-col overflow-hidden px-3 py-1.5 sm:px-4">
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 pb-1.5">
+      <main className="mx-auto w-full max-w-[90rem] flex-1 px-3 py-1.5 pb-8 sm:px-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 pb-1.5">
           <div className="min-w-0">
             <Link
               href={`/sessions/${session.id}`}
@@ -268,41 +268,39 @@ export function LocalCompare({
             <SaveComparisonControls draft={draft} />
           </div>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto lg:overflow-hidden">
-          <LapCompare
-            laps={laps}
-            sessions={compareSessions}
-            initialRef={initialRef}
-            initialOther={initialOther}
-            initialOtherSession={initialOtherSession}
-            initialLaps={initialLaps}
-            initialTrackId={session.trackId}
-            onDraftChange={onDraftChange}
-            extraToolTabs={[
-              {
-                id: "notes",
-                label: "Notes",
-                content: (
-                  <div className="space-y-3">
-                    <SessionNotes session={session} />
-                    <AttributionCard
-                      kind={session.kind ?? "upload"}
-                      attribution={session.attribution}
-                      compact
+        <LapCompare
+          laps={laps}
+          sessions={compareSessions}
+          initialRef={initialRef}
+          initialOther={initialOther}
+          initialOtherSession={initialOtherSession}
+          initialLaps={initialLaps}
+          initialTrackId={session.trackId}
+          onDraftChange={onDraftChange}
+          extraToolTabs={[
+            {
+              id: "notes",
+              label: "Notes",
+              content: (
+                <div className="space-y-3">
+                  <SessionNotes session={session} />
+                  <AttributionCard
+                    kind={session.kind ?? "upload"}
+                    attribution={session.attribution}
+                    compact
+                  />
+                  {corners.length ? (
+                    <CornerBreakdownTable
+                      corners={corners}
+                      referenceLabel={`Lap ${refLap?.lap_number}`}
+                      otherLabel={`Lap ${otherLap?.lap_number}`}
                     />
-                    {corners.length ? (
-                      <CornerBreakdownTable
-                        corners={corners}
-                        referenceLabel={`Lap ${refLap?.lap_number}`}
-                        otherLabel={`Lap ${otherLap?.lap_number}`}
-                      />
-                    ) : null}
-                  </div>
-                ),
-              },
-            ]}
-          />
-        </div>
+                  ) : null}
+                </div>
+              ),
+            },
+          ]}
+        />
       </main>
     </div>
   );
@@ -763,7 +761,7 @@ export function LocalSession({ id }: { id: string }) {
   );
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden">
+    <div className="flex min-h-dvh flex-col">
       <AppHeader />
       <UnsavedChangesBar
         dirty={dirty}
@@ -772,8 +770,8 @@ export function LocalSession({ id }: { id: string }) {
         onSave={saveEdits}
         onDiscard={discardEdits}
       />
-      <main className="mx-auto flex min-h-0 w-full max-w-[90rem] flex-1 flex-col overflow-hidden px-3 py-1.5 sm:px-4">
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 pb-1.5">
+      <main className="mx-auto w-full max-w-[90rem] flex-1 px-3 py-1.5 pb-8 sm:px-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 pb-1.5">
           <div className="min-w-0">
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
               <Link
@@ -807,7 +805,7 @@ export function LocalSession({ id }: { id: string }) {
           </div>
         </div>
 
-        <div className="mb-2 shrink-0 space-y-2">
+        <div className="mb-2 space-y-2">
           <div
             className="flex flex-wrap gap-1.5"
             role="toolbar"
@@ -891,13 +889,13 @@ export function LocalSession({ id }: { id: string }) {
         </div>
 
         {unsplit && !reparseOpen ? (
-          <div className="shrink-0 pb-2 lg:hidden">
+          <div className="pb-2 lg:hidden">
             <UnsplitLapsBanner onClick={openReparse} />
           </div>
         ) : null}
 
         {laps.length ? (
-          <div className="shrink-0 pb-2 lg:hidden">
+          <div className="pb-2 lg:hidden">
             <LapChips
               laps={laps}
               selectedId={selected?.id}
@@ -908,70 +906,68 @@ export function LocalSession({ id }: { id: string }) {
           </div>
         ) : null}
 
-        <div className="min-h-0 flex-1 overflow-y-auto lg:overflow-hidden">
-          {selectedLap ? (
-            <SessionLapDetail
-              sessionId={session.id}
-              layout="workspace"
-              sidebar={lapSidebar}
-              extraToolTabs={localToolTabs}
-              toolsOpenRequest={toolsOpenRequest}
-              toolsShowButtons={false}
-              lap={{
-                id: selectedLap.id,
-                lap_number: selectedLap.lap_number,
-                lap_time_ms: selectedLap.lap_time_ms,
-                start_offset_sec: selectedLap.start_offset_sec,
-                telemetry: selectedLap.telemetry,
-                excluded: selectedLap.excluded ?? false,
-                exclude_reason: selectedLap.exclude_reason ?? null,
-                start_offset_override:
-                  selectedLap.start_offset_override ?? null,
-                end_offset_override: selectedLap.end_offset_override ?? null,
-              }}
-              siblingLaps={workingLaps.map((item) => ({
-                id: item.id,
-                lap_number: item.lap_number,
-                lap_time_ms: item.lap_time_ms,
-                start_offset_sec: item.start_offset_sec,
-                telemetry: item.telemetry,
-                excluded: item.excluded ?? false,
-                exclude_reason: item.exclude_reason ?? null,
-                start_offset_override: item.start_offset_override ?? null,
-                end_offset_override: item.end_offset_override ?? null,
-              }))}
-              videos={youtubeVideos}
-              videoParam={videoParam}
-              trackId={session.trackId}
-              sessionStartedAtMs={session.startedAtMs}
-              canEdit
-              onExcludeChange={onExcludeChange}
-              onTrimChange={onTrimChange}
-              onTrimReset={onTrimReset}
-              onMergeNext={onMergeNext}
-              onSplit={onSplit}
-              onVideoChange={
-                session.kind === "upload"
-                  ? (next) => {
-                      const base = draftVideos ?? session.videos ?? [];
-                      const nextVideos = base.map((item) =>
-                        item.id === next.id ? next : item,
-                      );
-                      if (!nextVideos.some((item) => item.id === next.id)) {
-                        nextVideos.push(next);
-                      }
-                      setDraftVideos(
-                        nextVideos.filter((v) => v.provider === "youtube"),
-                      );
-                      setDirty(true);
+        {selectedLap ? (
+          <SessionLapDetail
+            sessionId={session.id}
+            layout="workspace"
+            sidebar={lapSidebar}
+            extraToolTabs={localToolTabs}
+            toolsOpenRequest={toolsOpenRequest}
+            toolsShowButtons={false}
+            lap={{
+              id: selectedLap.id,
+              lap_number: selectedLap.lap_number,
+              lap_time_ms: selectedLap.lap_time_ms,
+              start_offset_sec: selectedLap.start_offset_sec,
+              telemetry: selectedLap.telemetry,
+              excluded: selectedLap.excluded ?? false,
+              exclude_reason: selectedLap.exclude_reason ?? null,
+              start_offset_override:
+                selectedLap.start_offset_override ?? null,
+              end_offset_override: selectedLap.end_offset_override ?? null,
+            }}
+            siblingLaps={workingLaps.map((item) => ({
+              id: item.id,
+              lap_number: item.lap_number,
+              lap_time_ms: item.lap_time_ms,
+              start_offset_sec: item.start_offset_sec,
+              telemetry: item.telemetry,
+              excluded: item.excluded ?? false,
+              exclude_reason: item.exclude_reason ?? null,
+              start_offset_override: item.start_offset_override ?? null,
+              end_offset_override: item.end_offset_override ?? null,
+            }))}
+            videos={youtubeVideos}
+            videoParam={videoParam}
+            trackId={session.trackId}
+            sessionStartedAtMs={session.startedAtMs}
+            canEdit
+            onExcludeChange={onExcludeChange}
+            onTrimChange={onTrimChange}
+            onTrimReset={onTrimReset}
+            onMergeNext={onMergeNext}
+            onSplit={onSplit}
+            onVideoChange={
+              session.kind === "upload"
+                ? (next) => {
+                    const base = draftVideos ?? session.videos ?? [];
+                    const nextVideos = base.map((item) =>
+                      item.id === next.id ? next : item,
+                    );
+                    if (!nextVideos.some((item) => item.id === next.id)) {
+                      nextVideos.push(next);
                     }
-                  : undefined
-              }
-            />
-          ) : (
-            lapSidebar
-          )}
-        </div>
+                    setDraftVideos(
+                      nextVideos.filter((v) => v.provider === "youtube"),
+                    );
+                    setDirty(true);
+                  }
+                : undefined
+            }
+          />
+        ) : (
+          lapSidebar
+        )}
       </main>
     </div>
   );
