@@ -130,6 +130,10 @@ const gChartSrc = fs.readFileSync(
 );
 assert(gChartSrc.includes("Lateral G"), "G chart stacks lateral");
 assert(gChartSrc.includes("Longitudinal G"), "G chart stacks longitudinal");
+assert(
+  /h-\[1[0-9]{2,}px\]/.test(gChartSrc) && !gChartSrc.includes("h-[56px]"),
+  "G chart compact rows >100px",
+);
 
 const speedChartSrc = fs.readFileSync(
   path.join(root, "src/components/SpeedChart.tsx"),

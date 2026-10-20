@@ -118,7 +118,7 @@ export function SpeedChart({
   const bodyHeight = fill
     ? "h-full min-h-[120px]"
     : compact
-      ? "h-[72px]"
+      ? "h-[108px]"
       : "h-[200px] sm:h-[260px]";
 
   const tAtClientX = useCallback(

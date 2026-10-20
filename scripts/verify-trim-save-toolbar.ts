@@ -119,6 +119,7 @@ assert(cloud.includes("Edit details"), "Edit details button");
 assert(cloud.includes("Share"), "Share button");
 assert(cloud.includes("Trim"), "Trim button");
 assert(cloud.includes("Exclude"), "Exclude button");
+assert(cloud.includes("DeleteSessionControl") || cloud.includes("Delete session"), "Delete session danger");
 
 const tools = read("src/components/SessionToolsPanel.tsx");
 assert(tools.includes('role="toolbar"'), "tools toolbar role");

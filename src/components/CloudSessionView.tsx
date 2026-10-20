@@ -11,6 +11,7 @@ import {
   type ReparseStagePayload,
 } from "@/components/SessionReparsePanel";
 import type { SessionToolTab } from "@/components/SessionToolsPanel";
+import { DeleteSessionControl } from "@/components/DeleteSessionControl";
 import { ShareLinkButton } from "@/components/ShareLinkButton";
 import { UnsavedChangesBar } from "@/components/UnsavedChangesBar";
 import { videoCoverage } from "@/lib/pick-session-video";
@@ -889,6 +890,17 @@ export function CloudSessionView({ id }: { id: string }) {
                 <span aria-hidden>✎</span> Edit details
               </button>
               <ShareLinkButton path={`/sessions/${session.id}`} label="Share" />
+              <DeleteSessionControl
+                variant="toolbar"
+                authUserId={userId}
+                targets={[
+                  {
+                    id: session.id,
+                    name: session.name,
+                    user_id: session.user_id,
+                  },
+                ]}
+              />
             </div>
             {reparseOpen ? (
               <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/80 p-3">

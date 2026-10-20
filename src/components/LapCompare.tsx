@@ -718,6 +718,7 @@ export function LapCompare({
           ...(extraToolTabs ?? []),
         ]}
         defaultTab="setup"
+        defaultOpen
       />
 
       {sameLap || ordered.length < 2 ? (

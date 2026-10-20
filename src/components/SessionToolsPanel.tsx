@@ -35,6 +35,7 @@ const DEFAULT_ICONS: Record<string, string> = {
 export function SessionToolsPanel({
   tabs,
   defaultTab,
+  defaultOpen = false,
   className,
   openRequest,
   toolbarActions,
@@ -42,6 +43,8 @@ export function SessionToolsPanel({
 }: {
   tabs: SessionToolTab[];
   defaultTab?: string;
+  /** When true, the default tab panel starts expanded (compare Laps). */
+  defaultOpen?: boolean;
   className?: string;
   /** External toolbar / parent asks to open a tab. */
   openRequest?: { tab: string; nonce: number } | null;
@@ -70,7 +73,7 @@ export function SessionToolsPanel({
       ? defaultTab
       : (usable[0]?.id ?? ""),
   );
-  const [panelOpen, setPanelOpen] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(Boolean(defaultOpen));
 
   useEffect(() => {
     if (!openRequest?.tab) return;

@@ -191,7 +191,8 @@ export function GChart({
   syncId?: string;
   compact?: boolean;
 }) {
-  const rowHeight = compact ? "h-[56px]" : "h-[100px] sm:h-[120px]";
+  // Compact stacked rows stay >100px so G traces remain readable on laptop.
+  const rowHeight = compact ? "h-[108px]" : "h-[120px] sm:h-[140px]";
   const latDomain = useMemo(() => gDomain(points, ["latG"]), [points]);
   const lonDomain = useMemo(() => gDomain(points, ["lonG"]), [points]);
 
