@@ -55,6 +55,7 @@ export function SessionLapDetail({
   sidebar,
   extraToolTabs,
   toolsOpenRequest,
+  toolsShowButtons = true,
 }: {
   sessionId: string;
   lap: SessionLapDetailLap;
@@ -81,6 +82,8 @@ export function SessionLapDetail({
   extraToolTabs?: SessionToolTab[];
   /** Toolbar requests opening a tools tab (trim / sync / exclude / …). */
   toolsOpenRequest?: { tab: string; nonce: number } | null;
+  /** When false, hide in-panel tool buttons (session page owns the toolbar). */
+  toolsShowButtons?: boolean;
 }) {
   const trimable: TrimableLap = useMemo(
     () => ({
@@ -378,6 +381,7 @@ export function SessionLapDetail({
           sidebar={sidebar}
           extraToolTabs={lapToolTabs}
           toolsOpenRequest={toolsOpenRequest}
+          toolsShowButtons={toolsShowButtons}
           lap={
             canEdit && onTrimChange
               ? {

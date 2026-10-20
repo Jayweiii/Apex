@@ -123,7 +123,10 @@ assert(cloud.includes("Exclude"), "Exclude button");
 const tools = read("src/components/SessionToolsPanel.tsx");
 assert(tools.includes('role="toolbar"'), "tools toolbar role");
 assert(tools.includes("min-h-10"), "touch-sized buttons for iPhone");
+assert(tools.includes("showButtons"), "external toolbar can hide duplicate buttons");
 assert(!tools.includes("fixed right-3 top-1/2"), "no hidden edge drawer toggle");
+assert(cloud.includes("toolsShowButtons={false}"), "session page hides panel buttons");
+assert(cloud.includes('data-testid="toolbar-reparse"'), "toolbar reparse test id");
 
 const detail = read("src/components/SessionLapDetail.tsx");
 assert(detail.includes("buildTrimChartContext"), "padded trim chart");

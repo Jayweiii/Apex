@@ -15,7 +15,7 @@ import {
 import { TRACKS } from "@/lib/tracks";
 import { resolveTrackStartFinish } from "@/lib/track-start-finish";
 import type { LapRow, TelemetryPoint } from "@/lib/types";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /**
  * Owner-only re-split. Uses sessions.source_gps when dense enough; otherwise
@@ -47,6 +47,11 @@ export function SessionReparsePanel({
   onDone,
   /** When set, re-parse stages results for explicit Save instead of POSTing. */
   onStage,
+  /**
+   * Toolbar click: dense source_gps → re-split immediately; otherwise open the
+   * original LRV/CSV file picker. Runs once per mount.
+   */
+  autoStart = false,
 }: {
   sessionId: string;
   trackId?: string | null;
@@ -55,8 +60,10 @@ export function SessionReparsePanel({
   startedAtMs?: number;
   onDone: (result: { lapCount: number }) => void;
   onStage?: (payload: ReparseStagePayload) => void;
+  autoStart?: boolean;
 }) {
   const fileRef = useRef<HTMLInputElement | null>(null);
+  const autoStartedRef = useRef(false);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -219,8 +226,25 @@ export function SessionReparsePanel({
     }
   }
 
+  useEffect(() => {
+    if (!autoStart || autoStartedRef.current) return;
+    autoStartedRef.current = true;
+    if (density.ok) {
+      void runReparse();
+      return;
+    }
+    setNeedFile(true);
+    // Defer so the hidden file input is mounted before the picker opens.
+    const id = window.requestAnimationFrame(() => {
+      fileRef.current?.click();
+    });
+    return () => window.cancelAnimationFrame(id);
+    // Intentionally once on open — density/runReparse are stable for this mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoStart]);
+
   return (
-    <div className="space-y-3">
+    <div className="space-y-3" data-testid="reparse-flow">
       <p className="text-sm text-zinc-400">
         Re-split laps from full GPS after upload. Session id, YouTube links,
         sync offsets, trims, and excludes are kept when lap numbers match.
@@ -305,6 +329,8 @@ export function SessionReparsePanel({
           type="file"
           accept=".mp4,.lrv,.mov,.gpx,.vbo,.csv,.json,video/mp4"
           className="hidden"
+          aria-label="Original GoPro LRV or GPS CSV"
+          data-testid="reparse-file-input"
           onChange={(event) => {
             const file = event.target.files?.[0];
             event.target.value = "";

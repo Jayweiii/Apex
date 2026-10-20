@@ -114,6 +114,8 @@ export function SyncedLapView({
   extraToolTabs,
   chartOverride,
   toolsOpenRequest,
+  /** When false, parent owns the labeled toolbar (no duplicate Trim/Sync/…). */
+  toolsShowButtons = true,
 }: {
   sessionId?: string;
   lap: {
@@ -166,6 +168,8 @@ export function SyncedLapView({
   } | null;
   /** Toolbar requests opening a tools tab. */
   toolsOpenRequest?: { tab: string; nonce: number } | null;
+  /** When false, only the open tools panel is shown (no second button row). */
+  toolsShowButtons?: boolean;
 }) {
   const centerline = useMemo(
     () =>
@@ -753,6 +757,7 @@ export function SyncedLapView({
             tabs={toolTabs}
             defaultTab="sync"
             openRequest={toolsOpenRequest}
+            showButtons={toolsShowButtons}
           />
         ) : null}
       </div>
@@ -807,6 +812,7 @@ export function SyncedLapView({
           tabs={toolTabs}
           defaultTab="sync"
           openRequest={toolsOpenRequest}
+          showButtons={toolsShowButtons}
         />
       ) : syncPanel ? (
         syncPanel

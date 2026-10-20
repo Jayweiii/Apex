@@ -52,6 +52,28 @@ body::before {
   box-sizing: border-box;
 }
 
+/* Clickable affordances — pointer by default; drag handles may override. */
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]),
+a[href],
+label[for],
+select:not(:disabled),
+summary {
+  cursor: pointer;
+}
+
+button:disabled,
+[role="button"][aria-disabled="true"],
+select:disabled {
+  cursor: not-allowed;
+}
+
+/* Chart scrub / seek surfaces (trim handles keep cursor-ew-resize). */
+[data-apex-chart-plot] {
+  cursor: pointer;
+}
+
+
 img,
 svg,
 canvas,

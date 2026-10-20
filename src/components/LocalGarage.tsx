@@ -736,42 +736,10 @@ export function LocalSession({ id }: { id: string }) {
   const unsplit = looksLikeUnsplitLaps(laps);
   const openReparse = () => {
     setReparseOpen(true);
-    requestAnimationFrame(() => {
-      document
-        .getElementById("session-lap-list")
-        ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    });
+    if (session.kind === "upload" && !reprocessBusy) {
+      void reprocess();
+    }
   };
-  const reparsePanel = reparseOpen ? (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">
-          Re-parse laps
-        </p>
-        <button
-          type="button"
-          onClick={() => setReparseOpen(false)}
-          className="rounded-md px-2 py-1 text-[11px] text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300"
-        >
-          Close
-        </button>
-      </div>
-      <p className="text-sm text-zinc-400">
-        Re-split this local session from the original file kept in the browser.
-      </p>
-      <button
-        type="button"
-        disabled={reprocessBusy || session.kind !== "upload"}
-        onClick={() => void reprocess()}
-        className="min-h-10 w-full rounded-lg bg-orange-500 px-3 text-xs font-semibold uppercase tracking-[0.14em] text-black hover:bg-orange-400 disabled:opacity-40"
-      >
-        {reprocessBusy ? "Re-parsing…" : "Re-parse laps"}
-      </button>
-      {reprocessMsg ? (
-        <p className="text-xs text-zinc-500">{reprocessMsg}</p>
-      ) : null}
-    </div>
-  ) : null;
 
   const lapSidebar = (
     <div id="session-lap-list">
@@ -785,7 +753,6 @@ export function LocalSession({ id }: { id: string }) {
           canEdit
           onExcludeChange={onExcludeChange}
           onReparseLaps={openReparse}
-          reparsePanel={reparsePanel}
         />
       ) : (
         <p className="px-3 py-6 text-center text-sm text-zinc-500">
@@ -840,46 +807,87 @@ export function LocalSession({ id }: { id: string }) {
           </div>
         </div>
 
-        <div
-          className="mb-2 flex shrink-0 flex-wrap gap-1.5"
-          role="toolbar"
-          aria-label="Session tools"
-        >
-          <button
-            type="button"
-            onClick={openReparse}
-            className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-orange-500/50 bg-orange-500/10 px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-orange-200"
+        <div className="mb-2 shrink-0 space-y-2">
+          <div
+            className="flex flex-wrap gap-1.5"
+            role="toolbar"
+            aria-label="Session tools"
           >
-            <span aria-hidden>↻</span> Re-parse laps
-          </button>
-          <button
-            type="button"
-            onClick={() => openTool("trim")}
-            className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/80 px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-200"
-          >
-            <span aria-hidden>✂</span> Trim
-          </button>
-          <button
-            type="button"
-            onClick={() => openTool("sync")}
-            className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/80 px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-200"
-          >
-            <span aria-hidden>⏯</span> Sync video
-          </button>
-          <button
-            type="button"
-            onClick={() => openTool("exclude")}
-            className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/80 px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-200"
-          >
-            <span aria-hidden>⊘</span> Exclude
-          </button>
-          <button
-            type="button"
-            onClick={() => openTool("notes")}
-            className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/80 px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-200"
-          >
-            <span aria-hidden>✎</span> Edit details
-          </button>
+            <button
+              type="button"
+              data-testid="toolbar-reparse"
+              onClick={openReparse}
+              className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-orange-500/50 bg-orange-500/10 px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-orange-200"
+            >
+              <span aria-hidden>↻</span> Re-parse laps
+            </button>
+            <button
+              type="button"
+              data-testid="toolbar-trim"
+              onClick={() => openTool("trim")}
+              className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/80 px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-200"
+            >
+              <span aria-hidden>✂</span> Trim
+            </button>
+            <button
+              type="button"
+              data-testid="toolbar-sync"
+              onClick={() => openTool("sync")}
+              className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/80 px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-200"
+            >
+              <span aria-hidden>⏯</span> Sync video
+            </button>
+            <button
+              type="button"
+              data-testid="toolbar-exclude"
+              onClick={() => openTool("exclude")}
+              className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/80 px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-200"
+            >
+              <span aria-hidden>⊘</span> Exclude
+            </button>
+            <button
+              type="button"
+              data-testid="toolbar-details"
+              onClick={() => openTool("notes")}
+              className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/80 px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-200"
+            >
+              <span aria-hidden>✎</span> Edit details
+            </button>
+          </div>
+          {reparseOpen ? (
+            <div
+              className="rounded-xl border border-zinc-800/80 bg-zinc-950/80 p-3"
+              data-testid="reparse-flow"
+            >
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <p className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">
+                  Re-parse laps
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setReparseOpen(false)}
+                  className="rounded-md px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"
+                >
+                  Close
+                </button>
+              </div>
+              <p className="text-sm text-zinc-400">
+                Re-split this local session from the original file kept in the
+                browser.
+              </p>
+              <button
+                type="button"
+                disabled={reprocessBusy || session.kind !== "upload"}
+                onClick={() => void reprocess()}
+                className="mt-2 min-h-10 w-full rounded-lg bg-orange-500 px-3 text-xs font-semibold uppercase tracking-[0.14em] text-black hover:bg-orange-400 disabled:opacity-40"
+              >
+                {reprocessBusy ? "Re-parsing…" : "Re-parse laps"}
+              </button>
+              {reprocessMsg ? (
+                <p className="mt-2 text-xs text-zinc-500">{reprocessMsg}</p>
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
         {unsplit && !reparseOpen ? (
@@ -908,6 +916,7 @@ export function LocalSession({ id }: { id: string }) {
               sidebar={lapSidebar}
               extraToolTabs={localToolTabs}
               toolsOpenRequest={toolsOpenRequest}
+              toolsShowButtons={false}
               lap={{
                 id: selectedLap.id,
                 lap_number: selectedLap.lap_number,

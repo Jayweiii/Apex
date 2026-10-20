@@ -1,10 +1,7 @@
 "use client";
 
 import { ExcludeFromBestControl } from "@/components/ExcludeFromBestControl";
-import {
-  ReparseLapsButton,
-  UnsplitLapsBanner,
-} from "@/components/ReparseLapsCallout";
+import { UnsplitLapsBanner } from "@/components/ReparseLapsCallout";
 import { formatLapTime } from "@/lib/format";
 import {
   bestLapTimeMs,
@@ -85,9 +82,12 @@ export function LapList({
   canEdit?: boolean;
   onExcludeChange?: (change: LapExcludeChange) => void;
   excludeBusyId?: string | null;
-  /** Owner re-parse — always visible in the list header (not Tools drawer). */
+  /**
+   * Owner unsplit callout — toolbar owns the Re-parse button; this only shows
+   * the banner when laps look unsplit (no duplicate header control).
+   */
   onReparseLaps?: () => void;
-  /** Expanded re-parse controls rendered under the header. */
+  /** @deprecated Re-parse UI lives under the session toolbar. */
   reparsePanel?: ReactNode;
 }) {
   const fastest = bestLapTimeMs(laps);
@@ -101,25 +101,9 @@ export function LapList({
 
   return (
     <div className="overflow-hidden rounded-xl border-0 bg-transparent">
-      {onReparseLaps ? (
-        <div className="space-y-2 border-b border-zinc-800/80 bg-zinc-950/60 px-2.5 py-2 sm:px-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">
-              Laps
-            </p>
-            <ReparseLapsButton
-              onClick={onReparseLaps}
-              emphasize={unsplit}
-            />
-          </div>
-          {unsplit && !reparsePanel ? (
-            <UnsplitLapsBanner onClick={onReparseLaps} />
-          ) : null}
-          {reparsePanel ? (
-            <div className="rounded-lg border border-zinc-800 bg-zinc-950/80 p-2.5">
-              {reparsePanel}
-            </div>
-          ) : null}
+      {unsplit && onReparseLaps && !reparsePanel ? (
+        <div className="border-b border-zinc-800/80 bg-zinc-950/60 px-2.5 py-2 sm:px-3">
+          <UnsplitLapsBanner onClick={onReparseLaps} />
         </div>
       ) : null}
       <div

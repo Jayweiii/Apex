@@ -78,6 +78,7 @@ export function CloudSessionView({ id }: { id: string }) {
   const [dirty, setDirty] = useState(false);
   const [loading, setLoading] = useState(true);
   const [reparseOpen, setReparseOpen] = useState(false);
+  const [reparseNonce, setReparseNonce] = useState(0);
   const [pendingReparse, setPendingReparse] =
     useState<ReparseStagePayload | null>(null);
   const [toolsOpenRequest, setToolsOpenRequest] = useState<{
@@ -767,45 +768,9 @@ export function CloudSessionView({ id }: { id: string }) {
 
   const unsplit = mine && looksLikeUnsplitLaps(laps);
   const openReparse = () => {
+    setReparseNonce((n) => n + 1);
     setReparseOpen(true);
-    requestAnimationFrame(() => {
-      document
-        .getElementById("session-lap-list")
-        ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    });
   };
-
-  const reparsePanel =
-    mine && reparseOpen ? (
-      <div className="space-y-2">
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">
-            Re-parse laps
-          </p>
-          <button
-            type="button"
-            onClick={() => setReparseOpen(false)}
-            className="rounded-md px-2 py-1 text-[11px] text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300"
-          >
-            Close
-          </button>
-        </div>
-        <SessionReparsePanel
-          sessionId={session.id}
-          trackId={session.track_id}
-          sourceGps={session.source_gps}
-          laps={laps}
-          startedAtMs={
-            Number.isFinite(startedAtMs) ? startedAtMs : undefined
-          }
-          onStage={onStageReparse}
-          onDone={() => {
-            setTrimError(null);
-            setReparseOpen(false);
-          }}
-        />
-      </div>
-    ) : null;
 
   const lapSidebar = (
     <div id="session-lap-list">
@@ -820,24 +785,7 @@ export function CloudSessionView({ id }: { id: string }) {
           canEdit={mine}
           onExcludeChange={mine ? onExcludeChange : undefined}
           onReparseLaps={mine ? openReparse : undefined}
-          reparsePanel={reparsePanel}
         />
-      ) : mine ? (
-        <div className="space-y-2 px-3 py-4">
-          <p className="text-center text-sm text-zinc-500">
-            No laps in this session.
-          </p>
-          <div className="flex justify-center">
-            <button
-              type="button"
-              onClick={openReparse}
-              className="inline-flex min-h-9 items-center rounded-lg border border-orange-500/50 bg-orange-500/10 px-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-orange-200"
-            >
-              Re-parse laps
-            </button>
-          </div>
-          {reparsePanel}
-        </div>
       ) : (
         <p className="px-3 py-6 text-center text-sm text-zinc-500">
           No laps in this session.
@@ -882,9 +830,6 @@ export function CloudSessionView({ id }: { id: string }) {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {mine ? (
-              <ShareLinkButton path={`/sessions/${session.id}`} label="Share" />
-            ) : null}
             {href ? (
               <Link
                 href={href}
@@ -897,43 +842,88 @@ export function CloudSessionView({ id }: { id: string }) {
         </div>
 
         {mine ? (
-          <div className="mb-2 flex shrink-0 flex-wrap gap-1.5" role="toolbar" aria-label="Session tools">
-            <button
-              type="button"
-              onClick={openReparse}
-              className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-orange-500/50 bg-orange-500/10 px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-orange-200"
+          <div className="mb-2 shrink-0 space-y-2">
+            <div
+              className="flex flex-wrap gap-1.5"
+              role="toolbar"
+              aria-label="Session tools"
             >
-              <span aria-hidden>↻</span> Re-parse laps
-            </button>
-            <button
-              type="button"
-              onClick={() => openTool("trim")}
-              className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/80 px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-200"
-            >
-              <span aria-hidden>✂</span> Trim
-            </button>
-            <button
-              type="button"
-              onClick={() => openTool("sync")}
-              className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/80 px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-200"
-            >
-              <span aria-hidden>⏯</span> Sync video
-            </button>
-            <button
-              type="button"
-              onClick={() => openTool("exclude")}
-              className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/80 px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-200"
-            >
-              <span aria-hidden>⊘</span> Exclude
-            </button>
-            <button
-              type="button"
-              onClick={() => openTool("session")}
-              className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/80 px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-200"
-            >
-              <span aria-hidden>✎</span> Edit details
-            </button>
-            <ShareLinkButton path={`/sessions/${session.id}`} label="Share" />
+              <button
+                type="button"
+                data-testid="toolbar-reparse"
+                onClick={openReparse}
+                className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-orange-500/50 bg-orange-500/10 px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-orange-200"
+              >
+                <span aria-hidden>↻</span> Re-parse laps
+              </button>
+              <button
+                type="button"
+                data-testid="toolbar-trim"
+                onClick={() => openTool("trim")}
+                className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/80 px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-200"
+              >
+                <span aria-hidden>✂</span> Trim
+              </button>
+              <button
+                type="button"
+                data-testid="toolbar-sync"
+                onClick={() => openTool("sync")}
+                className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/80 px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-200"
+              >
+                <span aria-hidden>⏯</span> Sync video
+              </button>
+              <button
+                type="button"
+                data-testid="toolbar-exclude"
+                onClick={() => openTool("exclude")}
+                className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/80 px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-200"
+              >
+                <span aria-hidden>⊘</span> Exclude
+              </button>
+              <button
+                type="button"
+                data-testid="toolbar-details"
+                onClick={() => openTool("session")}
+                className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/80 px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-200"
+              >
+                <span aria-hidden>✎</span> Edit details
+              </button>
+              <ShareLinkButton path={`/sessions/${session.id}`} label="Share" />
+            </div>
+            {reparseOpen ? (
+              <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/80 p-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">
+                    Re-parse laps
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setReparseOpen(false)}
+                    className="rounded-md px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"
+                  >
+                    Close
+                  </button>
+                </div>
+                <SessionReparsePanel
+                  key={`reparse-${session.id}-${reparseNonce}`}
+                  sessionId={session.id}
+                  trackId={session.track_id}
+                  sourceGps={session.source_gps}
+                  laps={
+                    savedLapsRef.current.length ? savedLapsRef.current : laps
+                  }
+                  startedAtMs={
+                    Number.isFinite(startedAtMs) ? startedAtMs : undefined
+                  }
+                  autoStart
+                  onStage={onStageReparse}
+                  onDone={() => {
+                    setTrimError(null);
+                    setReparseOpen(false);
+                  }}
+                />
+              </div>
+            ) : null}
           </div>
         ) : null}
 
@@ -964,6 +954,7 @@ export function CloudSessionView({ id }: { id: string }) {
               sidebar={lapSidebar}
               extraToolTabs={sessionToolTabs}
               toolsOpenRequest={toolsOpenRequest}
+              toolsShowButtons={false}
               lap={{
                 id: selectedRow.id,
                 lap_number: selectedRow.lap_number,
