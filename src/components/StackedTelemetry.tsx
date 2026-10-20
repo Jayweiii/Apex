@@ -65,12 +65,13 @@ export function StackedLapTelemetry({
   const others = channels.filter((id) => id !== "speed");
   const hasSpeed = channels.includes("speed");
 
-  // Speed ~40% of the panel; remaining channels shorter but readable.
+  // Speed stays dominant; other channels keep fixed min heights (no flex
+  // slivers). Stack scrolls when the viewport is short.
   // HoverCursorScope: pointer-x SoT, dashed hover lines via rAF, leave only
   // clears when leaving the whole stack (no inter-chart flicker).
   return (
     <HoverCursorScope
-      className={`flex min-h-0 flex-col gap-2 ${className ?? ""}`}
+      className={`flex min-h-0 flex-col gap-2 overflow-y-auto ${className ?? ""}`}
       playbackIndex={activeIndex}
       onPreviewIndex={onPreviewIndex}
     >
@@ -82,7 +83,7 @@ export function StackedLapTelemetry({
         />
       ) : null}
       {hasSpeed ? (
-        <div className="flex min-h-[140px] basis-[40%] flex-col overflow-hidden">
+        <div className="flex min-h-[160px] shrink-0 flex-col overflow-hidden sm:min-h-[200px]">
           <SpeedChart
             points={points}
             activeIndex={activeIndex}
@@ -95,13 +96,7 @@ export function StackedLapTelemetry({
           />
         </div>
       ) : null}
-      <div
-        className={`flex min-h-0 flex-col gap-2 ${
-          others.length > 3
-            ? "min-h-0 flex-1 overflow-y-auto pr-0.5"
-            : "shrink-0"
-        }`}
-      >
+      <div className="flex shrink-0 flex-col gap-2">
         {others.map((id) => (
           <LapChannel
             key={id}

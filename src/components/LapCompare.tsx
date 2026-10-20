@@ -587,14 +587,16 @@ export function LapCompare({
   }));
 
   const setupPanel = (
-    <div className="space-y-3">
+    <div className="space-y-2.5">
       {trackOptions.length > 1 ? (
-        <label className="flex flex-col gap-1.5 text-sm">
-          <span className="text-zinc-400">Track filter</span>
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-[11px] uppercase tracking-[0.14em] text-zinc-500">
+            Track
+          </span>
           <select
             value={trackFilter}
             onChange={(event) => setTrackFilter(event.target.value)}
-            className="min-h-10 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2"
+            className="min-h-9 rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-sm text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2"
           >
             {trackOptions.map((trackId) => (
               <option key={trackId} value={trackId}>
@@ -615,7 +617,7 @@ export function LapCompare({
             type="button"
             disabled={slots.length >= MAX_COMPARE_LAPS}
             onClick={addSlot}
-            className="min-h-9 rounded-lg border border-zinc-800 px-3 text-sm text-zinc-300 hover:border-zinc-600 disabled:opacity-40"
+            className="min-h-8 rounded-md border border-zinc-800 px-2.5 text-xs text-zinc-300 hover:border-zinc-600 disabled:opacity-40"
           >
             Add lap
           </button>
@@ -631,14 +633,14 @@ export function LapCompare({
           return (
             <div
               key={slot.key}
-              className="space-y-2 rounded-xl border border-zinc-800/80 bg-zinc-950/40 p-2.5"
+              className="space-y-1.5 rounded-lg border border-zinc-800/80 bg-zinc-950/40 px-2 py-2"
             >
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-1.5">
                 <span
-                  className="inline-block h-2.5 w-2.5 rounded-full"
+                  className="inline-block h-2 w-2 rounded-full"
                   style={{ background: color }}
                 />
-                <span className="text-xs uppercase tracking-[0.16em] text-zinc-500">
+                <span className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">
                   {isRef ? "Reference" : `Lap ${index + 1}`}
                 </span>
                 {!readOnly ? (
@@ -647,7 +649,7 @@ export function LapCompare({
                       <button
                         type="button"
                         onClick={() => setRefIndex(index)}
-                        className="rounded-md px-2 py-1 text-[11px] uppercase tracking-[0.14em] text-orange-400 hover:bg-zinc-900"
+                        className="rounded px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-orange-400 hover:bg-zinc-900"
                       >
                         Set ref
                       </button>
@@ -656,7 +658,7 @@ export function LapCompare({
                       <button
                         type="button"
                         onClick={() => removeSlot(slot.key)}
-                        className="rounded-md px-2 py-1 text-[11px] uppercase tracking-[0.14em] text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300"
+                        className="rounded px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300"
                       >
                         Remove
                       </button>
@@ -684,8 +686,7 @@ export function LapCompare({
                 />
               ) : null}
               {!readOnly ? (
-                <LapSelect
-                  label="Lap"
+                <LapChipPicker
                   value={slot.lapId}
                   laps={session?.laps ?? []}
                   onChange={(lapId) => updateSlot(slot.key, { lapId })}
@@ -800,7 +801,7 @@ export function LapCompare({
               )}
             </aside>
 
-            <div className="flex min-h-0 flex-col gap-2 lg:h-full lg:overflow-hidden">
+            <div className="flex min-h-0 flex-col gap-2 lg:h-full lg:min-h-0 lg:overflow-hidden">
               <div className="shrink-0">
                 <DualSessionVideos
                   sides={videoSides}
@@ -812,7 +813,7 @@ export function LapCompare({
                   compact
                 />
               </div>
-              <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto">
+              <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain">
               <p className="shrink-0 text-[10px] uppercase tracking-[0.16em] text-zinc-500">
                 Telemetry · all channels
               </p>
@@ -827,7 +828,7 @@ export function LapCompare({
                   }
                   scrub={chartScrub}
                 >
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height="100%" minHeight={120}>
                     <LineChart
                       data={series}
                       syncId="compare"
@@ -880,7 +881,7 @@ export function LapCompare({
                   }
                   scrub={chartScrub}
                 >
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height="100%" minHeight={120}>
                     <LineChart
                       data={series}
                       syncId="compare"
@@ -926,7 +927,7 @@ export function LapCompare({
 
               {stackedChannels.includes("throttleBrake") ? (
                 <ChartCard title={channelLabel("throttleBrake")} hint="0–100%" scrub={chartScrub}>
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height="100%" minHeight={120}>
                     <LineChart
                       data={series}
                       syncId="compare"
@@ -984,7 +985,7 @@ export function LapCompare({
 
               {stackedChannels.includes("steering") ? (
                 <ChartCard title={channelLabel("steering")} hint="degrees" scrub={chartScrub}>
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height="100%" minHeight={120}>
                     <LineChart
                       data={series}
                       syncId="compare"
@@ -1029,7 +1030,7 @@ export function LapCompare({
 
               {stackedChannels.includes("g") ? (
                 <ChartCard title="G" hint="Combined acceleration" scrub={chartScrub}>
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height="100%" minHeight={120}>
                     <LineChart
                       data={series}
                       syncId="compare"
@@ -1074,7 +1075,7 @@ export function LapCompare({
 
               {stackedChannels.includes("gearRpm") ? (
                 <ChartCard title={channelLabel("gearRpm")} scrub={chartScrub}>
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height="100%" minHeight={120}>
                     <LineChart
                       data={series}
                       syncId="compare"
@@ -1119,7 +1120,7 @@ export function LapCompare({
 
               {stackedChannels.includes("heading") ? (
                 <ChartCard title={channelLabel("heading")} hint="degrees" scrub={chartScrub}>
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height="100%" minHeight={120}>
                     <LineChart
                       data={series}
                       syncId="compare"
@@ -1182,12 +1183,14 @@ function SessionSelect({
   onChange: (id: string) => void;
 }) {
   return (
-    <label className="flex flex-col gap-1.5 text-sm">
-      <span className="text-zinc-400">{label}</span>
+    <label className="flex flex-col gap-1 text-xs">
+      <span className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">
+        {label}
+      </span>
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="min-h-12 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
+        className="min-h-8 rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-1"
       >
         {sessions.map((session) => (
           <option key={session.id} value={session.id}>
@@ -1208,35 +1211,84 @@ function SessionSelect({
   );
 }
 
-function LapSelect({
-  label,
+/** Compact searchable lap chips for compare setup. */
+function LapChipPicker({
   value,
   laps,
   onChange,
 }: {
-  label: string;
   value: string;
   laps: LapRow[];
   onChange: (id: string) => void;
 }) {
+  const [query, setQuery] = useState("");
+  const ordered = useMemo(
+    () => [...laps].sort((a, b) => a.lap_number - b.lap_number),
+    [laps],
+  );
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return ordered;
+    return ordered.filter((lap) => {
+      const time = formatLapTime(lap.lap_time_ms).toLowerCase();
+      return (
+        String(lap.lap_number).includes(q) ||
+        time.includes(q) ||
+        `lap ${lap.lap_number}`.includes(q)
+      );
+    });
+  }, [ordered, query]);
+
   return (
-    <label className="flex flex-col gap-1.5 text-sm">
-      <span className="text-zinc-400">{label}</span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="min-h-12 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
+    <div className="space-y-1.5">
+      {ordered.length > 6 ? (
+        <input
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search laps…"
+          className="min-h-8 w-full rounded-md border border-zinc-800 bg-zinc-950 px-2 text-xs text-zinc-100 outline-none ring-orange-500/40 placeholder:text-zinc-600 focus:border-orange-500/70 focus:ring-1"
+        />
+      ) : null}
+      <div
+        className="flex max-h-28 flex-wrap gap-1 overflow-y-auto"
+        role="listbox"
+        aria-label="Lap"
       >
-        {laps.map((lap) => (
-          <option key={lap.id} value={lap.id}>
-            Lap {lap.lap_number} · {formatLapTime(lap.lap_time_ms)}
-          </option>
-        ))}
-      </select>
-    </label>
+        {filtered.map((lap) => {
+          const selected = lap.id === value;
+          return (
+            <button
+              key={lap.id}
+              type="button"
+              role="option"
+              aria-selected={selected}
+              onClick={() => onChange(lap.id)}
+              className={`inline-flex min-h-7 items-center gap-1 rounded-md px-2 font-mono text-[11px] ${
+                selected
+                  ? "bg-orange-500 text-black"
+                  : "border border-zinc-800 text-zinc-300 hover:border-zinc-600 hover:text-zinc-50"
+              } ${lap.excluded ? "opacity-50" : ""}`}
+            >
+              L{lap.lap_number}
+              <span className={selected ? "text-black/70" : "text-zinc-500"}>
+                {formatLapTime(lap.lap_time_ms)}
+              </span>
+            </button>
+          );
+        })}
+        {!filtered.length ? (
+          <p className="text-xs text-zinc-500">No laps match.</p>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
+/**
+ * Fixed plot height so Recharts ResponsiveContainer never collapses to 0
+ * inside a flex + min-h-0 scroll column.
+ */
 function ChartCard({
   title,
   hint,
@@ -1249,15 +1301,23 @@ function ChartCard({
   scrub?: ReturnType<typeof bindChartScrub>;
 }) {
   return (
-    <div className="max-w-full overflow-hidden rounded-xl border border-zinc-800/80 bg-zinc-950/40 px-2.5 py-2">
-      <div className="mb-1 flex items-baseline justify-between gap-2">
+    <div
+      className="max-w-full shrink-0 overflow-hidden rounded-xl border border-zinc-800/80 bg-zinc-950/40 px-2.5 py-2"
+      data-apex-compare-chart
+    >
+      <div className="mb-1 flex shrink-0 items-baseline justify-between gap-2">
         <p className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">
           {title}
         </p>
         <p className="truncate font-mono text-[10px] text-zinc-600">{hint}</p>
       </div>
-      <div className="h-[72px] touch-none" {...scrub}>
-        {children}
+      <div
+        className="relative h-[120px] min-h-[120px] touch-none sm:h-[140px] sm:min-h-[140px]"
+        data-apex-chart-plot="compare"
+        style={{ minHeight: 120 }}
+        {...scrub}
+      >
+        <div className="absolute inset-0 min-h-0">{children}</div>
       </div>
     </div>
   );

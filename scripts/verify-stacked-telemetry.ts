@@ -119,9 +119,10 @@ assert(
   "StackedCompareTelemetry must be exported",
 );
 assert(
-  stackedSrc.includes("basis-[40%]"),
-  "speed channel should claim ~40% of telemetry panel height",
+  stackedSrc.includes("min-h-[160px]") || stackedSrc.includes("sm:min-h-[200px]"),
+  "speed channel should keep a solid min height (no flex sliver)",
 );
+assert(stackedSrc.includes("overflow-y-auto"), "stack scrolls instead of squashing");
 assert(stackedSrc.includes("fill"), "speed chart should fill its flex slot");
 
 const gChartSrc = fs.readFileSync(
@@ -130,9 +131,22 @@ const gChartSrc = fs.readFileSync(
 );
 assert(gChartSrc.includes("Lateral G"), "G chart stacks lateral");
 assert(gChartSrc.includes("Longitudinal G"), "G chart stacks longitudinal");
+assert(gChartSrc.includes("Friction circle"), "G chart includes friction circle");
 assert(
-  /h-\[1[0-9]{2,}px\]/.test(gChartSrc) && !gChartSrc.includes("h-[56px]"),
-  "G chart compact rows >100px",
+  (gChartSrc.includes("sm:h-[120px]") || gChartSrc.includes("sm:min-h-[120px]")) &&
+    !gChartSrc.includes("h-[56px]"),
+  "G rows ~120px on desktop, no 56px slivers",
+);
+
+const lapCompareSrc = fs.readFileSync(
+  path.join(root, "src/components/LapCompare.tsx"),
+  "utf8",
+);
+assert(lapCompareSrc.includes("LapChipPicker"), "compare uses compact lap chips");
+assert(lapCompareSrc.includes("defaultOpen"), "compare lap selection expanded by default");
+assert(
+  lapCompareSrc.includes("min-h-[120px]") || lapCompareSrc.includes("h-[120px]"),
+  "compare ChartCard keeps ≥120px plot height",
 );
 
 const speedChartSrc = fs.readFileSync(

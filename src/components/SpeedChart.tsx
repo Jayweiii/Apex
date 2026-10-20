@@ -116,9 +116,9 @@ export function SpeedChart({
   const hasTrimOverlay = points.some((p) => p.speedInTrim != null);
 
   const bodyHeight = fill
-    ? "h-full min-h-[120px]"
+    ? "h-full min-h-[140px] sm:min-h-[160px]"
     : compact
-      ? "h-[108px]"
+      ? "h-[100px] min-h-[100px] sm:h-[120px]"
       : "h-[200px] sm:h-[260px]";
 
   const tAtClientX = useCallback(
