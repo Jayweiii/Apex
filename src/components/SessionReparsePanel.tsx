@@ -8,6 +8,11 @@ import {
   parseGpsLoggerFile,
 } from "@/lib/parse-gps-logger";
 import {
+  buildReparseSaveBody,
+  REPARSE_BODY_MAX_BYTES,
+  reparseBodyTooLargeMessage,
+} from "@/lib/reparse-save-body";
+import {
   compactSourceGps,
   compactSourceGpsIfDense,
   reparseLapsFromPoints,
@@ -193,19 +198,23 @@ export function SessionReparsePanel({
         return;
       }
 
+      const { body: reparseBody, bytes: reparseBytes } = buildReparseSaveBody({
+        laps: clientLaps,
+        sourceGps: nextSourceGps,
+        trackId: track,
+        startFinish,
+        startedAtMs: nextStartedAtMs ?? startedAtMs,
+        sessionDate,
+        gpsQuality,
+      });
+      if (reparseBytes > REPARSE_BODY_MAX_BYTES) {
+        throw new Error(reparseBodyTooLargeMessage(reparseBytes));
+      }
       const response = await fetch(`/api/sessions/${sessionId}/reparse`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify({
-          laps: clientLaps,
-          sourceGps: nextSourceGps,
-          trackId: track,
-          startFinish,
-          startedAtMs: nextStartedAtMs ?? startedAtMs,
-          sessionDate,
-          gpsQuality,
-        }),
+        body: JSON.stringify(reparseBody),
       });
       const payload = (await response.json().catch(() => ({}))) as {
         error?: string;
@@ -217,7 +226,13 @@ export function SessionReparsePanel({
         if (payload.needFile || payload.code === "gps_too_coarse") {
           setNeedFile(true);
         }
-        throw new Error(payload.error ?? "Re-parse failed");
+        const statusHint =
+          response.status === 413
+            ? " (payload too large)"
+            : response.status === 401
+              ? " (sign in required)"
+              : ` (HTTP ${response.status})`;
+        throw new Error((payload.error ?? "Re-parse failed") + statusHint);
       }
       setProgress(null);
       onDone({ lapCount: payload.lapCount ?? clientLaps.length });

@@ -25,6 +25,11 @@ import { applyLapTrim } from "@/lib/lap-trim";
 import { bestLapTimeMs } from "@/lib/lap-quality";
 import { isSessionOwner } from "@/lib/session-owner";
 import {
+  buildReparseSaveBody,
+  REPARSE_BODY_MAX_BYTES,
+  reparseBodyTooLargeMessage,
+} from "@/lib/reparse-save-body";
+import {
   autoBoundsForParsedLap,
   autoBoundsForStoredLap,
   lapAutoBoundsChanged,
@@ -499,20 +504,44 @@ export function CloudSessionView({ id }: { id: string }) {
       const stagedBeforeSave = laps;
       let didReparse = false;
       if (pendingReparse) {
+        const { body: reparseBody, bytes: reparseBytes } = buildReparseSaveBody({
+          laps: pendingReparse.laps,
+          sourceGps: pendingReparse.sourceGps,
+          trackId: pendingReparse.trackId,
+          startFinish: pendingReparse.startFinish,
+          startedAtMs: pendingReparse.startedAtMs,
+          sessionDate: pendingReparse.sessionDate,
+          gpsQuality: pendingReparse.gpsQuality,
+        });
+        if (reparseBytes > REPARSE_BODY_MAX_BYTES) {
+          throw new Error(reparseBodyTooLargeMessage(reparseBytes));
+        }
         const response = await fetch(`/api/sessions/${session.id}/reparse`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "same-origin",
-          body: JSON.stringify(pendingReparse),
+          body: JSON.stringify(reparseBody),
         });
         const payload = (await response.json().catch(() => ({}))) as {
           error?: string;
+          code?: string;
         };
         if (!response.ok) {
-          throw new Error(payload.error ?? "Could not save re-parse");
+          const statusHint =
+            response.status === 413
+              ? " (payload too large — GPS was not saved)"
+              : response.status === 401
+                ? " (signed out — sign in and Save again)"
+                : response.status === 404
+                  ? " (not the session owner)"
+                  : ` (HTTP ${response.status})`;
+          throw new Error(
+            (payload.error ?? "Could not save re-parse") + statusHint,
+          );
         }
-        setPendingReparse(null);
+        // Keep pendingReparse until reload succeeds so a failed reload can retry.
         await reloadFromServer();
+        setPendingReparse(null);
         setLapsEpoch((n) => n + 1);
         didReparse = true;
       }

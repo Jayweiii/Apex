@@ -1,4 +1,8 @@
 import {
+  REPARSE_BODY_MAX_BYTES,
+  reparseBodyTooLargeMessage,
+} from "@/lib/reparse-save-body";
+import {
   autoBoundsForStoredLap,
   buildReparsedLapRows,
   compactSourceGpsIfDense,
@@ -8,10 +12,13 @@ import {
   reparseLapsFromPoints,
   resolveGpsForReparse,
   sessionDerivedFromLaps,
+  sourceGpsPayloadBytes,
+  sourceGpsPointCount,
   type LapSideData,
   type SourceGpsStored,
 } from "@/lib/session-reparse";
 import { createClient } from "@/lib/supabase/server";
+import { resolveTrackStartFinish } from "@/lib/track-start-finish";
 import type { ParsedLap, SessionVideo, TelemetryPoint } from "@/lib/types";
 import { NextResponse } from "next/server";
 
@@ -19,12 +26,33 @@ import { NextResponse } from "next/server";
  * Owner-only: re-split laps in place. Keeps session id, YouTube rows, and
  * exclude/trim when lap numbers still match. Accepts client-parsed laps
  * (GoPro file re-select) or re-splits from sessions.source_gps / stitched laps.
+ *
+ * When dense sourceGps is posted, the server always re-splits from it
+ * (authoritative) so Save cannot silently diverge from stored GPS. Client
+ * lap point arrays are optional / ignored when sourceGps is dense — keeps
+ * the POST under Vercel body limits.
  */
 export async function POST(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
   const { id: sessionId } = await context.params;
+
+  const contentLength = Number(request.headers.get("content-length") ?? NaN);
+  if (
+    Number.isFinite(contentLength) &&
+    contentLength > REPARSE_BODY_MAX_BYTES
+  ) {
+    return NextResponse.json(
+      {
+        error: reparseBodyTooLargeMessage(contentLength),
+        code: "payload_too_large",
+        bytes: contentLength,
+      },
+      { status: 413 },
+    );
+  }
+
   let body: {
     laps?: unknown;
     sourceGps?: unknown;
@@ -34,8 +62,27 @@ export async function POST(
     sessionDate?: unknown;
     gpsQuality?: unknown;
   };
+  let rawText: string;
   try {
-    body = (await request.json()) as typeof body;
+    rawText = await request.text();
+  } catch {
+    return NextResponse.json(
+      { error: "Could not read request body", code: "body_read_failed" },
+      { status: 400 },
+    );
+  }
+  if (rawText.length > REPARSE_BODY_MAX_BYTES) {
+    return NextResponse.json(
+      {
+        error: reparseBodyTooLargeMessage(rawText.length),
+        code: "payload_too_large",
+        bytes: rawText.length,
+      },
+      { status: 413 },
+    );
+  }
+  try {
+    body = JSON.parse(rawText) as typeof body;
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
@@ -107,20 +154,30 @@ export async function POST(
     .eq("session_id", sessionId)
     .eq("user_id", user.id);
 
-  let parsedLaps: ParsedLap[] | null = parseClientLaps(body.laps);
   /** Only set when we have dense full-res GPS — never stitched lap telemetry. */
   let sourceGps: SourceGpsStored | null = null;
   const incomingGps = expandSourceGps(body.sourceGps);
   if (incomingGps.length) {
-    // Client may send already-compact v2 or a point list; re-encode if dense.
     sourceGps = compactSourceGpsIfDense(incomingGps);
+    if (!sourceGps) {
+      return NextResponse.json(
+        {
+          error:
+            "Uploaded GPS is too coarse to store as source_gps. Re-select the original GoPro LRV/MP4 or GPS log.",
+          code: "gps_too_coarse",
+          needFile: true,
+        },
+        { status: 422 },
+      );
+    }
   }
 
   const trackId =
     typeof body.trackId === "string" && body.trackId.trim()
       ? body.trackId.trim()
       : (session.track_id as string | null);
-  const startFinish = parseStartFinish(body.startFinish);
+  const startFinish =
+    parseStartFinish(body.startFinish) ?? resolveTrackStartFinish(trackId);
   const startedAtMs =
     typeof body.startedAtMs === "number" && Number.isFinite(body.startedAtMs)
       ? body.startedAtMs
@@ -128,24 +185,18 @@ export async function POST(
         ? Date.parse(String(session.started_at))
         : undefined;
 
-  if (!parsedLaps) {
-    const resolved = resolveGpsForReparse({
-      sourceGps: sourceGps ?? session.source_gps,
-      laps: oldLaps,
-    });
-    if (!resolved.density.ok) {
-      return NextResponse.json(
-        {
-          error: resolved.density.reason,
-          code: "gps_too_coarse",
-          hz: resolved.density.hz,
-          needFile: true,
-        },
-        { status: 422 },
-      );
-    }
+  let parsedLaps: ParsedLap[] | null = null;
+
+  // Prefer dense source GPS (incoming or already stored) — re-split
+  // server-side so Save cannot diverge from what we persist, and so slim
+  // client payloads (no lap point arrays) work under body-size limits.
+  const resolvedGps = resolveGpsForReparse({
+    sourceGps: sourceGps ?? session.source_gps,
+    laps: oldLaps,
+  });
+  if (resolvedGps.from === "source_gps" && resolvedGps.density.ok) {
     try {
-      const split = reparseLapsFromPoints(resolved.points, {
+      const split = reparseLapsFromPoints(resolvedGps.points, {
         sessionStartedAtMs: Number.isFinite(startedAtMs)
           ? startedAtMs
           : undefined,
@@ -153,11 +204,51 @@ export async function POST(
         trackId,
       });
       parsedLaps = split.laps;
-      // Keep / refresh source_gps only when the resolved track is dense.
-      // Never promote stitched downsampled lap rows into source_gps (that
-      // produced the 144-pt / ~3KB bug on session 1aa2fb88).
-      if (!sourceGps && resolved.from === "source_gps") {
-        sourceGps = compactSourceGpsIfDense(resolved.points);
+      if (!sourceGps) {
+        sourceGps = compactSourceGpsIfDense(resolvedGps.points);
+      }
+    } catch (err) {
+      return NextResponse.json(
+        {
+          error:
+            err instanceof Error
+              ? err.message
+              : "Could not detect laps — choose start/finish or re-select the original GPS file.",
+          code: "split_failed",
+          needStartFinish: true,
+        },
+        { status: 422 },
+      );
+    }
+  }
+
+  if (!parsedLaps) {
+    parsedLaps = parseClientLaps(body.laps);
+  }
+
+  if (!parsedLaps) {
+    if (!resolvedGps.density.ok) {
+      return NextResponse.json(
+        {
+          error: resolvedGps.density.reason,
+          code: "gps_too_coarse",
+          hz: resolvedGps.density.hz,
+          needFile: true,
+        },
+        { status: 422 },
+      );
+    }
+    try {
+      const split = reparseLapsFromPoints(resolvedGps.points, {
+        sessionStartedAtMs: Number.isFinite(startedAtMs)
+          ? startedAtMs
+          : undefined,
+        startFinish,
+        trackId,
+      });
+      parsedLaps = split.laps;
+      if (!sourceGps && resolvedGps.from === "source_gps") {
+        sourceGps = compactSourceGpsIfDense(resolvedGps.points);
       }
     } catch (err) {
       return NextResponse.json(
@@ -209,7 +300,20 @@ export async function POST(
 
   const sessionPatch: Record<string, unknown> = {};
   if (trackId) sessionPatch.track_id = trackId;
-  if (sourceGps) sessionPatch.source_gps = sourceGps;
+  if (sourceGps) {
+    const bytes = sourceGpsPayloadBytes(sourceGps);
+    if (bytes > 900_000) {
+      return NextResponse.json(
+        {
+          error: `source_gps blob is ${Math.round(bytes / 1024)} KB — too large for inline jsonb. Apply supabase/migrations/20261020_source_gps_fullres.sql and retry with v2 compact encoding.`,
+          code: "source_gps_too_large",
+          bytes,
+        },
+        { status: 413 },
+      );
+    }
+    sessionPatch.source_gps = sourceGps;
+  }
   if (typeof body.sessionDate === "string") {
     sessionPatch.session_date = body.sessionDate;
   }
@@ -228,14 +332,31 @@ export async function POST(
       .eq("user_id", user.id);
     if (patchError) {
       const missing = /source_gps/i.test(patchError.message);
+      const tooBig = /too large|value too long|payload|bytes/i.test(
+        patchError.message,
+      );
+      console.error("reparse session update failed", {
+        sessionId,
+        userId: user.id,
+        message: patchError.message,
+        code: patchError.code,
+        hasSourceGps: Boolean(sourceGps),
+        sourceGpsBytes: sourceGps ? sourceGpsPayloadBytes(sourceGps) : 0,
+      });
       return NextResponse.json(
         {
           error: missing
             ? "Run supabase/migrations/20261019_session_source_gps.sql in the Supabase SQL editor, then retry."
-            : patchError.message,
-          code: missing ? "missing_source_gps" : "session_update_failed",
+            : tooBig
+              ? `Could not save source_gps (${patchError.message}). Payload may be too large — re-select the file so GPS is compact v2.`
+              : patchError.message,
+          code: missing
+            ? "missing_source_gps"
+            : tooBig
+              ? "source_gps_too_large"
+              : "session_update_failed",
         },
-        { status: missing ? 503 : 500 },
+        { status: missing ? 503 : tooBig ? 413 : 500 },
       );
     }
   }
@@ -246,7 +367,14 @@ export async function POST(
     .eq("session_id", sessionId)
     .eq("user_id", user.id);
   if (deleteError) {
-    return NextResponse.json({ error: deleteError.message }, { status: 500 });
+    console.error("reparse lap delete failed", {
+      sessionId,
+      message: deleteError.message,
+    });
+    return NextResponse.json(
+      { error: deleteError.message, code: "lap_delete_failed" },
+      { status: 500 },
+    );
   }
 
   const { data: inserted, error: insertError } = await supabase
@@ -254,7 +382,15 @@ export async function POST(
     .insert(lapInserts)
     .select("id, lap_number");
   if (insertError) {
-    return NextResponse.json({ error: insertError.message }, { status: 500 });
+    console.error("reparse lap insert failed", {
+      sessionId,
+      message: insertError.message,
+      lapCount: lapInserts.length,
+    });
+    return NextResponse.json(
+      { error: insertError.message, code: "lap_insert_failed" },
+      { status: 500 },
+    );
   }
 
   const nextLapNumberToId = new Map<number, string>();
@@ -289,7 +425,7 @@ export async function POST(
   );
 
   for (const video of remapped) {
-    await supabase
+    const { error: videoError } = await supabase
       .from("session_videos")
       .update({
         lap_id: video.lapId ?? null,
@@ -297,6 +433,13 @@ export async function POST(
       })
       .eq("id", video.id)
       .eq("user_id", user.id);
+    if (videoError) {
+      console.error("reparse video remap failed", {
+        sessionId,
+        videoId: video.id,
+        message: videoError.message,
+      });
+    }
   }
 
   const clearedTrimCount = [...preserved.values()].filter((side) => {
@@ -316,6 +459,7 @@ export async function POST(
     clearedStaleTrim: clearedTrimCount,
     sessionBestMs: derived.sessionBestMs,
     sourceGpsStored: Boolean(sourceGps),
+    sourceGpsPoints: sourceGps ? sourceGpsPointCount(sourceGps) : 0,
   });
 }
 
@@ -329,6 +473,8 @@ function parseClientLaps(raw: unknown): ParsedLap[] | null {
     const lapTimeMs = Number(row.lapTimeMs ?? row.lap_time_ms);
     const points = row.points ?? row.telemetry;
     if (!Number.isFinite(lapNumber) || !Number.isFinite(lapTimeMs)) continue;
+    // Slim Save omits points when sourceGps is present — those payloads are
+    // handled by server-side re-split, not this path.
     if (!Array.isArray(points) || points.length < 2) continue;
     laps.push({
       lapNumber,

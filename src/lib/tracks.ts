@@ -189,6 +189,12 @@ export function resolveBuiltinAlias(
 ): string | null {
   if (!trackId) return null;
   if (builtinTrack(trackId)) return trackId;
+  // custom-<builtin-slug> (e.g. custom-thunderhill-west) → builtin, even on
+  // the server where sharedTracksCache is empty. Fixes SF for re-parse.
+  if (trackId.startsWith("custom-")) {
+    const slug = trackId.slice("custom-".length);
+    if (builtinTrack(slug)) return slug;
+  }
   const named =
     sharedTracksCache.find((track) => track.id === trackId) ??
     listCustomTracks().find((track) => track.id === trackId) ??

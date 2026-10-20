@@ -152,9 +152,13 @@ export async function saveSessionToCloud(
     .select("id")
     .single();
   // Drop optional columns gracefully when migrations are not yet applied.
+  // Only treat "column missing" as soft — never silently drop source_gps on
+  // payload/RLS failures (that left session 1aa2fb88 with NULL source_gps).
   if (
     sessionInsert.error &&
-    /source_gps/i.test(String(sessionInsert.error.message ?? ""))
+    /column .*source_gps|source_gps.*does not exist|Could not find the .*source_gps/i.test(
+      String(sessionInsert.error.message ?? ""),
+    )
   ) {
     const { source_gps: _omitSource, ...withoutSource } = payload.session;
     void _omitSource;

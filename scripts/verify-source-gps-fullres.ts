@@ -102,7 +102,10 @@ const fromCoarseSource = resolveGpsForReparse({
   laps: [],
 });
 // compactSourceGps still encodes; density gate is separate
-assert(sourceGpsPointCount(compactSourceGps(stitched)) === stitched.length);
+assert(
+  sourceGpsPointCount(compactSourceGps(stitched)) === stitched.length,
+  "point count matches stitch length",
+);
 
 const repairedBug = resolveGpsForReparse({
   sourceGps: Array.from({ length: 144 }, (_, i) => ({

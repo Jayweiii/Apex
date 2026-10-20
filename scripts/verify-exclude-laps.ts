@@ -127,4 +127,36 @@ assert(
   "heuristics do not auto-exclude",
 );
 
+// Out/in: first/last partial → label only (never auto-exclude)
+const withOutIn: LapQualityInput[] = [
+  {
+    id: "out",
+    lap_number: 1,
+    lap_time_ms: 20_000,
+    telemetry: ovalLap(20, { closeGapM: 200 }),
+  },
+  {
+    id: "hot",
+    lap_number: 2,
+    lap_time_ms: 100_000,
+    telemetry: ovalLap(100),
+  },
+  {
+    id: "in",
+    lap_number: 3,
+    lap_time_ms: 25_000,
+    telemetry: ovalLap(25, { closeGapM: 200 }),
+  },
+];
+const outInFlags = flagSuspiciousLaps(withOutIn);
+const outInById = new Map(outInFlags.map((f) => [f.lapId, f]));
+assert(outInById.get("out")?.reasons.includes("out_lap"), "out lap label");
+assert(outInById.get("out")?.labels.includes("Out lap"), "Out lap text");
+assert(outInById.get("in")?.reasons.includes("in_lap"), "in lap label");
+assert(outInById.get("in")?.labels.includes("In lap"), "In lap text");
+assert(
+  withOutIn.every((lap) => !lap.excluded),
+  "out/in labels do not auto-exclude",
+);
+
 console.log("verify-exclude-laps ok");

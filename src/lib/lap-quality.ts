@@ -14,6 +14,8 @@ export type LapQualityInput = {
 export type SuspiciousReason =
   | "duration_outlier"
   | "partial_coverage"
+  | "out_lap"
+  | "in_lap"
   | "gps_jump";
 
 export type LapSuspicion = {
@@ -132,12 +134,15 @@ function hasBigGpsJump(points: TelemetryPoint[]): boolean {
 const REASON_LABELS: Record<SuspiciousReason, string> = {
   duration_outlier: "Odd duration",
   partial_coverage: "Partial lap",
+  out_lap: "Out lap",
+  in_lap: "In lap",
   gps_jump: "GPS jump",
 };
 
 /**
  * Auto-flag suspicious laps (splitter bugs, outlaps, GPS glitches).
- * Does NOT exclude — UI shows a warning + one-click exclude.
+ * Does NOT exclude — UI shows a label only; Jason wants no auto-exclude.
+ * First/last partial segments are labeled out lap / in lap.
  */
 export function flagSuspiciousLaps(laps: LapQualityInput[]): LapSuspicion[] {
   if (laps.length < 2) return [];
@@ -147,6 +152,7 @@ export function flagSuspiciousLaps(laps: LapQualityInput[]): LapSuspicion[] {
   const pathLens = laps.map((lap) => pathLengthMeters(lap.telemetry ?? []));
   const positivePaths = pathLens.filter((len) => len > 50);
   const medPath = median(positivePaths);
+  const lastIdx = laps.length - 1;
 
   const out: LapSuspicion[] = [];
   for (let i = 0; i < laps.length; i += 1) {
@@ -154,11 +160,12 @@ export function flagSuspiciousLaps(laps: LapQualityInput[]): LapSuspicion[] {
     const reasons: SuspiciousReason[] = [];
     const points = lap.telemetry ?? [];
 
+    let durationOutlier = false;
     if (medTime != null && medTime > 0) {
       const delta = Math.abs(lap.lap_time_ms - medTime);
       const rel = delta / medTime;
       if (rel >= DURATION_REL_THRESHOLD || delta >= DURATION_ABS_MS) {
-        reasons.push("duration_outlier");
+        durationOutlier = true;
       }
     }
 
@@ -167,8 +174,16 @@ export function flagSuspiciousLaps(laps: LapQualityInput[]): LapSuspicion[] {
     const partialByGap = gap != null && gap > SF_GAP_PARTIAL_M;
     const partialByPath =
       medPath != null && medPath > 100 && pathLen > 0 && pathLen < medPath * PATH_LEN_FRAC;
-    if (partialByGap || partialByPath) {
-      reasons.push("partial_coverage");
+    const looksPartial = partialByGap || partialByPath || durationOutlier;
+
+    // Out/in: label first/last incomplete segments — never auto-exclude.
+    if (looksPartial && i === 0) {
+      reasons.push("out_lap");
+    } else if (looksPartial && i === lastIdx) {
+      reasons.push("in_lap");
+    } else {
+      if (durationOutlier) reasons.push("duration_outlier");
+      if (partialByGap || partialByPath) reasons.push("partial_coverage");
     }
 
     if (hasBigGpsJump(points)) {
