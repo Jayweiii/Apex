@@ -112,6 +112,7 @@ export function LapTrimControls({
 
       <div className="grid gap-3 sm:grid-cols-2">
         <BoundEditor
+          key={`start-${lap.id}-${bounds.autoStart}-${bounds.autoEnd}`}
           label="Start"
           value={bounds.effectiveStart}
           autoValue={bounds.autoStart}
@@ -120,6 +121,7 @@ export function LapTrimControls({
           onCommit={setStart}
         />
         <BoundEditor
+          key={`end-${lap.id}-${bounds.autoStart}-${bounds.autoEnd}`}
           label="End"
           value={bounds.effectiveEnd}
           autoValue={bounds.autoEnd}

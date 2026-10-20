@@ -24,7 +24,14 @@ import type { GpsQuality } from "@/lib/gps-quality";
 import { applyLapTrim } from "@/lib/lap-trim";
 import { bestLapTimeMs } from "@/lib/lap-quality";
 import { isSessionOwner } from "@/lib/session-owner";
-import { looksLikeUnsplitLaps } from "@/lib/session-reparse";
+import {
+  autoBoundsForParsedLap,
+  autoBoundsForStoredLap,
+  lapAutoBoundsChanged,
+  looksLikeUnsplitLaps,
+  overridesOutsideAutoBounds,
+  sessionDerivedFromLaps,
+} from "@/lib/session-reparse";
 import {
   deleteSessionVideo,
   fetchSessionVideos,
@@ -82,6 +89,8 @@ export function CloudSessionView({ id }: { id: string }) {
   const [reparseNonce, setReparseNonce] = useState(0);
   const [pendingReparse, setPendingReparse] =
     useState<ReparseStagePayload | null>(null);
+  /** Bumps after re-parse/save so trim sliders remount from new bounds. */
+  const [lapsEpoch, setLapsEpoch] = useState(0);
   const [toolsOpenRequest, setToolsOpenRequest] = useState<{
     tab: string;
     nonce: number;
@@ -414,8 +423,33 @@ export function CloudSessionView({ id }: { id: string }) {
       const prev =
         laps.find((row) => row.lap_number === lap.lapNumber) ??
         savedLapsRef.current.find((row) => row.lap_number === lap.lapNumber);
+      const nextBounds = autoBoundsForParsedLap({
+        lapNumber: lap.lapNumber,
+        lapTimeMs: lap.lapTimeMs,
+        points: lap.points,
+        startOffsetSec: lap.startOffsetSec,
+        startedAtMs: lap.startedAtMs,
+      });
+      const prevBounds = prev
+        ? autoBoundsForStoredLap(prev)
+        : null;
+      const boundsChanged = prevBounds
+        ? lapAutoBoundsChanged(prevBounds, nextBounds)
+        : true;
+      const staleOverrides =
+        Boolean(prev) &&
+        (boundsChanged ||
+          overridesOutsideAutoBounds(
+            {
+              start_offset_override: prev?.start_offset_override,
+              end_offset_override: prev?.end_offset_override,
+            },
+            nextBounds,
+          ));
       return {
-        id: prev?.id ?? crypto.randomUUID(),
+        // Fresh id when bounds change so trim/chart state cannot stick to the
+        // old single-lap window after an unsplit → multi-lap re-parse.
+        id: prev && !boundsChanged ? prev.id : crypto.randomUUID(),
         session_id: session.id,
         user_id: session.user_id,
         lap_number: lap.lapNumber,
@@ -425,11 +459,16 @@ export function CloudSessionView({ id }: { id: string }) {
         started_at_ms: lap.startedAtMs ?? null,
         excluded: prev?.excluded ?? false,
         exclude_reason: prev?.exclude_reason ?? null,
-        start_offset_override: prev?.start_offset_override ?? null,
-        end_offset_override: prev?.end_offset_override ?? null,
+        start_offset_override: staleOverrides
+          ? null
+          : (prev?.start_offset_override ?? null),
+        end_offset_override: staleOverrides
+          ? null
+          : (prev?.end_offset_override ?? null),
       };
     });
     setLaps(staged);
+    setLapsEpoch((n) => n + 1);
     markDirty();
     setReparseOpen(false);
   }
@@ -455,6 +494,10 @@ export function CloudSessionView({ id }: { id: string }) {
     try {
       const supabase = createClient();
 
+      // Capture staged rows before reparse clears them — after reload, lap
+      // ids change so trim/exclude patches must match by lap_number.
+      const stagedBeforeSave = laps;
+      let didReparse = false;
       if (pendingReparse) {
         const response = await fetch(`/api/sessions/${session.id}/reparse`, {
           method: "POST",
@@ -470,6 +513,8 @@ export function CloudSessionView({ id }: { id: string }) {
         }
         setPendingReparse(null);
         await reloadFromServer();
+        setLapsEpoch((n) => n + 1);
+        didReparse = true;
       }
 
       const savedSession = savedSessionRef.current;
@@ -509,24 +554,28 @@ export function CloudSessionView({ id }: { id: string }) {
         });
       }
 
-      for (const lap of laps) {
-        const baseline = savedLapsRef.current.find((row) => row.id === lap.id);
+      for (const staged of stagedBeforeSave) {
+        const baseline = didReparse
+          ? savedLapsRef.current.find(
+              (row) => row.lap_number === staged.lap_number,
+            )
+          : savedLapsRef.current.find((row) => row.id === staged.id);
         if (!baseline) continue;
         const trimChanged =
-          (lap.start_offset_override ?? null) !==
+          (staged.start_offset_override ?? null) !==
             (baseline.start_offset_override ?? null) ||
-          (lap.end_offset_override ?? null) !==
+          (staged.end_offset_override ?? null) !==
             (baseline.end_offset_override ?? null);
         if (trimChanged) {
           const response = await fetch(
-            `/api/sessions/${session.id}/laps/${lap.id}/trim`,
+            `/api/sessions/${session.id}/laps/${baseline.id}/trim`,
             {
               method: "PATCH",
               headers: { "Content-Type": "application/json" },
               credentials: "same-origin",
               body: JSON.stringify({
-                start_offset_override: lap.start_offset_override ?? null,
-                end_offset_override: lap.end_offset_override ?? null,
+                start_offset_override: staged.start_offset_override ?? null,
+                end_offset_override: staged.end_offset_override ?? null,
               }),
             },
           );
@@ -538,18 +587,18 @@ export function CloudSessionView({ id }: { id: string }) {
           }
         }
         const excludeChanged =
-          Boolean(lap.excluded) !== Boolean(baseline.excluded) ||
-          (lap.exclude_reason ?? null) !== (baseline.exclude_reason ?? null);
+          Boolean(staged.excluded) !== Boolean(baseline.excluded) ||
+          (staged.exclude_reason ?? null) !== (baseline.exclude_reason ?? null);
         if (excludeChanged) {
           const response = await fetch(
-            `/api/sessions/${session.id}/laps/${lap.id}/exclude`,
+            `/api/sessions/${session.id}/laps/${baseline.id}/exclude`,
             {
               method: "PATCH",
               headers: { "Content-Type": "application/json" },
               credentials: "same-origin",
               body: JSON.stringify({
-                excluded: Boolean(lap.excluded),
-                exclude_reason: lap.exclude_reason ?? null,
+                excluded: Boolean(staged.excluded),
+                exclude_reason: staged.exclude_reason ?? null,
               }),
             },
           );
@@ -628,7 +677,8 @@ export function CloudSessionView({ id }: { id: string }) {
     );
   }
 
-  const best = bestLapTimeMs(laps);
+  const derived = sessionDerivedFromLaps(laps);
+  const best = derived.sessionBestMs ?? bestLapTimeMs(laps);
   const coverage = videoCoverage(
     videos,
     laps.map((lap) => lap.id),
@@ -961,6 +1011,7 @@ export function CloudSessionView({ id }: { id: string }) {
         <div className="min-h-0 flex-1 overflow-y-auto lg:overflow-hidden">
           {selectedRow ? (
             <SessionLapDetail
+              key={`lap-detail-${lapsEpoch}-${selectedRow.id}-${selectedRow.start_offset_sec ?? 0}-${selectedRow.lap_time_ms}`}
               sessionId={session.id}
               layout="workspace"
               sidebar={lapSidebar}

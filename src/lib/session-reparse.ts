@@ -172,11 +172,59 @@ export type LapSideData = {
   exclude_reason?: string | null;
   start_offset_override?: number | null;
   end_offset_override?: number | null;
+  /** Previous auto session-time start (for stale-trim detection). */
+  auto_start?: number | null;
+  /** Previous auto session-time end (for stale-trim detection). */
+  auto_end?: number | null;
 };
 
+/** Auto session-time window for a freshly parsed lap. */
+export function autoBoundsForParsedLap(lap: ParsedLap): {
+  autoStart: number;
+  autoEnd: number;
+} {
+  const autoStart = lap.startOffsetSec ?? 0;
+  const lastT =
+    lap.points.length > 0
+      ? lap.points[lap.points.length - 1]!.t
+      : lap.lapTimeMs / 1000;
+  return { autoStart, autoEnd: autoStart + Math.max(0, lastT) };
+}
+
+/** Auto session-time window from a stored lap row. */
+export function autoBoundsForStoredLap(lap: {
+  start_offset_sec?: number | null;
+  lap_time_ms?: number | null;
+  telemetry?: Array<{ t: number }> | null;
+}): { autoStart: number; autoEnd: number } {
+  const autoStart = lap.start_offset_sec ?? 0;
+  const telemetry = lap.telemetry ?? [];
+  const lastT =
+    telemetry.length > 0
+      ? telemetry[telemetry.length - 1]!.t
+      : Math.max(0, (lap.lap_time_ms ?? 0) / 1000);
+  return { autoStart, autoEnd: autoStart + lastT };
+}
+
+const BOUNDS_CHANGE_TOLERANCE_SEC = 0.5;
+
+/** True when re-split changed the auto window enough that trim is stale. */
+export function lapAutoBoundsChanged(
+  previous: { autoStart: number; autoEnd: number },
+  next: { autoStart: number; autoEnd: number },
+  toleranceSec = BOUNDS_CHANGE_TOLERANCE_SEC,
+): boolean {
+  return (
+    Math.abs(previous.autoStart - next.autoStart) > toleranceSec ||
+    Math.abs(previous.autoEnd - next.autoEnd) > toleranceSec
+  );
+}
+
 /**
- * When lap numbers match after re-split, keep exclude/trim flags.
- * YouTube rows remapped by previous lap_number → new lap id.
+ * When lap numbers match after re-split, keep exclude flags.
+ * Trim overrides are kept only when auto bounds are unchanged — otherwise
+ * clear stale start/end overrides that belonged to the old window
+ * (e.g. single 20‑min blob → many short laps).
  */
 export function preserveMatchedLapSideData(
   previous: LapSideData[],
@@ -189,9 +237,83 @@ export function preserveMatchedLapSideData(
   for (const lap of nextLaps) {
     const old = prevByNumber.get(lap.lapNumber);
     if (!old) continue;
-    kept.set(lap.lapNumber, old);
+    const nextBounds = autoBoundsForParsedLap(lap);
+    const prevBounds =
+      old.auto_start != null &&
+      old.auto_end != null &&
+      Number.isFinite(old.auto_start) &&
+      Number.isFinite(old.auto_end)
+        ? { autoStart: old.auto_start, autoEnd: old.auto_end }
+        : null;
+    const boundsChanged = prevBounds
+      ? lapAutoBoundsChanged(prevBounds, nextBounds)
+      : // No prior auto window (legacy callers) — drop trim if overrides
+        // fall far outside the new auto bounds.
+        overridesOutsideAutoBounds(old, nextBounds);
+    kept.set(lap.lapNumber, {
+      lap_number: old.lap_number,
+      excluded: old.excluded,
+      exclude_reason: old.exclude_reason,
+      start_offset_override: boundsChanged
+        ? null
+        : (old.start_offset_override ?? null),
+      end_offset_override: boundsChanged
+        ? null
+        : (old.end_offset_override ?? null),
+      auto_start: nextBounds.autoStart,
+      auto_end: nextBounds.autoEnd,
+    });
   }
   return kept;
+}
+
+/** Overrides that sit well outside the new auto window are treated as stale. */
+export function overridesOutsideAutoBounds(
+  side: Pick<LapSideData, "start_offset_override" | "end_offset_override">,
+  next: { autoStart: number; autoEnd: number },
+  padSec = 2,
+): boolean {
+  const start = side.start_offset_override;
+  const end = side.end_offset_override;
+  if (start != null && Number.isFinite(start)) {
+    if (start < next.autoStart - padSec || start > next.autoEnd + padSec) {
+      return true;
+    }
+  }
+  if (end != null && Number.isFinite(end)) {
+    if (end < next.autoStart - padSec || end > next.autoEnd + padSec) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Session-level derived stats from laps (respects excludes).
+ * Used after re-parse/save so UI + leaderboards agree without a hard refresh.
+ */
+export function sessionDerivedFromLaps(
+  laps: Array<{
+    lap_time_ms: number;
+    excluded?: boolean | null;
+    lap_number?: number;
+    points?: TelemetryPoint[];
+    telemetry?: TelemetryPoint[] | null;
+  }>,
+): {
+  lapCount: number;
+  sessionBestMs: number | null;
+  eligibleCount: number;
+} {
+  const eligible = laps.filter((lap) => !lap.excluded);
+  const sessionBestMs = eligible.length
+    ? Math.min(...eligible.map((lap) => lap.lap_time_ms))
+    : null;
+  return {
+    lapCount: laps.length,
+    sessionBestMs,
+    eligibleCount: eligible.length,
+  };
 }
 
 export function remapVideosByLapNumber(

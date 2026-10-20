@@ -84,13 +84,20 @@ const fromSource = resolveGpsForReparse({
 assert(fromSource.from === "source_gps", "prefers source_gps");
 assert(fromSource.density.ok, "source_gps dense");
 
+const lap2 = split.laps.find((l) => l.lapNumber === 2);
+const lap3 = split.laps.find((l) => l.lapNumber === 3);
+assert(lap2 && lap3, "laps 2 and 3 exist for side-data checks");
 const previous = [
   {
     lap_number: 2,
     excluded: true,
     exclude_reason: "inlap",
-    start_offset_override: 10,
+    start_offset_override: (lap2!.startOffsetSec ?? 0) + 1,
     end_offset_override: null as number | null,
+    auto_start: lap2!.startOffsetSec ?? 0,
+    auto_end:
+      (lap2!.startOffsetSec ?? 0) +
+      (lap2!.points[lap2!.points.length - 1]?.t ?? lap2!.lapTimeMs / 1000),
   },
   {
     lap_number: 3,
@@ -98,13 +105,36 @@ const previous = [
     exclude_reason: null as string | null,
     start_offset_override: null as number | null,
     end_offset_override: 200,
+    auto_start: lap3!.startOffsetSec ?? 0,
+    auto_end:
+      (lap3!.startOffsetSec ?? 0) +
+      (lap3!.points[lap3!.points.length - 1]?.t ?? lap3!.lapTimeMs / 1000),
   },
 ];
 const preserved = preserveMatchedLapSideData(previous, split.laps);
 assert(preserved.get(2)?.excluded === true, "exclude preserved on lap 2");
 assert(
   preserved.get(3)?.end_offset_override === 200,
-  "trim end preserved on lap 3",
+  "trim end preserved on lap 3 when bounds unchanged",
+);
+
+// Giant single-lap trim must not survive a multi-lap re-split.
+const giantPrev = [
+  {
+    lap_number: 1,
+    excluded: false,
+    exclude_reason: null as string | null,
+    start_offset_override: 0,
+    end_offset_override: 1200,
+    auto_start: 0,
+    auto_end: 1200,
+  },
+];
+const afterGiant = preserveMatchedLapSideData(giantPrev, split.laps);
+assert(
+  afterGiant.get(1)?.start_offset_override == null &&
+    afterGiant.get(1)?.end_offset_override == null,
+  "stale giant-lap trim cleared after re-split",
 );
 
 const rows = buildReparsedLapRows("user", "sess", split.laps, preserved);

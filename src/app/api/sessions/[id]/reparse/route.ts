@@ -1,4 +1,5 @@
 import {
+  autoBoundsForStoredLap,
   buildReparsedLapRows,
   compactSourceGps,
   expandSourceGps,
@@ -6,6 +7,7 @@ import {
   remapVideosByLapNumber,
   reparseLapsFromPoints,
   resolveGpsForReparse,
+  sessionDerivedFromLaps,
   type CompactGpsPoint,
   type LapSideData,
 } from "@/lib/session-reparse";
@@ -174,19 +176,30 @@ export async function POST(
     );
   }
 
-  const previousSide: LapSideData[] = oldLaps.map((lap) => ({
-    lap_number: lap.lap_number,
-    excluded: lap.excluded,
-    exclude_reason: lap.exclude_reason,
-    start_offset_override: lap.start_offset_override,
-    end_offset_override: lap.end_offset_override,
-  }));
+  const previousSide: LapSideData[] = oldLaps.map((lap) => {
+    const bounds = autoBoundsForStoredLap(lap);
+    return {
+      lap_number: lap.lap_number,
+      excluded: lap.excluded,
+      exclude_reason: lap.exclude_reason,
+      start_offset_override: lap.start_offset_override,
+      end_offset_override: lap.end_offset_override,
+      auto_start: bounds.autoStart,
+      auto_end: bounds.autoEnd,
+    };
+  });
   const preserved = preserveMatchedLapSideData(previousSide, parsedLaps);
   const lapInserts = buildReparsedLapRows(
     user.id,
     sessionId,
     parsedLaps,
     preserved,
+  );
+  const derived = sessionDerivedFromLaps(
+    lapInserts.map((row) => ({
+      lap_time_ms: Number(row.lap_time_ms),
+      excluded: Boolean(row.excluded),
+    })),
   );
 
   const sessionPatch: Record<string, unknown> = {};
@@ -281,10 +294,22 @@ export async function POST(
       .eq("user_id", user.id);
   }
 
+  const clearedTrimCount = [...preserved.values()].filter((side) => {
+    const prev = previousSide.find((p) => p.lap_number === side.lap_number);
+    if (!prev) return false;
+    return (
+      (prev.start_offset_override != null || prev.end_offset_override != null) &&
+      side.start_offset_override == null &&
+      side.end_offset_override == null
+    );
+  }).length;
+
   return NextResponse.json({
     ok: true,
     lapCount: parsedLaps.length,
     preservedLapMeta: [...preserved.keys()].length,
+    clearedStaleTrim: clearedTrimCount,
+    sessionBestMs: derived.sessionBestMs,
     sourceGpsStored: Boolean(sourceGps),
   });
 }
