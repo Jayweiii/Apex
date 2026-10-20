@@ -1,15 +1,15 @@
 import {
   autoBoundsForStoredLap,
   buildReparsedLapRows,
-  compactSourceGps,
+  compactSourceGpsIfDense,
   expandSourceGps,
   preserveMatchedLapSideData,
   remapVideosByLapNumber,
   reparseLapsFromPoints,
   resolveGpsForReparse,
   sessionDerivedFromLaps,
-  type CompactGpsPoint,
   type LapSideData,
+  type SourceGpsStored,
 } from "@/lib/session-reparse";
 import { createClient } from "@/lib/supabase/server";
 import type { ParsedLap, SessionVideo, TelemetryPoint } from "@/lib/types";
@@ -108,10 +108,12 @@ export async function POST(
     .eq("user_id", user.id);
 
   let parsedLaps: ParsedLap[] | null = parseClientLaps(body.laps);
-  let sourceGps: CompactGpsPoint[] | null = null;
+  /** Only set when we have dense full-res GPS — never stitched lap telemetry. */
+  let sourceGps: SourceGpsStored | null = null;
   const incomingGps = expandSourceGps(body.sourceGps);
   if (incomingGps.length) {
-    sourceGps = compactSourceGps(incomingGps);
+    // Client may send already-compact v2 or a point list; re-encode if dense.
+    sourceGps = compactSourceGpsIfDense(incomingGps);
   }
 
   const trackId =
@@ -151,8 +153,11 @@ export async function POST(
         trackId,
       });
       parsedLaps = split.laps;
-      if (!sourceGps) {
-        sourceGps = compactSourceGps(resolved.points);
+      // Keep / refresh source_gps only when the resolved track is dense.
+      // Never promote stitched downsampled lap rows into source_gps (that
+      // produced the 144-pt / ~3KB bug on session 1aa2fb88).
+      if (!sourceGps && resolved.from === "source_gps") {
+        sourceGps = compactSourceGpsIfDense(resolved.points);
       }
     } catch (err) {
       return NextResponse.json(

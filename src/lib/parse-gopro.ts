@@ -348,6 +348,7 @@ export function pointsFromGpsSamples(
       }
       const lat = Number(row[0]);
       const lon = Number(row[1]);
+      const altRaw = Number(row[2]);
       const speedMs = Number(row[3] ?? row[4] ?? 0);
       const g = nearestAccel(accelPoints, t);
       const point: TelemetryPoint = {
@@ -356,6 +357,9 @@ export function pointsFromGpsSamples(
         lat: Number(lat.toFixed(6)),
         lon: Number(lon.toFixed(6)),
       };
+      if (Number.isFinite(altRaw)) {
+        point.alt = Number(altRaw.toFixed(2));
+      }
       if (g) {
         point.latG = g.latG;
         point.lonG = g.lonG;

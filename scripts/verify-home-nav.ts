@@ -128,5 +128,9 @@ assert(
   existsSync(join(root, "supabase/migrations/20261019_session_source_gps.sql")),
   "source_gps migration",
 );
+assert(
+  existsSync(join(root, "supabase/migrations/20261020_source_gps_fullres.sql")),
+  "source_gps full-res migration",
+);
 
 console.log("verify-home-nav: ok");

@@ -41,7 +41,9 @@ const points: TelemetryPoint[] = fixture.points.map((p) => ({
 }));
 
 const compact = compactSourceGps(points);
-assert(compact.length === points.length, "compact keeps GPS samples");
+assert(compact, "compact encodes");
+assert(compact.n === points.length, "compact keeps GPS samples");
+assert(compact.v === 2, "v2 encoding");
 const expanded = expandSourceGps(compact);
 assert(expanded.length === points.length, "expand round-trip");
 assert(

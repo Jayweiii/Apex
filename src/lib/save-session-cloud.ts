@@ -2,7 +2,7 @@ import { assertUserUploadRateLimit } from "@/lib/abuse-limits";
 import type { GpsQuality } from "@/lib/gps-quality";
 import {
   compactSourceGps,
-  type CompactGpsPoint,
+  type SourceGpsStored,
 } from "@/lib/session-reparse";
 import type { ParsedLap, SessionVideo, TelemetryPoint } from "@/lib/types";
 import {
@@ -24,9 +24,9 @@ export type CloudSessionMeta = {
   notes?: string;
   sourceKind: "csv" | "gopro" | "logger";
   gpsQuality?: GpsQuality | null;
-  /** Full-res GPS for later re-split (compacted on save). */
+  /** Full-res GPS for later re-split (compacted on save — never downsampled). */
   sourcePoints?: TelemetryPoint[] | null;
-  sourceGps?: CompactGpsPoint[] | null;
+  sourceGps?: SourceGpsStored | null;
   rawObjectKey?: string | null;
   videoObjectKey?: string | null;
   storageBackend?: string | null;

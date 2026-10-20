@@ -1,72 +1,43 @@
 import { splitGoProLaps } from "@/lib/parse-gopro";
 import type { LatLon } from "@/lib/map-match";
+import {
+  compactSourceGps as encodeSourceGps,
+  expandSourceGps,
+  type CompactGpsPoint,
+  type SourceGpsStored,
+  type SourceGpsV2,
+} from "@/lib/source-gps-codec";
 import type { ParsedLap, SessionVideo, TelemetryPoint } from "@/lib/types";
 
-/**
- * Compact GPS sample stored on sessions.source_gps.
- * s = speed km/h, a = latG, b = lonG (optional).
- */
-export type CompactGpsPoint = {
-  t: number;
-  lat: number;
-  lon: number;
-  s?: number;
-  a?: number;
-  b?: number;
-};
+export type { CompactGpsPoint, SourceGpsStored, SourceGpsV2 };
+export {
+  expandSourceGps,
+  sourceGpsPointCount,
+  sourceGpsNeedsExternalStorage,
+  sourceGpsPayloadBytes,
+  SOURCE_GPS_INLINE_MAX_BYTES,
+} from "@/lib/source-gps-codec";
 
-/** Strip telemetry to GPS essentials for jsonb storage (no video). */
+/**
+ * Full-res GPS → compact v2 jsonb (columnar delta ints, gzip+base64).
+ * Never downsamples. Returns null when no usable lat/lon samples.
+ */
 export function compactSourceGps(
   points: TelemetryPoint[],
-): CompactGpsPoint[] {
-  const out: CompactGpsPoint[] = [];
-  for (const p of points) {
-    if (
-      p.lat == null ||
-      p.lon == null ||
-      !Number.isFinite(p.lat) ||
-      !Number.isFinite(p.lon)
-    ) {
-      continue;
-    }
-    const row: CompactGpsPoint = {
-      t: Number(p.t.toFixed(3)),
-      lat: Number(p.lat.toFixed(7)),
-      lon: Number(p.lon.toFixed(7)),
-    };
-    if (Number.isFinite(p.speed)) row.s = Number(p.speed.toFixed(2));
-    if (p.latG != null && Number.isFinite(p.latG)) {
-      row.a = Number(p.latG.toFixed(3));
-    }
-    if (p.lonG != null && Number.isFinite(p.lonG)) {
-      row.b = Number(p.lonG.toFixed(3));
-    }
-    out.push(row);
-  }
-  return out;
+): SourceGpsV2 | null {
+  return encodeSourceGps(points);
 }
 
-export function expandSourceGps(raw: unknown): TelemetryPoint[] {
-  if (!Array.isArray(raw) || !raw.length) return [];
-  const out: TelemetryPoint[] = [];
-  for (const item of raw) {
-    if (!item || typeof item !== "object") continue;
-    const row = item as Record<string, unknown>;
-    const t = Number(row.t);
-    const lat = Number(row.lat);
-    const lon = Number(row.lon);
-    if (![t, lat, lon].every(Number.isFinite)) continue;
-    const point: TelemetryPoint = {
-      t,
-      speed: Number.isFinite(Number(row.s)) ? Number(row.s) : 0,
-      lat,
-      lon,
-    };
-    if (Number.isFinite(Number(row.a))) point.latG = Number(row.a);
-    if (Number.isFinite(Number(row.b))) point.lonG = Number(row.b);
-    out.push(point);
-  }
-  return out;
+/**
+ * Only persist source_gps when the track is dense enough to re-split later.
+ * Prevents the 144-pt repair bug (stitched downsampled lap telemetry).
+ */
+export function compactSourceGpsIfDense(
+  points: TelemetryPoint[],
+): SourceGpsV2 | null {
+  const density = isSourceGpsDenseEnough(points);
+  if (!density.ok) return null;
+  return encodeSourceGps(points);
 }
 
 /**
@@ -145,6 +116,9 @@ export function resolveGpsForReparse(input: {
   density: ReturnType<typeof isSourceGpsDenseEnough>;
 } {
   const fromSource = expandSourceGps(input.sourceGps);
+  // Prefer stored source_gps whenever it has enough samples to evaluate
+  // density — even if coarse (caller shows file picker). Do not fall through
+  // to stitched laps and then overwrite source_gps with that coarse stitch.
   if (fromSource.length >= 80) {
     const density = isSourceGpsDenseEnough(fromSource);
     return { points: fromSource, from: "source_gps", density };

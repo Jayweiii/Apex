@@ -241,6 +241,8 @@ export function parseVbo(
   const timeI = findCol("time");
   const speedI = findCol("velocity", "speed", "spd");
   const satsI = findCol("sats", "satellites", "sat");
+  const headingI = findCol("heading", "bearing", "course");
+  const altI = findCol("height", "altitude", "alt", "elevation");
   if (latI < 0 || lonI < 0) {
     throw new Error(
       "VBO needs latitude and longitude columns under [column names].",
@@ -260,6 +262,8 @@ export function parseVbo(
     t: number;
     speed?: number;
     sats?: number;
+    heading?: number;
+    alt?: number;
   }> = [];
   let startedAtMs: number | undefined;
   let dayOffset = 0;
@@ -328,7 +332,15 @@ export function parseVbo(
     if (satsI >= 0 && Number.isFinite(Number(cols[satsI]))) {
       sats = Number(cols[satsI]);
     }
-    raw.push({ lat, lon, t, speed, sats });
+    let heading: number | undefined;
+    if (headingI >= 0 && Number.isFinite(Number(cols[headingI]))) {
+      heading = Number(cols[headingI]);
+    }
+    let alt: number | undefined;
+    if (altI >= 0 && Number.isFinite(Number(cols[altI]))) {
+      alt = Number(cols[altI]);
+    }
+    raw.push({ lat, lon, t, speed, sats, heading, alt });
   }
 
   const points: TelemetryPoint[] = raw.map((point, index) => {
@@ -337,12 +349,19 @@ export function parseVbo(
     if (speed == null && index > 0) {
       speed = haversineSpeedKmh(raw[index - 1], point);
     }
-    return {
+    const out: TelemetryPoint = {
       t: Number(point.t.toFixed(3)),
       speed: Number((speed ?? 0).toFixed(2)),
       lat: Number(point.lat.toFixed(6)),
       lon: Number(point.lon.toFixed(6)),
     };
+    if (point.heading != null && Number.isFinite(point.heading)) {
+      out.heading = Number(point.heading.toFixed(1));
+    }
+    if (point.alt != null && Number.isFinite(point.alt)) {
+      out.alt = Number(point.alt.toFixed(2));
+    }
+    return out;
   });
 
   const satsVals = raw
@@ -419,9 +438,8 @@ export function parseDragyCsv(
     "utc_time",
     "t",
   );
-  // heading / altitude detected for future use; not required on TelemetryPoint yet
-  void idx("heading", "bearing", "course", "yaw");
-  void idx("altitude", "alt", "elevation", "height");
+  const headingI = idx("heading", "bearing", "course", "yaw");
+  const altI = idx("altitude", "alt", "elevation", "height");
 
   if (latI < 0 || lonI < 0) {
     throw new Error(
@@ -477,12 +495,19 @@ export function parseDragyCsv(
       // if values are typically < 80 for a track day car that's fine as km/h too.
     }
 
-    points.push({
+    const point: TelemetryPoint = {
       t: Number(t.toFixed(3)),
       speed: Number(speed.toFixed(2)),
       lat: Number(lat.toFixed(6)),
       lon: Number(lon.toFixed(6)),
-    });
+    };
+    if (headingI >= 0 && Number.isFinite(Number(cols[headingI]))) {
+      point.heading = Number(Number(cols[headingI]).toFixed(1));
+    }
+    if (altI >= 0 && Number.isFinite(Number(cols[altI]))) {
+      point.alt = Number(Number(cols[altI]).toFixed(2));
+    }
+    points.push(point);
   }
 
   // Fill missing speeds from haversine when column absent/zero-ish

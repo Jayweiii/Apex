@@ -86,11 +86,14 @@ const noYt = buildCloudSessionPayload("user-1", laps, {
   ],
 });
 assert(noYt.videos.length === 0, "legacy videoObjectKey does not invent mp4 row");
-assert(Array.isArray(noYt.session.source_gps), "source_gps stored on upload");
-assert(
-  (noYt.session.source_gps as unknown[]).length === 2,
-  "source_gps compact length",
-);
+const storedGps = noYt.session.source_gps as {
+  v?: number;
+  n?: number;
+  enc?: string;
+} | null;
+assert(storedGps && storedGps.v === 2, "source_gps v2 stored on upload");
+assert(storedGps.n === 2, "source_gps keeps both samples");
+assert(storedGps.enc === "col-d32-gz-b64", "columnar gzip encoding");
 
 const privatePayload = buildCloudSessionPayload("user-1", laps, {
   name: "Private run",

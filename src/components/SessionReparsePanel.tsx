@@ -9,8 +9,10 @@ import {
 } from "@/lib/parse-gps-logger";
 import {
   compactSourceGps,
+  compactSourceGpsIfDense,
   reparseLapsFromPoints,
   resolveGpsForReparse,
+  type SourceGpsStored,
 } from "@/lib/session-reparse";
 import { TRACKS } from "@/lib/tracks";
 import { resolveTrackStartFinish } from "@/lib/track-start-finish";
@@ -30,7 +32,7 @@ export type ReparseStagePayload = {
     startOffsetSec?: number;
     startedAtMs?: number;
   }>;
-  sourceGps?: ReturnType<typeof compactSourceGps>;
+  sourceGps?: SourceGpsStored | null;
   trackId?: string | null;
   startFinish?: { lat: number; lon: number } | null;
   startedAtMs?: number;
@@ -94,7 +96,7 @@ export function SessionReparsePanel({
             startedAtMs?: number;
           }>
         | undefined;
-      let nextSourceGps: ReturnType<typeof compactSourceGps> | undefined;
+      let nextSourceGps: SourceGpsStored | null | undefined;
       let gpsQuality: GpsQuality | undefined;
       let nextStartedAtMs: number | undefined;
       let sessionDate: string | undefined;
@@ -113,7 +115,7 @@ export function SessionReparsePanel({
             startFinish,
           });
           clientLaps = parsed.laps;
-          nextSourceGps = parsed.sourcePoints
+          nextSourceGps = parsed.sourcePoints?.length
             ? compactSourceGps(parsed.sourcePoints)
             : undefined;
           gpsQuality = parsed.gpsQuality;
@@ -131,7 +133,7 @@ export function SessionReparsePanel({
             startFinish,
           });
           clientLaps = parsed.laps;
-          nextSourceGps = parsed.sourcePoints
+          nextSourceGps = parsed.sourcePoints?.length
             ? compactSourceGps(parsed.sourcePoints)
             : undefined;
           gpsQuality = parsed.gpsQuality;
@@ -158,7 +160,8 @@ export function SessionReparsePanel({
           });
           clientLaps = split.laps;
           if (resolved.from === "source_gps") {
-            nextSourceGps = compactSourceGps(resolved.points);
+            // Re-encode dense source_gps only — never promote stitched laps.
+            nextSourceGps = compactSourceGpsIfDense(resolved.points);
           }
         } catch (err) {
           const message =
