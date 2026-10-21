@@ -8,6 +8,10 @@ import {
   sampleAtProgress,
   type GpsPoint,
 } from "@/lib/scrub";
+import {
+  ensureStartFinishEndpoints,
+  type StartFinishLine,
+} from "@/lib/start-finish-line";
 import type { TelemetryPoint } from "@/lib/types";
 import L from "leaflet";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -196,6 +200,15 @@ const MAP_HEIGHT = {
   panel: "h-full min-h-[120px]",
 } as const;
 
+function sfHandleIcon(label: string) {
+  return L.divIcon({
+    className: "apex-sf-handle",
+    html: `<button type="button" class="apex-sf-handle__btn" aria-label="Start/finish ${label}">${label}</button>`,
+    iconSize: [28, 28],
+    iconAnchor: [14, 14],
+  });
+}
+
 export function LeafletTrackMap({
   traces,
   activeProgress = null,
@@ -212,6 +225,9 @@ export function LeafletTrackMap({
   compact = false,
   panel = false,
   headerSlot,
+  sfLine = null,
+  sfEditing = false,
+  onSfEndpointMove,
 }: {
   traces: TrackTrace[];
   activeProgress?: number | null;
@@ -232,14 +248,22 @@ export function LeafletTrackMap({
   /** Stretch to parent height (session dashboard left column). */
   panel?: boolean;
   headerSlot?: ReactNode;
+  /** Track start/finish gate overlay (midpoint + optional endpoints). */
+  sfLine?: StartFinishLine | null;
+  /** When true, A/B endpoints are draggable (touch + pointer). */
+  sfEditing?: boolean;
+  onSfEndpointMove?: (which: "a" | "b", lat: number, lon: number) => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const layersRef = useRef<L.LayerGroup | null>(null);
   const markersRef = useRef<L.LayerGroup | null>(null);
+  const sfLayerRef = useRef<L.LayerGroup | null>(null);
   const tileRef = useRef<L.TileLayer | null>(null);
   const onProgressRef = useRef(onProgress);
   const onPreviewProgressRef = useRef(onPreviewProgress);
+  const onSfEndpointMoveRef = useRef(onSfEndpointMove);
+  const sfEditingRef = useRef(sfEditing);
   const drawableRef = useRef<Array<TrackTrace & { points: GpsPoint[] }>>([]);
   const fittedKeyRef = useRef<string>("");
   const [basemap, setBasemap] = useState<BasemapMode>("satellite");
@@ -249,6 +273,8 @@ export function LeafletTrackMap({
 
   onProgressRef.current = onProgress;
   onPreviewProgressRef.current = onPreviewProgress;
+  onSfEndpointMoveRef.current = onSfEndpointMove;
+  sfEditingRef.current = sfEditing;
 
   const drawable = useMemo(
     () =>
@@ -305,6 +331,7 @@ export function LeafletTrackMap({
 
     layersRef.current = L.layerGroup().addTo(map);
     markersRef.current = L.layerGroup().addTo(map);
+    sfLayerRef.current = L.layerGroup().addTo(map);
 
     tileRef.current = L.tileLayer(ESRI_IMAGERY.url, {
       attribution: ESRI_IMAGERY.attribution,
@@ -325,6 +352,7 @@ export function LeafletTrackMap({
 
     // Hover = preview only (ghost marker + readout). Never seeks playback.
     const onMove = (event: L.LeafletMouseEvent) => {
+      if (sfEditingRef.current) return;
       const progress = progressAt(event.latlng);
       if (progress == null) return;
       onPreviewProgressRef.current?.(progress);
@@ -333,6 +361,7 @@ export function LeafletTrackMap({
 
     // Click seeks playback + synced YouTube.
     const onClick = (event: L.LeafletMouseEvent) => {
+      if (sfEditingRef.current) return;
       const progress = progressAt(event.latlng);
       if (progress == null) return;
       onPreviewProgressRef.current?.(null);
@@ -345,8 +374,9 @@ export function LeafletTrackMap({
       setHoverPos(null);
     };
 
-    // Touch drag seeks (no separate hover on touch).
+    // Touch drag seeks (no separate hover on touch). Skip while editing SF.
     const scrubFromTouch = (event: TouchEvent) => {
+      if (sfEditingRef.current) return;
       const touch = event.touches[0] ?? event.changedTouches[0];
       if (!touch) return;
       const rect = map.getContainer().getBoundingClientRect();
@@ -365,6 +395,7 @@ export function LeafletTrackMap({
     };
     const onTouchMove = (event: TouchEvent) => {
       if (event.touches.length !== 1) return;
+      if (sfEditingRef.current) return;
       event.preventDefault();
       scrubFromTouch(event);
     };
@@ -393,9 +424,120 @@ export function LeafletTrackMap({
       mapRef.current = null;
       layersRef.current = null;
       markersRef.current = null;
+      sfLayerRef.current = null;
       tileRef.current = null;
     };
   }, []);
+
+  // Start/finish gate overlay — keep handle markers stable while dragging.
+  const sfPolyRef = useRef<L.Polyline | null>(null);
+  const sfMidRef = useRef<L.CircleMarker | null>(null);
+  const sfHandleARef = useRef<L.Marker | null>(null);
+  const sfHandleBRef = useRef<L.Marker | null>(null);
+  const sfDraggingRef = useRef(false);
+
+  useEffect(() => {
+    const sfLayer = sfLayerRef.current;
+    if (!sfLayer) return;
+
+    const clearSf = () => {
+      sfLayer.clearLayers();
+      sfPolyRef.current = null;
+      sfMidRef.current = null;
+      sfHandleARef.current = null;
+      sfHandleBRef.current = null;
+    };
+
+    if (!sfLine) {
+      clearSf();
+      return;
+    }
+
+    const line = ensureStartFinishEndpoints(sfLine);
+    const a = line.a!;
+    const b = line.b!;
+
+    if (!sfPolyRef.current) {
+      clearSf();
+      sfPolyRef.current = L.polyline(
+        [
+          [a.lat, a.lon],
+          [b.lat, b.lon],
+        ],
+        {
+          color: "#fafafa",
+          weight: 3,
+          opacity: 0.95,
+          dashArray: "6 4",
+          interactive: false,
+        },
+      );
+      sfMidRef.current = L.circleMarker([line.lat, line.lon], {
+        radius: 4,
+        color: "#f97316",
+        fillColor: "#f97316",
+        fillOpacity: 1,
+        weight: 1,
+        interactive: false,
+      });
+      sfLayer.addLayer(sfPolyRef.current);
+      sfLayer.addLayer(sfMidRef.current);
+
+      (["a", "b"] as const).forEach((which) => {
+        const point = which === "a" ? a : b;
+        const marker = L.marker([point.lat, point.lon], {
+          icon: sfHandleIcon(which.toUpperCase()),
+          draggable: sfEditing,
+          autoPan: false,
+          keyboard: false,
+          zIndexOffset: 1200,
+          interactive: true,
+        });
+        marker.on("dragstart", () => {
+          sfDraggingRef.current = true;
+        });
+        marker.on("drag", (event) => {
+          const { lat, lng } = (event.target as L.Marker).getLatLng();
+          const other =
+            which === "a"
+              ? sfHandleBRef.current?.getLatLng()
+              : sfHandleARef.current?.getLatLng();
+          if (other && sfPolyRef.current) {
+            sfPolyRef.current.setLatLngs([
+              which === "a" ? [lat, lng] : [other.lat, other.lng],
+              which === "a" ? [other.lat, other.lng] : [lat, lng],
+            ]);
+          }
+          if (sfMidRef.current && other) {
+            sfMidRef.current.setLatLng([
+              (lat + other.lat) / 2,
+              (lng + other.lng) / 2,
+            ]);
+          }
+          onSfEndpointMoveRef.current?.(which, lat, lng);
+        });
+        marker.on("dragend", (event) => {
+          sfDraggingRef.current = false;
+          const { lat, lng } = (event.target as L.Marker).getLatLng();
+          onSfEndpointMoveRef.current?.(which, lat, lng);
+        });
+        if (which === "a") sfHandleARef.current = marker;
+        else sfHandleBRef.current = marker;
+        sfLayer.addLayer(marker);
+      });
+    } else if (!sfDraggingRef.current) {
+      sfPolyRef.current.setLatLngs([
+        [a.lat, a.lon],
+        [b.lat, b.lon],
+      ]);
+      sfMidRef.current?.setLatLng([line.lat, line.lon]);
+      sfHandleARef.current?.setLatLng([a.lat, a.lon]);
+      sfHandleBRef.current?.setLatLng([b.lat, b.lon]);
+    }
+
+    sfHandleARef.current?.dragging?.[sfEditing ? "enable" : "disable"]();
+    sfHandleBRef.current?.dragging?.[sfEditing ? "enable" : "disable"]();
+  }, [sfLine, sfEditing]);
 
   // Swap basemap tiles.
   useEffect(() => {
@@ -679,8 +821,9 @@ export function LeafletTrackMap({
             : compact
               ? MAP_HEIGHT.compact
               : MAP_HEIGHT.default
-        } w-full touch-none overflow-hidden rounded-xl [&_.leaflet-control-attribution]:bg-zinc-950/80 [&_.leaflet-control-attribution]:text-[10px] [&_.leaflet-control-attribution]:text-zinc-400 [&_.leaflet-container]:cursor-crosshair`}
+        } w-full ${sfEditing ? "touch-manipulation" : "touch-none"} overflow-hidden rounded-xl [&_.apex-sf-handle]:bg-transparent [&_.apex-sf-handle__btn]:flex [&_.apex-sf-handle__btn]:h-7 [&_.apex-sf-handle__btn]:w-7 [&_.apex-sf-handle__btn]:cursor-pointer [&_.apex-sf-handle__btn]:items-center [&_.apex-sf-handle__btn]:justify-center [&_.apex-sf-handle__btn]:rounded-full [&_.apex-sf-handle__btn]:border-2 [&_.apex-sf-handle__btn]:border-orange-400 [&_.apex-sf-handle__btn]:bg-zinc-950 [&_.apex-sf-handle__btn]:text-[10px] [&_.apex-sf-handle__btn]:font-bold [&_.apex-sf-handle__btn]:text-orange-300 [&_.apex-sf-handle__btn]:shadow-md [&_.leaflet-control-attribution]:bg-zinc-950/80 [&_.leaflet-control-attribution]:text-[10px] [&_.leaflet-control-attribution]:text-zinc-400 ${sfEditing ? "[&_.leaflet-container]:cursor-pointer" : "[&_.leaflet-container]:cursor-crosshair"}`}
         data-apex-map="fixed-scrub"
+        data-apex-sf-editing={sfEditing ? "1" : "0"}
       />
       {tooltipMarkers.length ? (
         <div

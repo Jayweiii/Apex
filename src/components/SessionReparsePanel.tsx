@@ -51,6 +51,7 @@ export function SessionReparsePanel({
   sourceGps,
   laps,
   startedAtMs,
+  storedStartFinish,
   onDone,
   /** When set, re-parse stages results for explicit Save instead of POSTing. */
   onStage,
@@ -65,6 +66,8 @@ export function SessionReparsePanel({
   sourceGps?: unknown;
   laps: LapRow[];
   startedAtMs?: number;
+  /** Prefer tracks.start_finish (owner-edited gate) over catalog. */
+  storedStartFinish?: unknown;
   onDone: (result: { lapCount: number }) => void;
   onStage?: (payload: ReparseStagePayload) => void;
   autoStart?: boolean;
@@ -90,7 +93,7 @@ export function SessionReparsePanel({
       const startFinish =
         sfLat.trim() && sfLon.trim()
           ? { lat: Number(sfLat), lon: Number(sfLon) }
-          : resolveTrackStartFinish(track);
+          : resolveTrackStartFinish(track, undefined, storedStartFinish);
 
       let clientLaps:
         | Array<{

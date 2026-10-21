@@ -13,6 +13,10 @@ import {
 import type { SessionToolTab } from "@/components/SessionToolsPanel";
 import { DeleteSessionControl } from "@/components/DeleteSessionControl";
 import { ShareLinkButton } from "@/components/ShareLinkButton";
+import {
+  StartFinishEditor,
+  nudgeSfEndpoint,
+} from "@/components/StartFinishEditor";
 import { UnsavedChangesBar } from "@/components/UnsavedChangesBar";
 import { videoCoverage } from "@/lib/pick-session-video";
 import { SessionVideosCard } from "@/components/SessionVideosCard";
@@ -29,6 +33,12 @@ import {
   REPARSE_BODY_MAX_BYTES,
   reparseBodyTooLargeMessage,
 } from "@/lib/reparse-save-body";
+import { hydrateLapsFromSourceGps } from "@/lib/hydrate-lap-telemetry";
+import {
+  parseStartFinishLine,
+  type StartFinishLine,
+} from "@/lib/start-finish-line";
+import { resolveTrackStartFinishLine } from "@/lib/track-start-finish";
 import {
   autoBoundsForParsedLap,
   autoBoundsForStoredLap,
@@ -100,6 +110,12 @@ export function CloudSessionView({ id }: { id: string }) {
     tab: string;
     nonce: number;
   } | null>(null);
+  const [trackStartFinish, setTrackStartFinish] = useState<unknown>(null);
+  const [sfMapLine, setSfMapLine] = useState<StartFinishLine | null>(null);
+  const [sfEditing, setSfEditing] = useState(false);
+  const sfMoveRef = useRef<
+    ((which: "a" | "b", lat: number, lon: number) => void) | null
+  >(null);
   const savedLapsRef = useRef<LapRow[]>([]);
   const savedVideosRef = useRef<SessionVideo[]>([]);
   const savedSessionRef = useRef<CloudSession | null>(null);
@@ -113,6 +129,30 @@ export function CloudSessionView({ id }: { id: string }) {
       nonce: (prev?.nonce ?? 0) + 1,
     }));
   }, []);
+  const onSfLineChange = useCallback(
+    (line: StartFinishLine | null, editing: boolean) => {
+      setSfEditing(editing);
+      if (editing && line) {
+        setSfMapLine(line);
+        return;
+      }
+      // Not editing — show persisted / catalog SF when available.
+      const stored =
+        parseStartFinishLine(trackStartFinish) ??
+        resolveTrackStartFinishLine(session?.track_id, trackStartFinish);
+      setSfMapLine(stored);
+    },
+    [trackStartFinish, session?.track_id],
+  );
+  const onSfEndpointMove = useCallback(
+    (which: "a" | "b", lat: number, lon: number) => {
+      sfMoveRef.current?.(which, lat, lon);
+      setSfMapLine((prev) =>
+        prev ? nudgeSfEndpoint(prev, which, lat, lon) : prev,
+      );
+    },
+    [],
+  );
 
   // Auth is independent of session load so owner UI appears even if getUser
   // resolves after the public row (or via onAuthStateChange on iOS Safari).
@@ -183,13 +223,37 @@ export function CloudSessionView({ id }: { id: string }) {
         setSession(cloud);
         savedSessionRef.current = cloud;
 
+        if (cloud.track_id) {
+          const { data: trackRow } = await supabase
+            .from("tracks")
+            .select("id, lat, lon, start_finish")
+            .eq("id", cloud.track_id)
+            .maybeSingle();
+          if (!cancelled) {
+            const stored = trackRow?.start_finish ?? null;
+            setTrackStartFinish(stored);
+            setSfMapLine(
+              parseStartFinishLine(stored) ??
+                resolveTrackStartFinishLine(cloud.track_id, stored),
+            );
+          }
+        } else if (!cancelled) {
+          setTrackStartFinish(null);
+          setSfMapLine(null);
+        }
+
         const { data: lapRows } = await supabase
           .from("laps")
           .select("*")
           .eq("session_id", id)
           .order("lap_number", { ascending: true });
         if (!cancelled) {
-          const nextLaps = (lapRows ?? []) as LapRow[];
+          const rawLaps = (lapRows ?? []) as LapRow[];
+          // Slim re-parse Save can leave 2-pt stubs; rebuild from source_gps.
+          const nextLaps =
+            (hydrateLapsFromSourceGps(rawLaps, cloud.source_gps) as
+              | LapRow[]
+              | null) ?? rawLaps;
           setLaps(nextLaps);
           savedLapsRef.current = nextLaps;
         }
@@ -265,7 +329,11 @@ export function CloudSessionView({ id }: { id: string }) {
       .select("*")
       .eq("session_id", session.id)
       .order("lap_number", { ascending: true });
-    const nextLaps = (lapRows ?? []) as LapRow[];
+    const rawLaps = (lapRows ?? []) as LapRow[];
+    const nextLaps =
+      (hydrateLapsFromSourceGps(rawLaps, session.source_gps) as
+        | LapRow[]
+        | null) ?? rawLaps;
     setLaps(nextLaps);
     savedLapsRef.current = nextLaps;
     try {
@@ -981,6 +1049,23 @@ export function CloudSessionView({ id }: { id: string }) {
                 ]}
               />
             </div>
+            {session.track_id ? (
+              <StartFinishEditor
+                trackId={session.track_id}
+                storedStartFinish={trackStartFinish}
+                canEdit={mine}
+                busy={saving || reparseOpen}
+                moveEndpointRef={sfMoveRef}
+                onLineChange={onSfLineChange}
+                onSaved={(line) => {
+                  setTrackStartFinish(line);
+                  setSfMapLine(line);
+                }}
+                onRequestResplit={() => {
+                  openReparse();
+                }}
+              />
+            ) : null}
             {reparseOpen ? (
               <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/80 p-3">
                 <div className="mb-2 flex items-center justify-between gap-2">
@@ -1000,6 +1085,7 @@ export function CloudSessionView({ id }: { id: string }) {
                   sessionId={session.id}
                   trackId={session.track_id}
                   sourceGps={session.source_gps}
+                  storedStartFinish={trackStartFinish}
                   laps={
                     savedLapsRef.current.length ? savedLapsRef.current : laps
                   }
@@ -1065,6 +1151,9 @@ export function CloudSessionView({ id }: { id: string }) {
             sessionStartedAtMs={
               Number.isFinite(startedAtMs) ? startedAtMs : undefined
             }
+            sfLine={sfMapLine}
+            sfEditing={sfEditing}
+            onSfEndpointMove={sfEditing ? onSfEndpointMove : undefined}
             canEdit={mine}
             onExcludeChange={mine ? onExcludeChange : undefined}
             onTrimChange={mine ? onTrimChange : undefined}

@@ -176,8 +176,28 @@ export async function POST(
     typeof body.trackId === "string" && body.trackId.trim()
       ? body.trackId.trim()
       : (session.track_id as string | null);
+
+  let storedTrackSf: unknown = null;
+  if (trackId) {
+    const { data: trackRow } = await supabase
+      .from("tracks")
+      .select("start_finish, lat, lon")
+      .eq("id", trackId)
+      .maybeSingle();
+    storedTrackSf = trackRow?.start_finish ?? null;
+    if (
+      !storedTrackSf &&
+      trackRow &&
+      Number.isFinite(Number(trackRow.lat)) &&
+      Number.isFinite(Number(trackRow.lon))
+    ) {
+      storedTrackSf = { lat: Number(trackRow.lat), lon: Number(trackRow.lon) };
+    }
+  }
+
   const startFinish =
-    parseStartFinish(body.startFinish) ?? resolveTrackStartFinish(trackId);
+    parseStartFinish(body.startFinish) ??
+    resolveTrackStartFinish(trackId, undefined, storedTrackSf);
   const startedAtMs =
     typeof body.startedAtMs === "number" && Number.isFinite(body.startedAtMs)
       ? body.startedAtMs
@@ -285,6 +305,24 @@ export async function POST(
     };
   });
   const preserved = preserveMatchedLapSideData(previousSide, parsedLaps);
+  // Guard: slim Save must never persist 2-pt stubs when we re-split from GPS.
+  const thinHot = parsedLaps.filter(
+    (lap) =>
+      lap.lapTimeMs >= 60_000 &&
+      lap.lapTimeMs <= 180_000 &&
+      lap.points.length < 20,
+  );
+  if (thinHot.length) {
+    return NextResponse.json(
+      {
+        error: `Re-parse produced thin telemetry on lap ${thinHot[0]!.lapNumber} (${thinHot[0]!.points.length} pts). source_gps may be corrupt — re-select the original GPS file.`,
+        code: "thin_telemetry",
+        lapNumber: thinHot[0]!.lapNumber,
+        points: thinHot[0]!.points.length,
+      },
+      { status: 422 },
+    );
+  }
   const lapInserts = buildReparsedLapRows(
     user.id,
     sessionId,

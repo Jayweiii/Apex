@@ -29,9 +29,10 @@ export const TRACKS: Track[] = [
     name: "Thunderhill Raceway — West",
     location: "Willows, California",
     popularity: 12800,
-    // Dragy DRG71 sample near West course
-    lat: 39.53905,
-    lon: -122.3387,
+    // Front-straight timing line (hot-lap SF crossings ~39.53776, -122.33875).
+    // Previous catalog point (39.53905) sat ~140 m north of the real line.
+    lat: 39.53776,
+    lon: -122.33875,
     search: "thunderhill west willows california",
   },
   {

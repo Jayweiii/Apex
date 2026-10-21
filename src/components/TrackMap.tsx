@@ -11,6 +11,7 @@ import {
   writeMapViewPrefs,
   type MapViewPrefs,
 } from "@/lib/map-view-prefs";
+import type { StartFinishLine } from "@/lib/start-finish-line";
 import type { TelemetryPoint } from "@/lib/types";
 import dynamic from "next/dynamic";
 import { useEffect, useState, type ComponentProps } from "react";
@@ -44,6 +45,10 @@ type MapProps = {
   panel?: boolean;
   /** Hide chase/overview camera chrome (hero embeds). */
   hideCameraControls?: boolean;
+  /** Start/finish gate overlay (see LeafletTrackMap). */
+  sfLine?: StartFinishLine | null;
+  sfEditing?: boolean;
+  onSfEndpointMove?: (which: "a" | "b", lat: number, lon: number) => void;
 };
 
 const mapLoading = (

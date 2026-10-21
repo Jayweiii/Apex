@@ -28,6 +28,7 @@ import {
   mapMatchLap,
   type GpsDisplayMode,
 } from "@/lib/map-match";
+import type { StartFinishLine } from "@/lib/start-finish-line";
 import {
   createSyncSuppress,
   DRIFT_CHECK_INTERVAL_MS,
@@ -116,6 +117,9 @@ export function SyncedLapView({
   toolsOpenRequest,
   /** When false, parent owns the labeled toolbar (no duplicate Trim/Sync/…). */
   toolsShowButtons = true,
+  sfLine = null,
+  sfEditing = false,
+  onSfEndpointMove,
 }: {
   sessionId?: string;
   lap: {
@@ -170,6 +174,9 @@ export function SyncedLapView({
   toolsOpenRequest?: { tab: string; nonce: number } | null;
   /** When false, only the open tools panel is shown (no second button row). */
   toolsShowButtons?: boolean;
+  sfLine?: StartFinishLine | null;
+  sfEditing?: boolean;
+  onSfEndpointMove?: (which: "a" | "b", lat: number, lon: number) => void;
 }) {
   const centerline = useMemo(
     () =>
@@ -531,6 +538,9 @@ export function SyncedLapView({
     analysisMode: centerline ? analysisMode : undefined,
     onAnalysisModeChange: centerline ? setAnalysisMode : undefined,
     analysisDisabled: !hasAnalysisSnap,
+    sfLine: sfLine ?? undefined,
+    sfEditing,
+    onSfEndpointMove,
   } as const;
 
   const bindPlayer = useCallback((handle: VideoPlayerHandle | null) => {

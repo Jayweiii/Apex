@@ -15,6 +15,7 @@ import {
 } from "@/lib/lap-trim";
 import { bestLapTimeMs, suspicionByLapId } from "@/lib/lap-quality";
 import { pickSessionVideoForLap } from "@/lib/pick-session-video";
+import type { StartFinishLine } from "@/lib/start-finish-line";
 import type { SessionVideo, TelemetryPoint } from "@/lib/types";
 import { useMemo, type ReactNode } from "react";
 
@@ -56,6 +57,9 @@ export function SessionLapDetail({
   extraToolTabs,
   toolsOpenRequest,
   toolsShowButtons = true,
+  sfLine = null,
+  sfEditing = false,
+  onSfEndpointMove,
 }: {
   sessionId: string;
   lap: SessionLapDetailLap;
@@ -84,6 +88,9 @@ export function SessionLapDetail({
   toolsOpenRequest?: { tab: string; nonce: number } | null;
   /** When false, hide in-panel tool buttons (session page owns the toolbar). */
   toolsShowButtons?: boolean;
+  sfLine?: StartFinishLine | null;
+  sfEditing?: boolean;
+  onSfEndpointMove?: (which: "a" | "b", lat: number, lon: number) => void;
 }) {
   const trimable: TrimableLap = useMemo(
     () => ({
@@ -405,6 +412,9 @@ export function SessionLapDetail({
           sessionStartedAtMs={sessionStartedAtMs}
           bestLapMs={bestMs ?? undefined}
           trackId={trackId}
+          sfLine={sfLine}
+          sfEditing={sfEditing}
+          onSfEndpointMove={onSfEndpointMove}
           onVideoChange={onVideoChange}
           canEditSync={canEdit}
           onAttachYouTube={

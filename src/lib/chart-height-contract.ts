@@ -1,0 +1,8 @@
+/**
+ * Shared chart height floors — keep StackedTelemetry / SpeedChart / tests aligned.
+ * Page scroll only; no nested overflow panes.
+ */
+export const STACKED_SPEED_MIN_HEIGHT = 160;
+export const STACKED_SPEED_MIN_HEIGHT_SM = 200;
+export const SPEED_CHART_COMPACT_MIN_HEIGHT = 100;
+export const SPEED_CHART_COMPACT_MIN_HEIGHT_SM = 120;
