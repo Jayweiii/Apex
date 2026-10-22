@@ -195,9 +195,22 @@ export async function POST(
     }
   }
 
+  // Prefer tracks.start_finish (heading + locked) when the client posts the
+  // same midpoint — keeps map / re-split / upload on one gate. Manual lat/lon
+  // override in the reparse panel still wins when it differs.
+  const fromStored = resolveTrackStartFinish(
+    trackId,
+    undefined,
+    storedTrackSf,
+  );
+  const fromBody = parseStartFinish(body.startFinish);
   const startFinish =
-    parseStartFinish(body.startFinish) ??
-    resolveTrackStartFinish(trackId, undefined, storedTrackSf);
+    fromStored &&
+    fromBody &&
+    Math.abs(fromStored.lat - fromBody.lat) < 1e-5 &&
+    Math.abs(fromStored.lon - fromBody.lon) < 1e-5
+      ? fromStored
+      : (fromBody ?? fromStored);
   const startedAtMs =
     typeof body.startedAtMs === "number" && Number.isFinite(body.startedAtMs)
       ? body.startedAtMs
@@ -537,11 +550,26 @@ function parseClientLaps(raw: unknown): ParsedLap[] | null {
 
 function parseStartFinish(
   raw: unknown,
-): { lat: number; lon: number } | null {
+): {
+  lat: number;
+  lon: number;
+  headingDeg?: number;
+  locked?: boolean;
+} | null {
   if (!raw || typeof raw !== "object") return null;
   const row = raw as Record<string, unknown>;
   const lat = Number(row.lat);
   const lon = Number(row.lon);
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-  return { lat, lon };
+  const headingRaw = row.headingDeg ?? row.heading;
+  const headingDeg =
+    typeof headingRaw === "number" && Number.isFinite(headingRaw)
+      ? ((headingRaw % 360) + 360) % 360
+      : undefined;
+  return {
+    lat,
+    lon,
+    ...(headingDeg != null ? { headingDeg } : {}),
+    locked: true,
+  };
 }

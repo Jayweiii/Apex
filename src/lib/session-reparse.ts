@@ -132,7 +132,12 @@ export function reparseLapsFromPoints(
   points: TelemetryPoint[],
   options: {
     sessionStartedAtMs?: number;
-    startFinish?: { lat: number; lon: number } | null;
+    startFinish?: {
+      lat: number;
+      lon: number;
+      headingDeg?: number;
+      locked?: boolean;
+    } | null;
     centerline?: LatLon[] | null;
     trackId?: string | null;
   } = {},

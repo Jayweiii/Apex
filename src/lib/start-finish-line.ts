@@ -190,3 +190,86 @@ export function startFinishDeltaMeters(
   if (!a || !b) return null;
   return haversineMeters(a.lat, a.lon, b.lat, b.lon);
 }
+
+/** Local east/north meters relative to origin (shared with lap split). */
+function toLocalMeters(origin: SfPoint, point: SfPoint) {
+  const cos = Math.cos(toRad(origin.lat)) || 1;
+  return {
+    x: toRad(point.lon - origin.lon) * 6371000 * cos,
+    y: toRad(point.lat - origin.lat) * 6371000,
+  };
+}
+
+/**
+ * Perpendicular distance from a GPS point to the SF gate line (meters).
+ * Uses endpoints when present; otherwise an east-west line through the midpoint.
+ */
+export function distanceToStartFinishLineMeters(
+  line: StartFinishLine | null | undefined,
+  point: SfPoint | null | undefined,
+): number | null {
+  if (!line || !point) return null;
+  if (
+    !Number.isFinite(line.lat) ||
+    !Number.isFinite(line.lon) ||
+    !Number.isFinite(point.lat) ||
+    !Number.isFinite(point.lon)
+  ) {
+    return null;
+  }
+  const origin = { lat: line.lat, lon: line.lon };
+  const p = toLocalMeters(origin, point);
+  let gateE: number;
+  let gateN: number;
+  if (line.a && line.b) {
+    const a = toLocalMeters(origin, line.a);
+    const b = toLocalMeters(origin, line.b);
+    gateE = b.x - a.x;
+    gateN = b.y - a.y;
+  } else {
+    const heading = line.headingDeg ?? 0;
+    const h = toRad(heading);
+    // Travel unit; gate is perpendicular.
+    const travelE = Math.sin(h);
+    const travelN = Math.cos(h);
+    gateE = -travelN;
+    gateN = travelE;
+  }
+  const gateLen = Math.hypot(gateE, gateN);
+  if (gateLen < 1e-6) {
+    return haversineMeters(line.lat, line.lon, point.lat, point.lon);
+  }
+  // |cross(gate, p)| / |gate| = perpendicular distance.
+  return Math.abs(gateE * p.y - gateN * p.x) / gateLen;
+}
+
+/**
+ * Point + optional travel heading for lap detection.
+ * Prefer this over a bare lat/lon so re-split matches the drawn gate.
+ */
+export type StartFinishSplitRef = {
+  lat: number;
+  lon: number;
+  headingDeg?: number;
+  /** When true, do not snap the gate onto a session centerline. */
+  locked?: boolean;
+};
+
+/** Crossing ref used by splitLapsByStartFinish (preserves heading). */
+export function startFinishSplitRef(
+  line: StartFinishLine | null | undefined,
+): StartFinishSplitRef | null {
+  if (!line) return null;
+  if (!Number.isFinite(line.lat) || !Number.isFinite(line.lon)) return null;
+  const ref: StartFinishSplitRef = {
+    lat: line.lat,
+    lon: line.lon,
+    locked: true,
+  };
+  if (line.headingDeg != null && Number.isFinite(line.headingDeg)) {
+    ref.headingDeg = line.headingDeg;
+  } else if (line.a && line.b) {
+    ref.headingDeg = headingFromGateEndpoints(line.a, line.b);
+  }
+  return ref;
+}

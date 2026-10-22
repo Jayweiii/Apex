@@ -85,6 +85,11 @@ assert(
   `speed chart height floor ${STACKED_SPEED_MIN_HEIGHT}`,
 );
 
+assert(
+  nudged.locked === true,
+  "stored start_finish marks SF locked for split",
+);
+
 console.log(
   JSON.stringify(
     {
@@ -92,6 +97,7 @@ console.log(
       thunderhillWest: west,
       headingDeg: Math.round(heading),
       speedChartMinHeightPx: STACKED_SPEED_MIN_HEIGHT,
+      storedLocked: nudged.locked === true,
     },
     null,
     2,

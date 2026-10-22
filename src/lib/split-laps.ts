@@ -217,18 +217,85 @@ export function estimateCenterlineFromSession(
   return null;
 }
 
+type GateCrossing = {
+  /** Index of the first GPS sample on/after the far side of the gate. */
+  afterIndex: number;
+  /**
+   * Fraction in [0,1] from points[afterIndex-1] → points[afterIndex] where
+   * the path crosses the gate. Used to place an on-line boundary sample.
+   */
+  frac: number;
+  /** Exact gate intersection when SF-gate detection produced it. */
+  at?: TelemetryPoint;
+};
+
+/** Project local east/north offset back to lat/lon. */
+function fromLocal(origin: LatLon, local: { x: number; y: number }): LatLon {
+  const toDeg = (rad: number) => (rad * 180) / Math.PI;
+  const cos = Math.cos((origin.lat * Math.PI) / 180) || 1;
+  return {
+    lat: origin.lat + toDeg(local.y / 6371000),
+    lon: origin.lon + toDeg(local.x / (6371000 * cos)),
+  };
+}
+
+/**
+ * Build the GPS sample that sits on the SF gate plane between two samples.
+ * Lateral position follows the path; the along-travel coordinate is forced
+ * onto the gate (side = 0) so lap start/end markers sit on the drawn SF line.
+ */
+function interpolateGatePoint(
+  prev: TelemetryPoint,
+  next: TelemetryPoint,
+  frac: number,
+  sf: LatLon,
+  gateDir: { x: number; y: number },
+): TelemetryPoint | null {
+  if (
+    prev.lat == null ||
+    prev.lon == null ||
+    next.lat == null ||
+    next.lon == null
+  ) {
+    return null;
+  }
+  const t = Math.min(1, Math.max(0, frac));
+  const lat = prev.lat + (next.lat - prev.lat) * t;
+  const lon = prev.lon + (next.lon - prev.lon) * t;
+  // Zero the signed side so the boundary lies on the gate line through `sf`.
+  const local = toLocal(sf, { lat, lon });
+  const side = gateDir.x * local.y - gateDir.y * local.x;
+  const onGate = fromLocal(sf, {
+    x: local.x + gateDir.y * side,
+    y: local.y - gateDir.x * side,
+  });
+  const lerp = (a: number | undefined, b: number | undefined) => {
+    if (a == null && b == null) return undefined;
+    if (a == null) return b;
+    if (b == null) return a;
+    return a + (b - a) * t;
+  };
+  return {
+    t: Number((prev.t + (next.t - prev.t) * t).toFixed(3)),
+    lat: onGate.lat,
+    lon: onGate.lon,
+    speed: lerp(prev.speed, next.speed),
+    alt: lerp(prev.alt, next.alt),
+  };
+}
+
 function crossingsFromSfGate(
   points: TelemetryPoint[],
   sf: LatLon,
   headingRad: number,
   options: { minLapMeters: number; gateHalfWidthM: number },
-): number[] {
+): GateCrossing[] {
   const gateDir = gateDirFromHeading(headingRad);
   const travel = {
     x: Math.sin(headingRad),
     y: Math.cos(headingRad),
   };
-  const crossings: number[] = [];
+  const crossings: GateCrossing[] = [];
   let traveled = 0;
   let lastCrossTraveled = -options.minLapMeters;
   let prev = points[0];
@@ -258,7 +325,6 @@ function crossingsFromSfGate(
       Math.sign(side) !== Math.sign(prevSide) &&
       traveled - lastCrossTraveled >= options.minLapMeters * 0.55
     ) {
-      // Require forward crossing (travel · motion > 0).
       if (
         prev.lat != null &&
         prev.lon != null &&
@@ -271,7 +337,17 @@ function crossingsFromSfGate(
         const my = b.y - a.y;
         const forward = mx * travel.x + my * travel.y;
         if (forward > 0) {
-          crossings.push(i);
+          const denom = prevSide - side;
+          const frac =
+            Math.abs(denom) < 1e-12
+              ? 0.5
+              : Math.min(1, Math.max(0, prevSide / denom));
+          const at = interpolateGatePoint(prev, point, frac, sf, gateDir);
+          crossings.push({
+            afterIndex: i,
+            frac,
+            at: at ?? undefined,
+          });
           lastCrossTraveled = traveled;
         }
       }
@@ -286,7 +362,7 @@ function crossingsFromProgressWrap(
   points: TelemetryPoint[],
   centerline: LatLon[],
   options: { minLapMeters: number },
-): number[] {
+): GateCrossing[] {
   const cum = cumulativePath(centerline);
   const total = cum[cum.length - 1] || 1;
   if (total < options.minLapMeters * 0.5) return [];
@@ -300,7 +376,7 @@ function crossingsFromProgressWrap(
       progressAlongCenterline({ lat: p.lat, lon: p.lon }, centerline, cum),
     );
   }
-  const crossings: number[] = [];
+  const crossings: GateCrossing[] = [];
   let traveled = 0;
   let lastCrossTraveled = -options.minLapMeters;
   for (let i = 1; i < points.length; i += 1) {
@@ -317,13 +393,12 @@ function crossingsFromProgressWrap(
     const pa = progress[i - 1];
     const pb = progress[i];
     if (!Number.isFinite(pa) || !Number.isFinite(pb)) continue;
-    // Wrap: was near end, now near start.
     if (
       pa > 0.72 &&
       pb < 0.28 &&
       traveled - lastCrossTraveled >= options.minLapMeters * 0.55
     ) {
-      crossings.push(i);
+      crossings.push({ afterIndex: i, frac: 0 });
       lastCrossTraveled = traveled;
     }
   }
@@ -334,8 +409,8 @@ function crossingsFromLoopClosure(
   points: TelemetryPoint[],
   start: LatLon,
   options: { minLapMeters: number; closeMeters: number },
-): number[] {
-  const crossings: number[] = [];
+): GateCrossing[] {
+  const crossings: GateCrossing[] = [];
   let traveled = 0;
   let lastCrossTraveled = -options.minLapMeters;
   let prev = points[0];
@@ -356,7 +431,7 @@ function crossingsFromLoopClosure(
       haversineMeters(start.lat, start.lon, point.lat, point.lon) <=
         options.closeMeters
     ) {
-      crossings.push(i);
+      crossings.push({ afterIndex: i, frac: 0 });
       lastCrossTraveled = traveled;
     }
     prev = point;
@@ -364,16 +439,12 @@ function crossingsFromLoopClosure(
   return crossings;
 }
 
-/**
- * Prefer the crossing set whose resulting segments look like repeated hot
- * laps (similar duration, enough distance) — avoids both under- and over-split.
- */
 function pickBestCrossings(
   points: TelemetryPoint[],
-  candidates: number[][],
+  candidates: GateCrossing[][],
   minLapMeters: number,
-): number[] {
-  let best: number[] = [];
+): GateCrossing[] {
+  let best: GateCrossing[] = [];
   let bestScore = -1;
   for (const crossings of candidates) {
     if (!crossings.length) continue;
@@ -395,7 +466,6 @@ function pickBestCrossings(
       (seg) => pathLength(seg) >= minLapMeters * 0.55,
     ).length;
     const score = similar * 10 + longEnough * 3 + Math.min(crossings.length, 20);
-    // Penalize absurd over-splits (median hot lap < 40s on a road course).
     const penalty = median < 40 ? 40 : 0;
     const finalScore = score - penalty;
     if (finalScore > bestScore) {
@@ -406,20 +476,51 @@ function pickBestCrossings(
   return best;
 }
 
+/**
+ * Slice the session into laps. When a crossing carries an interpolated `at`
+ * point on the SF line, that point becomes the shared end/start of adjacent
+ * laps so map markers sit on the drawn gate.
+ */
 function segmentsFromCrossings(
   points: TelemetryPoint[],
-  crossings: number[],
+  crossings: GateCrossing[],
 ): TelemetryPoint[][] {
   if (!crossings.length) {
     return points.length >= 20 ? [points] : [];
   }
-  const bounds = [0, ...crossings, points.length - 1];
   const segments: TelemetryPoint[][] = [];
-  for (let i = 0; i < bounds.length - 1; i += 1) {
-    const start = bounds[i];
-    const end = bounds[i + 1];
-    if (end - start < 8) continue;
-    segments.push(points.slice(start, end + 1));
+  let startIdx = 0;
+  for (let c = 0; c < crossings.length; c += 1) {
+    const cross = crossings[c];
+    const endIdx = cross.afterIndex;
+    if (endIdx - startIdx < 4) {
+      startIdx = endIdx;
+      continue;
+    }
+    const body = points.slice(startIdx, endIdx);
+    const prevCross = c > 0 ? crossings[c - 1] : null;
+    const startPt = prevCross?.at ?? null;
+    const endPt = cross.at ?? null;
+    let seg: TelemetryPoint[];
+    if (startPt && endPt) {
+      seg = [startPt, ...body, endPt];
+    } else if (startPt) {
+      seg = [startPt, ...body, points[endIdx]!];
+    } else if (endPt) {
+      seg = [...body, endPt];
+    } else {
+      seg = points.slice(startIdx, endIdx + 1);
+    }
+    if (seg.length >= 8) segments.push(seg);
+    startIdx = endIdx;
+  }
+  const last = crossings[crossings.length - 1]!;
+  const tail = points.slice(last.afterIndex);
+  if (last.at) {
+    const seg = [last.at, ...tail];
+    if (seg.length >= 8) segments.push(seg);
+  } else if (tail.length >= 8) {
+    segments.push(points.slice(Math.max(0, last.afterIndex - 1)));
   }
   return segments;
 }
@@ -447,6 +548,10 @@ function pathLength(points: TelemetryPoint[]): number {
  * Prefers start/finish gate crossings (with optional centerline snap for
  * heading / progress wraps). Falls back to repeated loop closure when no SF
  * is known. Tuned for GoPro ~10–18 Hz GPS with outlap/inlap tails.
+ *
+ * When `startFinish.headingDeg` / `locked` come from tracks.start_finish,
+ * the drawn gate is the source of truth (no centerline snap, heading preserved)
+ * and crossings are interpolated onto that line.
  */
 export function splitLapsByStartFinish(
   points: TelemetryPoint[],
@@ -455,7 +560,12 @@ export function splitLapsByStartFinish(
     closeMeters?: number;
     sessionStartedAtMs?: number;
     /** Official track start/finish (preferred over first GPS sample). */
-    startFinish?: { lat: number; lon: number } | null;
+    startFinish?: {
+      lat: number;
+      lon: number;
+      headingDeg?: number;
+      locked?: boolean;
+    } | null;
     /** Track centerline — enables progress-wrap + better SF heading. */
     centerline?: LatLon[] | null;
   },
@@ -474,7 +584,6 @@ export function splitLapsByStartFinish(
 
   const sessionStartT = points[0]?.t ?? gps[0].t;
   const minLapMeters = options?.minLapMeters ?? 400;
-  // Wider gate for ~10–18 Hz (~3 m/sample at 100 km/h) and GPS noise.
   const closeMeters = options?.closeMeters ?? 55;
   const gateHalfWidthM = Math.max(closeMeters, 60);
 
@@ -484,20 +593,23 @@ export function splitLapsByStartFinish(
       : null;
 
   const sfOpt = options?.startFinish;
+  const sfLocked = Boolean(sfOpt?.locked || sfOpt?.headingDeg != null);
   let sf: LatLon | null =
     sfOpt && Number.isFinite(sfOpt.lat) && Number.isFinite(sfOpt.lon)
       ? { lat: sfOpt.lat, lon: sfOpt.lon }
       : null;
+  const storedHeadingRad =
+    sfOpt?.headingDeg != null && Number.isFinite(sfOpt.headingDeg)
+      ? (sfOpt.headingDeg * Math.PI) / 180
+      : null;
 
-  // Build a one-lap reference from the session when track geometry is missing
-  // or the catalog SF sits far off the racing line (common for West presets).
   if (!centerline) {
     centerline = estimateCenterlineFromSession(gps, {
       minLapMeters,
       closeMeters,
     });
   }
-  if (sf && centerline && centerline.length >= 8) {
+  if (sf && centerline && centerline.length >= 8 && !sfLocked) {
     let best = centerline[0];
     let bestD = haversineMeters(sf.lat, sf.lon, best.lat, best.lon);
     for (const p of centerline) {
@@ -507,7 +619,6 @@ export function splitLapsByStartFinish(
         best = p;
       }
     }
-    // Snap catalog SF onto the driven line when it's clearly off-track.
     if (bestD > 40) {
       sf = { lat: best.lat, lon: best.lon };
     }
@@ -515,12 +626,11 @@ export function splitLapsByStartFinish(
     sf = { lat: centerline[0].lat, lon: centerline[0].lon };
   }
 
-  // Score candidate crossing sets — pick the one with the most plausible
-  // hot-lap count (similar durations), not the first that fires.
-  const candidates: number[][] = [];
+  const candidates: GateCrossing[][] = [];
 
   if (sf) {
     const heading =
+      storedHeadingRad ??
       (centerline ? headingFromCenterline(centerline, sf) : null) ??
       estimateHeadingNear(gps, sf) ??
       0;
@@ -556,15 +666,13 @@ export function splitLapsByStartFinish(
     }
   }
 
-  let crossings = pickBestCrossings(gps, candidates, minLapMeters);
-
+  const crossings = pickBestCrossings(gps, candidates, minLapMeters);
   const segments = segmentsFromCrossings(gps, crossings);
   const laps: ParsedLap[] = [];
 
   segments.forEach((segment, index) => {
     if (segment.length < 2) return;
     const meters = pathLength(segment);
-    // Drop tiny pit wiggles; keep outlap/inlap that cover meaningful distance.
     if (meters < minLapMeters * 0.35 && index > 0 && index < segments.length - 1) {
       return;
     }

@@ -1,8 +1,9 @@
 import { resolveTrackCenterline } from "@/lib/cloud-tracks";
 import {
   parseStartFinishLine,
-  startFinishCrossingPoint,
+  startFinishSplitRef,
   type StartFinishLine,
+  type StartFinishSplitRef,
 } from "@/lib/start-finish-line";
 import {
   builtinTrack,
@@ -11,21 +12,24 @@ import {
 } from "@/lib/tracks";
 import type { TelemetryPoint } from "@/lib/types";
 
-export type { StartFinishLine };
+export type { StartFinishLine, StartFinishSplitRef };
 
 /**
  * Best-effort start/finish for lap detection:
- * 1) explicit tracks.start_finish (owner-edited gate)
+ * 1) explicit tracks.start_finish (owner-edited gate) — includes heading
  * 2) first centerline point (track geometry / builtin)
  * 3) track catalog lat/lon (custom id → builtin alias, then shared/custom)
  * 4) null → caller falls back to first moving GPS sample
+ *
+ * Prefer this over catalog aliases whenever `storedStartFinish` is the
+ * Supabase tracks.start_finish jsonb (map / re-split / upload share one source).
  */
 export function resolveTrackStartFinish(
   trackId: string | null | undefined,
   sampleLaps?: TelemetryPoint[][],
   storedStartFinish?: unknown,
-): { lat: number; lon: number } | null {
-  const fromStored = startFinishCrossingPoint(
+): StartFinishSplitRef | null {
+  const fromStored = startFinishSplitRef(
     parseStartFinishLine(storedStartFinish),
   );
   if (fromStored) return fromStored;
@@ -54,5 +58,9 @@ export function resolveTrackStartFinishLine(
   if (parsed) return parsed;
   const point = resolveTrackStartFinish(trackId);
   if (!point) return null;
-  return { lat: point.lat, lon: point.lon, headingDeg: 0 };
+  return {
+    lat: point.lat,
+    lon: point.lon,
+    headingDeg: point.headingDeg ?? 0,
+  };
 }

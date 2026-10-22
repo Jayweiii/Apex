@@ -39,7 +39,12 @@ export type ReparseStagePayload = {
   }>;
   sourceGps?: SourceGpsStored | null;
   trackId?: string | null;
-  startFinish?: { lat: number; lon: number } | null;
+  startFinish?: {
+    lat: number;
+    lon: number;
+    headingDeg?: number;
+    locked?: boolean;
+  } | null;
   startedAtMs?: number;
   sessionDate?: string;
   gpsQuality?: GpsQuality;

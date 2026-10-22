@@ -8,6 +8,11 @@ export type Track = {
   lat: number;
   lon: number;
   search: string;
+  /**
+   * Supabase tracks.start_finish jsonb when loaded from cloud.
+   * Upload / re-parse must prefer this over catalog aliases.
+   */
+  startFinish?: unknown;
 };
 
 /**

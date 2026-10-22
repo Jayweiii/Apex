@@ -431,7 +431,14 @@ export function SessionUpload({
       const trackForSf =
         trackId ||
         (pickedTrack && pickedTrack !== NEW_TRACK ? pickedTrack : null);
-      const startFinish = resolveTrackStartFinish(trackForSf);
+      // Prefer Supabase tracks.start_finish (same gate the map draws) over
+      // catalog aliases / builtin lat-lon.
+      const cloudSf = tracks.find((t) => t.id === trackForSf)?.startFinish;
+      const startFinish = resolveTrackStartFinish(
+        trackForSf,
+        undefined,
+        cloudSf,
+      );
 
       let laps: ParsedLap[];
       let startedAtMs: number | undefined;

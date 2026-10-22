@@ -43,6 +43,8 @@ export function cloudRowToTrack(row: CloudTrackRow): Track {
     lat: Number(row.lat) || 0,
     lon: Number(row.lon) || 0,
     search: `${row.name} ${row.location ?? ""} ${row.layout ?? ""}`,
+    // Keep owner-edited SF so upload/reparse match the map gate.
+    startFinish: row.start_finish ?? undefined,
   };
 }
 

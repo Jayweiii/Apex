@@ -216,8 +216,13 @@ export type GoProParseResult = {
 
 export type GoProParseOptions = {
   onProgress?: (percent: number) => void;
-  /** Track start/finish for lap detection. */
-  startFinish?: { lat: number; lon: number } | null;
+  /** Track start/finish for lap detection (heading/locked from tracks.start_finish). */
+  startFinish?: {
+    lat: number;
+    lon: number;
+    headingDeg?: number;
+    locked?: boolean;
+  } | null;
   /** Track centerline for snap + SF progress wraps. */
   centerline?: LatLon[] | null;
   /**
@@ -498,7 +503,12 @@ export function splitGoProLaps(
   points: TelemetryPoint[],
   options: {
     sessionStartedAtMs?: number;
-    startFinish?: { lat: number; lon: number } | null;
+    startFinish?: {
+      lat: number;
+      lon: number;
+      headingDeg?: number;
+      locked?: boolean;
+    } | null;
     centerline?: LatLon[] | null;
     trackId?: string | null;
   } = {},

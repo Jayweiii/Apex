@@ -27,7 +27,12 @@ export type ReparseSaveBody = {
   laps?: ReparseLapWire[];
   sourceGps?: SourceGpsStored | null;
   trackId?: string | null;
-  startFinish?: { lat: number; lon: number } | null;
+  startFinish?: {
+    lat: number;
+    lon: number;
+    headingDeg?: number;
+    locked?: boolean;
+  } | null;
   startedAtMs?: number;
   sessionDate?: string;
   gpsQuality?: GpsQuality;
@@ -37,7 +42,12 @@ export function buildReparseSaveBody(input: {
   laps: ReparseLapWire[];
   sourceGps?: SourceGpsStored | null;
   trackId?: string | null;
-  startFinish?: { lat: number; lon: number } | null;
+  startFinish?: {
+    lat: number;
+    lon: number;
+    headingDeg?: number;
+    locked?: boolean;
+  } | null;
   startedAtMs?: number;
   sessionDate?: string;
   gpsQuality?: GpsQuality;
