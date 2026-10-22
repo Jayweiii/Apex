@@ -791,7 +791,6 @@ export function LapCompare({
                   analysisDisabled={!hasAnalysisSnap}
                   defaultFollowId={ordered[0]?.lap.id}
                   compact
-                  hideCameraControls
                 />
               ) : (
                 <div className="flex items-center">

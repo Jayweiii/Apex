@@ -3,6 +3,8 @@
 import { formatGap } from "@/lib/format";
 import {
   clampChaseZoom,
+  POV_DEFAULT_ZOOM,
+  POV_PITCH_DEG,
   type MapViewPrefs,
 } from "@/lib/map-view-prefs";
 import {
@@ -27,10 +29,19 @@ export type ChaseTrace = {
   points: TelemetryPoint[];
 };
 
+/** Free Esri World Imagery — no API key. */
 const ESRI_TILES =
   "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
 
+export { POV_DEFAULT_ZOOM, POV_PITCH_DEG };
+
 const MARKER_SHAPES = ["ring", "filled", "square", "diamond"] as const;
+
+const MAP_HEIGHT = {
+  default: "h-[65vh] min-h-[320px] sm:min-h-[420px]",
+  compact: "h-[220px] min-h-[180px] sm:h-[280px]",
+  panel: "h-full min-h-[120px] min-h-0 flex-1",
+} as const;
 
 function toGps(points: TelemetryPoint[]): GpsPoint[] {
   return points.filter(
@@ -53,8 +64,12 @@ function haversine(
   return 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-function markerHtml(color: string, shape: (typeof MARKER_SHAPES)[number]) {
-  const cls =
+function markerHtml(
+  color: string,
+  shape: (typeof MARKER_SHAPES)[number],
+  ghost: boolean,
+) {
+  const base =
     shape === "ring"
       ? "apex-car-marker__dot apex-car-marker__dot--ring apex-car-marker__dot--chase"
       : shape === "square"
@@ -62,6 +77,7 @@ function markerHtml(color: string, shape: (typeof MARKER_SHAPES)[number]) {
         : shape === "diamond"
           ? "apex-car-marker__dot apex-car-marker__dot--diamond apex-car-marker__dot--chase"
           : "apex-car-marker__dot apex-car-marker__dot--chase";
+  const cls = ghost ? `${base} apex-car-marker__dot--ghost` : base;
   return `<div class="apex-car-marker"><div class="${cls}" style="--apex-car:${color}"></div></div>`;
 }
 
@@ -70,8 +86,8 @@ function gapHtml(label: string) {
 }
 
 /**
- * Heading-up chase camera (MapLibre + Esri raster).
- * Centers on follow lap / centroid, rotates bearing from smoothed track heading.
+ * POV / third-person chase camera (MapLibre + free Esri raster).
+ * Centers on follow lap, pitch ~60°, bearing = smoothed travel heading.
  */
 export function ChaseTrackMap({
   traces,
@@ -80,7 +96,9 @@ export function ChaseTrackMap({
   onPreviewProgress,
   onProgress,
   prefs,
-  pitch = 35,
+  pitch = POV_PITCH_DEG,
+  compact = false,
+  panel = false,
 }: {
   traces: ChaseTrace[];
   activeProgress?: number | null;
@@ -90,6 +108,8 @@ export function ChaseTrackMap({
   onProgress?: (progress: number | null) => void;
   prefs: MapViewPrefs;
   pitch?: number;
+  compact?: boolean;
+  panel?: boolean;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -137,7 +157,7 @@ export function ChaseTrackMap({
         ],
       },
       center: [-122.33, 39.54],
-      zoom: prefs.chaseZoom,
+      zoom: clampChaseZoom(prefs.chaseZoom || POV_DEFAULT_ZOOM),
       pitch,
       bearing: 0,
       attributionControl: { compact: true },
@@ -149,9 +169,16 @@ export function ChaseTrackMap({
     mapRef.current = map;
 
     map.on("load", () => {
-      // Polylines added/updated in a separate effect.
       map.resize();
     });
+
+    const ro =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(() => {
+            map.resize();
+          })
+        : null;
+    if (ro && hostRef.current) ro.observe(hostRef.current);
 
     const progressAt = (clientX: number, clientY: number) => {
       const current = drawableRef.current;
@@ -202,8 +229,10 @@ export function ChaseTrackMap({
     map.on("mousemove", onMove);
     const container = map.getContainer();
     container.addEventListener("mouseleave", onLeave);
+    container.style.cursor = "pointer";
 
     return () => {
+      ro?.disconnect();
       container.removeEventListener("mouseleave", onLeave);
       markersRef.current.forEach((marker) => marker.remove());
       markersRef.current = [];
@@ -218,9 +247,10 @@ export function ChaseTrackMap({
     const map = mapRef.current;
     if (!map) return;
 
+    const followId = prefs.followId;
+
     const apply = () => {
-      // Remove prior lap layers/sources.
-      for (const layer of [...map.getStyle().layers ?? []]) {
+      for (const layer of [...(map.getStyle().layers ?? [])]) {
         if (layer.id.startsWith("lap-line-")) {
           if (map.getLayer(layer.id)) map.removeLayer(layer.id);
         }
@@ -231,12 +261,16 @@ export function ChaseTrackMap({
         }
       }
 
-      drawable.forEach((trace, index) => {
+      drawable.forEach((trace) => {
         const srcId = `lap-src-${trace.id}`;
         const layerId = `lap-line-${trace.id}`;
         const coords = trace.points.map(
           (point) => [point.lon, point.lat] as [number, number],
         );
+        const isFollow =
+          followId === "centroid" ||
+          !followId ||
+          trace.id === followId;
         map.addSource(srcId, {
           type: "geojson",
           data: {
@@ -251,8 +285,8 @@ export function ChaseTrackMap({
           source: srcId,
           paint: {
             "line-color": trace.color,
-            "line-width": index === 0 ? 3.5 : 2.5,
-            "line-opacity": 0.9,
+            "line-width": isFollow ? 3.5 : 2,
+            "line-opacity": isFollow ? 0.95 : 0.35,
           },
         });
       });
@@ -260,15 +294,15 @@ export function ChaseTrackMap({
 
     if (map.isStyleLoaded()) apply();
     else map.once("load", apply);
-  }, [drawable]);
+  }, [drawable, prefs.followId]);
 
-  // Camera + markers follow progress.
+  // Camera + markers follow progress (playback, hover preview, click seek).
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !drawable.length) return;
 
     const progress = previewProgress ?? activeProgress ?? 0;
-    const zoom = clampChaseZoom(prefs.chaseZoom);
+    const zoom = clampChaseZoom(prefs.chaseZoom || POV_DEFAULT_ZOOM);
 
     const samples = drawable.map((trace) => {
       const point = sampleAtProgress(trace.points, progress);
@@ -304,24 +338,29 @@ export function ChaseTrackMap({
     );
     bearingRef.current = nextBearing;
 
-    map.easeTo({
+    // jumpTo every frame — no animation lag vs playback / hover seek.
+    map.jumpTo({
       center: [follow.lon, follow.lat],
       zoom,
       bearing: nextBearing,
       pitch,
-      duration: 0,
-      essential: true,
     });
 
-    // Rebuild markers.
     markersRef.current.forEach((marker) => marker.remove());
     markersRef.current = [];
 
+    const followId = prefs.followId;
     samples.forEach((sample, index) => {
+      const isFollow =
+        followId === "centroid" ||
+        !followId ||
+        sample.trace.id === followId ||
+        sample.trace.id === follow.trace.id;
       const el = document.createElement("div");
       el.innerHTML = markerHtml(
         sample.trace.color,
         MARKER_SHAPES[index % MARKER_SHAPES.length] ?? "filled",
+        !isFollow,
       );
       const marker = new maplibregl.Marker({
         element: el.firstElementChild as HTMLElement,
@@ -333,9 +372,10 @@ export function ChaseTrackMap({
     });
 
     if (samples.length >= 2 && prefs.followId !== "centroid") {
-      const ref = samples[0];
-      for (let i = 1; i < samples.length; i += 1) {
-        const other = samples[i];
+      const ref =
+        samples.find((s) => s.trace.id === follow.trace.id) ?? samples[0];
+      for (const other of samples) {
+        if (other.trace.id === ref.trace.id) continue;
         const gapSec = other.point.t - ref.point.t;
         if (!Number.isFinite(gapSec) || Math.abs(gapSec) >= 30) continue;
         const el = document.createElement("div");
@@ -351,7 +391,6 @@ export function ChaseTrackMap({
       }
     }
 
-    // Auto-zoom slightly out when following centroid so all stay in frame.
     if (prefs.followId === "centroid" && samples.length > 1) {
       const bounds = new maplibregl.LngLatBounds();
       samples.forEach((s) => bounds.extend([s.lon, s.lat]));
@@ -374,14 +413,20 @@ export function ChaseTrackMap({
     pitch,
   ]);
 
-  // Expose raw bearing helper for tests without pulling map.
   void bearingAtProgress;
+
+  const heightClass = panel
+    ? MAP_HEIGHT.panel
+    : compact
+      ? MAP_HEIGHT.compact
+      : MAP_HEIGHT.default;
 
   return (
     <div
       ref={hostRef}
-      className="h-[65vh] min-h-[320px] w-full touch-none overflow-hidden rounded-xl sm:min-h-[420px] [&_.maplibregl-ctrl-attrib]:bg-zinc-950/80 [&_.maplibregl-ctrl-attrib]:text-[10px] [&_.maplibregl-ctrl-attrib]:text-zinc-400"
+      className={`${heightClass} w-full touch-none overflow-hidden rounded-xl cursor-pointer [&_.maplibregl-canvas]:cursor-pointer [&_.maplibregl-ctrl-attrib]:bg-zinc-950/80 [&_.maplibregl-ctrl-attrib]:text-[10px] [&_.maplibregl-ctrl-attrib]:text-zinc-400`}
       data-apex-map="chase"
+      data-apex-pov="1"
     />
   );
 }

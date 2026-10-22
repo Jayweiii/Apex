@@ -610,7 +610,8 @@ export function SyncedLapView({
       onPreviewProgress={setPreviewProgress}
       onProgress={setProgressFromUi}
       compact={workspace}
-      hideCameraControls={workspace}
+      panel={workspace}
+      defaultFollowId="lap"
       {...mapProps}
     />
   ) : (

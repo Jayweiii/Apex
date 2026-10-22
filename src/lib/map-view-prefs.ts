@@ -13,10 +13,14 @@ export type MapViewPrefs = {
 export const MAP_VIEW_PREFS_KEY = "apex.map-view";
 export const MAP_VIEW_PREFS_EVENT = "apex:map-view";
 
+/** Third-person POV chase: pitched ~60°, zoom ~17–18. */
+export const POV_PITCH_DEG = 60;
+export const POV_DEFAULT_ZOOM = 17.5;
+
 export const DEFAULT_MAP_VIEW_PREFS: MapViewPrefs = {
   mode: "overview",
   followId: "",
-  chaseZoom: 18,
+  chaseZoom: POV_DEFAULT_ZOOM,
 };
 
 export function clampChaseZoom(zoom: number): number {

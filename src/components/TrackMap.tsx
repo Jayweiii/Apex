@@ -4,7 +4,6 @@ import { GpsModeToggle } from "@/components/GpsModeToggle";
 import { hasGps } from "@/lib/compare";
 import type { GpsDisplayMode } from "@/lib/map-match";
 import {
-  clampChaseZoom,
   DEFAULT_MAP_VIEW_PREFS,
   MAP_VIEW_PREFS_EVENT,
   readMapViewPrefs,
@@ -43,7 +42,7 @@ type MapProps = {
   compact?: boolean;
   /** Stretch to parent height (session dashboard left column). */
   panel?: boolean;
-  /** Hide chase/overview camera chrome (hero embeds). */
+  /** Hide POV/overview camera chrome (hero embeds). */
   hideCameraControls?: boolean;
   /** Start/finish gate overlay (see LeafletTrackMap). */
   sfLine?: StartFinishLine | null;
@@ -67,101 +66,51 @@ const ChaseTrackMap = dynamic(
   { ssr: false, loading: () => mapLoading },
 );
 
-function CameraControls({
+/** Single Overview ↔ POV control (chase camera). */
+function PovToggle({
   prefs,
-  traces,
   onChange,
+  compact,
 }: {
   prefs: MapViewPrefs;
-  traces: TrackTrace[];
   onChange: (next: MapViewPrefs) => void;
+  compact?: boolean;
 }) {
   return (
-    <div className="mb-3 flex flex-wrap items-center gap-2 sm:gap-3">
-      <div
-        className="inline-flex rounded-lg border border-zinc-800 bg-zinc-950/80 p-0.5 text-xs"
-        role="group"
-        aria-label="Map camera mode"
-      >
-        {(
-          [
-            { value: "overview" as const, label: "Overview" },
-            { value: "chase" as const, label: "Chase" },
-          ] as const
-        ).map((option) => {
-          const active = prefs.mode === option.value;
-          return (
-            <button
-              key={option.value}
-              type="button"
-              onClick={() => onChange({ ...prefs, mode: option.value })}
-              className={`rounded-md px-2.5 py-1 transition ${
-                active
-                  ? "bg-orange-500 text-black"
-                  : "text-zinc-400 hover:text-zinc-200"
-              }`}
-              title={
-                option.value === "overview"
-                  ? "North-up, fixed framing"
-                  : "Zoomed, heading-up follow"
-              }
-            >
-              {option.label}
-              <span className="ml-1 hidden text-[10px] opacity-70 sm:inline">
-                {option.value === "overview" ? "· north-up" : "· heading-up"}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-
-      {prefs.mode === "chase" ? (
-        <>
-          <label className="flex items-center gap-2 text-xs text-zinc-400">
-            <span className="uppercase tracking-[0.14em] text-zinc-500">
-              Follow
-            </span>
-            <select
-              value={prefs.followId || traces[0]?.id || ""}
-              onChange={(event) =>
-                onChange({ ...prefs, followId: event.target.value })
-              }
-              className="min-h-8 rounded-md border border-zinc-800 bg-zinc-950 px-2 text-xs text-zinc-200"
-            >
-              {traces.map((trace) => (
-                <option key={trace.id} value={trace.id}>
-                  {trace.label}
-                </option>
-              ))}
-              {traces.length > 1 ? (
-                <option value="centroid">All (centroid)</option>
-              ) : null}
-            </select>
-          </label>
-          <label className="flex min-w-[140px] flex-1 items-center gap-2 text-xs text-zinc-400 sm:max-w-[220px]">
-            <span className="uppercase tracking-[0.14em] text-zinc-500">
-              Zoom
-            </span>
-            <input
-              type="range"
-              min={16}
-              max={19}
-              step={0.5}
-              value={prefs.chaseZoom}
-              onChange={(event) =>
-                onChange({
-                  ...prefs,
-                  chaseZoom: clampChaseZoom(Number(event.target.value)),
-                })
-              }
-              className="w-full accent-orange-500"
-            />
-            <span className="font-mono text-zinc-300">
-              {prefs.chaseZoom.toFixed(1)}
-            </span>
-          </label>
-        </>
-      ) : null}
+    <div
+      className={`inline-flex rounded-lg border border-zinc-800 bg-zinc-950/80 p-0.5 ${
+        compact ? "text-[11px]" : "text-xs"
+      }`}
+      role="group"
+      aria-label="Map camera mode"
+    >
+      {(
+        [
+          { value: "overview" as const, label: "Overview" },
+          { value: "chase" as const, label: "POV" },
+        ] as const
+      ).map((option) => {
+        const active = prefs.mode === option.value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => onChange({ ...prefs, mode: option.value })}
+            className={`cursor-pointer rounded-md px-2.5 py-1 transition ${
+              active
+                ? "bg-orange-500 text-black"
+                : "text-zinc-400 hover:text-zinc-200"
+            }`}
+            title={
+              option.value === "overview"
+                ? "North-up, fixed framing"
+                : "Third-person chase: tilted, heading-up follow"
+            }
+          >
+            {option.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -215,6 +164,18 @@ export function TrackMap(props: MapProps) {
     }
   }, [props.traces, props.defaultFollowId, prefs.followId, hydrated]);
 
+  // Prefer primary/ref lap when parent sets defaultFollowId and prefs empty.
+  useEffect(() => {
+    if (!hydrated || !props.defaultFollowId) return;
+    if (prefs.followId && prefs.followId !== "centroid") return;
+    if (!props.traces.some((t) => t.id === props.defaultFollowId)) return;
+    setPrefs((prev) => {
+      const next = { ...prev, followId: props.defaultFollowId! };
+      writeMapViewPrefs(next);
+      return next;
+    });
+  }, [hydrated, props.defaultFollowId, props.traces, prefs.followId]);
+
   function updatePrefs(next: MapViewPrefs) {
     setPrefs(next);
     writeMapViewPrefs(next);
@@ -222,13 +183,32 @@ export function TrackMap(props: MapProps) {
 
   if (!hasDrawable) return null;
 
-  const hideChrome = Boolean(props.hideCameraControls || props.compact);
-  const useChase = !hideChrome && prefs.mode === "chase" && !props.panel;
+  const hideChrome = Boolean(props.hideCameraControls);
+  const useChase = !hideChrome && prefs.mode === "chase";
+  const compactChrome = Boolean(props.compact || props.panel);
+
+  const povControl = hideChrome ? null : (
+    <PovToggle
+      prefs={prefs}
+      onChange={updatePrefs}
+      compact={compactChrome}
+    />
+  );
 
   if (useChase) {
+    const shellClass = props.panel
+      ? "relative flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-zinc-800/80 bg-zinc-950/40 p-2"
+      : props.compact
+        ? "relative overflow-hidden rounded-xl border border-zinc-800/80 bg-zinc-950/40 p-2"
+        : "relative overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950/40 p-4";
+
     return (
-      <div className="relative overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950/40 p-4">
-        <div className="mb-3 flex flex-wrap items-center gap-3">
+      <div className={shellClass}>
+        <div
+          className={`flex flex-wrap items-center gap-2 ${
+            props.panel || props.compact ? "mb-1.5 shrink-0" : "mb-3 gap-3"
+          }`}
+        >
           {props.gpsMode && props.onGpsModeChange ? (
             <GpsModeToggle
               mode={props.gpsMode}
@@ -250,12 +230,8 @@ export function TrackMap(props: MapProps) {
               disabled={props.analysisDisabled}
             />
           ) : null}
+          {povControl}
         </div>
-        <CameraControls
-          prefs={prefs}
-          traces={props.traces}
-          onChange={updatePrefs}
-        />
         <ChaseTrackMap
           traces={props.traces}
           activeProgress={props.activeProgress}
@@ -263,6 +239,8 @@ export function TrackMap(props: MapProps) {
           onPreviewProgress={props.onPreviewProgress}
           onProgress={props.onProgress}
           prefs={prefs}
+          compact={props.compact}
+          panel={props.panel}
         />
       </div>
     );
@@ -273,15 +251,7 @@ export function TrackMap(props: MapProps) {
       {...(props as ComponentProps<typeof LeafletTrackMap>)}
       compact={props.compact}
       panel={props.panel}
-      headerSlot={
-        hideChrome ? null : (
-          <CameraControls
-            prefs={prefs}
-            traces={props.traces}
-            onChange={updatePrefs}
-          />
-        )
-      }
+      headerSlot={povControl}
     />
   );
 }
