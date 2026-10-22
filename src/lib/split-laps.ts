@@ -593,7 +593,10 @@ export function splitLapsByStartFinish(
       : null;
 
   const sfOpt = options?.startFinish;
-  const sfLocked = Boolean(sfOpt?.locked || sfOpt?.headingDeg != null);
+  // Only `locked` (set by startFinishSplitRef for tracks.start_finish) disables
+  // loop/progress fallbacks. A bare headingDeg still allows them so synthetic
+  // / catalog paths keep working when the gate does not fire.
+  const sfLocked = Boolean(sfOpt?.locked);
   let sf: LatLon | null =
     sfOpt && Number.isFinite(sfOpt.lat) && Number.isFinite(sfOpt.lon)
       ? { lat: sfOpt.lat, lon: sfOpt.lon }
@@ -654,9 +657,11 @@ export function splitLapsByStartFinish(
     }
   }
 
-  // When the drawn/saved SF gate is locked, do not fall back to loop-closure
-  // or progress-wrap (those snap to nearest samples and drift off the line).
-  if (!sfLocked) {
+  // When the drawn/saved SF gate is locked, prefer gate crossings only so
+  // loop-closure / progress-wrap do not win and snap off the drawn line.
+  // If the gate never fires, fall back so we still produce laps.
+  const gateHit = candidates.some((c) => c.length > 0);
+  if (!sfLocked || !gateHit) {
     {
       const start =
         sf ??
