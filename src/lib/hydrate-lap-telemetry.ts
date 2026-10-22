@@ -3,10 +3,12 @@
  * but sessions.source_gps is dense, rebuild per-lap points by slicing the
  * full-res GPS on each lap's start_offset + duration.
  */
+import { alignLapBoundariesToSf } from "@/lib/lap-sf-boundary";
 import {
   expandSourceGps,
   isSourceGpsDenseEnough,
 } from "@/lib/session-reparse";
+import type { StartFinishLine } from "@/lib/start-finish-line";
 import type { TelemetryPoint } from "@/lib/types";
 
 /** Below this, speed charts look empty / stubbed. */
@@ -50,7 +52,11 @@ export function lapsNeedTelemetryHydration(
 export function hydrateLapsFromSourceGps<T extends HydrateableLap>(
   laps: T[],
   sourceGps: unknown,
-  options: { maxPoints?: number; minPoints?: number } = {},
+  options: {
+    maxPoints?: number;
+    minPoints?: number;
+    startFinish?: StartFinishLine | { lat: number; lon: number } | null;
+  } = {},
 ): T[] | null {
   const maxPoints = options.maxPoints ?? HYDRATE_MAX_POINTS;
   const minPoints = options.minPoints ?? MIN_CHART_TELEMETRY_POINTS;
@@ -61,7 +67,7 @@ export function hydrateLapsFromSourceGps<T extends HydrateableLap>(
   if (!density.ok || source.length < 80) return null;
 
   const sessionT0 = source[0]!.t;
-  return laps.map((lap) => {
+  const hydrated = laps.map((lap) => {
     if ((lap.telemetry?.length ?? 0) >= minPoints) return lap;
     const start = lap.start_offset_sec ?? 0;
     const durationSec = Math.max(0.001, lap.lap_time_ms / 1000);
@@ -80,6 +86,26 @@ export function hydrateLapsFromSourceGps<T extends HydrateableLap>(
       telemetry: downsample(normalized, maxPoints),
     };
   });
+
+  if (options.startFinish) {
+    return alignLapBoundariesToSf(hydrated, options.startFinish);
+  }
+  return hydrated;
+}
+
+/**
+ * Align already-loaded lap telemetry to the SF gate (display / client repair).
+ */
+export function alignLoadedLapsToSf<T extends HydrateableLap>(
+  laps: T[],
+  startFinish:
+    | StartFinishLine
+    | { lat: number; lon: number }
+    | null
+    | undefined,
+): T[] {
+  if (!startFinish) return laps;
+  return alignLapBoundariesToSf(laps, startFinish);
 }
 
 /**

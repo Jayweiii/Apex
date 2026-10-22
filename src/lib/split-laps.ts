@@ -1,3 +1,4 @@
+import { snapParsedLapsToSfGate } from "@/lib/lap-sf-boundary";
 import {
   buildCenterlineFromLaps,
   haversineMeters,
@@ -617,5 +618,7 @@ export function splitLapsByStartFinish(
     });
   }
 
-  return laps;
+  // Snap shared SF boundaries onto the gate so adjacent laps meet cleanly
+  // (no gap/overlap) and in/out starts sit on the start/finish line.
+  return snapParsedLapsToSfGate(laps, sf);
 }

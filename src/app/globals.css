@@ -149,3 +149,65 @@ video {
   white-space: nowrap;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
 }
+
+/* Per-lap SF crossing (works in north-up + POV chase). */
+.apex-sf-crossing {
+  background: transparent !important;
+  border: none !important;
+}
+
+.apex-sf-crossing__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 9999px;
+  background: #fafafa;
+  border: 2px solid #f97316;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55);
+  box-sizing: border-box;
+}
+
+.apex-sf-crossing__label {
+  display: block;
+  margin-top: 2px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgba(9, 9, 11, 0.9);
+  border: 1px solid rgba(249, 115, 22, 0.7);
+  color: #fdba74;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.apex-lap-kind {
+  background: transparent !important;
+  border: none !important;
+}
+
+.apex-lap-kind__badge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(9, 9, 11, 0.92);
+  border: 1px solid rgba(161, 161, 170, 0.85);
+  color: #e4e4e7;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  white-space: nowrap;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+}
+
+.apex-lap-kind__badge--out {
+  border-color: rgba(56, 189, 248, 0.85);
+  color: #7dd3fc;
+}
+
+.apex-lap-kind__badge--in {
+  border-color: rgba(251, 113, 133, 0.85);
+  color: #fda4af;
+}

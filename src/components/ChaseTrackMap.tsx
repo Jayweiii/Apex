@@ -27,6 +27,10 @@ export type ChaseTrace = {
   label: string;
   color: string;
   points: TelemetryPoint[];
+  /** Out / in / hot — partial laps get a map badge. */
+  lapKind?: "out" | "in" | "hot";
+  /** SF crossing for this lap (start for in/hot, end for out). */
+  sfCrossing?: { lat: number; lon: number } | null;
 };
 
 /** Free Esri World Imagery — no API key. */
@@ -85,6 +89,15 @@ function gapHtml(label: string) {
   return `<div class="apex-car-marker"><span class="apex-car-marker__gap">${label}</span></div>`;
 }
 
+function sfCrossingHtml() {
+  return `<div class="apex-sf-crossing"><div class="apex-sf-crossing__dot" title="SF crossing"></div><span class="apex-sf-crossing__label">SF</span></div>`;
+}
+
+function lapKindHtml(kind: "out" | "in") {
+  const label = kind === "out" ? "OUT" : "IN";
+  return `<div class="apex-lap-kind"><span class="apex-lap-kind__badge apex-lap-kind__badge--${kind}">${label}</span></div>`;
+}
+
 /**
  * POV / third-person chase camera (MapLibre + free Esri raster).
  * Centers on follow lap, pitch ~60°, bearing = smoothed travel heading.
@@ -114,6 +127,7 @@ export function ChaseTrackMap({
   const hostRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const markersRef = useRef<Marker[]>([]);
+  const annotMarkersRef = useRef<Marker[]>([]);
   const bearingRef = useRef<number | null>(null);
   const onProgressRef = useRef(onProgress);
   const onPreviewProgressRef = useRef(onPreviewProgress);
@@ -236,11 +250,58 @@ export function ChaseTrackMap({
       container.removeEventListener("mouseleave", onLeave);
       markersRef.current.forEach((marker) => marker.remove());
       markersRef.current = [];
+      annotMarkersRef.current.forEach((marker) => marker.remove());
+      annotMarkersRef.current = [];
       map.remove();
       mapRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- create once
   }, []);
+
+  // SF crossing + out/in tags (additive; north-up + POV).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const place = () => {
+      annotMarkersRef.current.forEach((marker) => marker.remove());
+      annotMarkersRef.current = [];
+      for (const trace of drawable) {
+        const crossing = trace.sfCrossing;
+        if (
+          crossing &&
+          Number.isFinite(crossing.lat) &&
+          Number.isFinite(crossing.lon)
+        ) {
+          const el = document.createElement("div");
+          el.innerHTML = sfCrossingHtml();
+          const marker = new maplibregl.Marker({
+            element: el.firstElementChild as HTMLElement,
+            anchor: "center",
+          })
+            .setLngLat([crossing.lon, crossing.lat])
+            .addTo(map);
+          annotMarkersRef.current.push(marker);
+        }
+        if (trace.lapKind === "out" || trace.lapKind === "in") {
+          const mid = trace.points[Math.floor(trace.points.length / 2)];
+          if (!mid) continue;
+          const el = document.createElement("div");
+          el.innerHTML = lapKindHtml(trace.lapKind);
+          const marker = new maplibregl.Marker({
+            element: el.firstElementChild as HTMLElement,
+            anchor: "bottom",
+          })
+            .setLngLat([mid.lon, mid.lat])
+            .addTo(map);
+          annotMarkersRef.current.push(marker);
+        }
+      }
+    };
+
+    if (map.isStyleLoaded()) place();
+    else map.once("load", place);
+  }, [drawable]);
 
   // Draw / update polylines when traces change.
   useEffect(() => {

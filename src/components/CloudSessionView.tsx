@@ -33,7 +33,10 @@ import {
   REPARSE_BODY_MAX_BYTES,
   reparseBodyTooLargeMessage,
 } from "@/lib/reparse-save-body";
-import { hydrateLapsFromSourceGps } from "@/lib/hydrate-lap-telemetry";
+import {
+  alignLoadedLapsToSf,
+  hydrateLapsFromSourceGps,
+} from "@/lib/hydrate-lap-telemetry";
 import {
   parseStartFinishLine,
   type StartFinishLine,
@@ -223,6 +226,8 @@ export function CloudSessionView({ id }: { id: string }) {
         setSession(cloud);
         savedSessionRef.current = cloud;
 
+        let resolvedSf: StartFinishLine | null = null;
+        let storedSf: unknown = null;
         if (cloud.track_id) {
           const { data: trackRow } = await supabase
             .from("tracks")
@@ -230,12 +235,12 @@ export function CloudSessionView({ id }: { id: string }) {
             .eq("id", cloud.track_id)
             .maybeSingle();
           if (!cancelled) {
-            const stored = trackRow?.start_finish ?? null;
-            setTrackStartFinish(stored);
-            setSfMapLine(
-              parseStartFinishLine(stored) ??
-                resolveTrackStartFinishLine(cloud.track_id, stored),
-            );
+            storedSf = trackRow?.start_finish ?? null;
+            resolvedSf =
+              parseStartFinishLine(storedSf) ??
+              resolveTrackStartFinishLine(cloud.track_id, storedSf);
+            setTrackStartFinish(storedSf);
+            setSfMapLine(resolvedSf);
           }
         } else if (!cancelled) {
           setTrackStartFinish(null);
@@ -250,10 +255,12 @@ export function CloudSessionView({ id }: { id: string }) {
         if (!cancelled) {
           const rawLaps = (lapRows ?? []) as LapRow[];
           // Slim re-parse Save can leave 2-pt stubs; rebuild from source_gps.
-          const nextLaps =
-            (hydrateLapsFromSourceGps(rawLaps, cloud.source_gps) as
-              | LapRow[]
-              | null) ?? rawLaps;
+          const hydrated =
+            (hydrateLapsFromSourceGps(rawLaps, cloud.source_gps, {
+              startFinish: resolvedSf,
+            }) as LapRow[] | null) ?? rawLaps;
+          // Snap SF-facing endpoints onto the gate so in/out starts aren't "weird".
+          const nextLaps = alignLoadedLapsToSf(hydrated, resolvedSf);
           setLaps(nextLaps);
           savedLapsRef.current = nextLaps;
         }
@@ -330,10 +337,15 @@ export function CloudSessionView({ id }: { id: string }) {
       .eq("session_id", session.id)
       .order("lap_number", { ascending: true });
     const rawLaps = (lapRows ?? []) as LapRow[];
-    const nextLaps =
-      (hydrateLapsFromSourceGps(rawLaps, session.source_gps) as
-        | LapRow[]
-        | null) ?? rawLaps;
+    const sf =
+      sfMapLine ??
+      parseStartFinishLine(trackStartFinish) ??
+      resolveTrackStartFinishLine(session.track_id, trackStartFinish);
+    const hydrated =
+      (hydrateLapsFromSourceGps(rawLaps, session.source_gps, {
+        startFinish: sf,
+      }) as LapRow[] | null) ?? rawLaps;
+    const nextLaps = alignLoadedLapsToSf(hydrated, sf);
     setLaps(nextLaps);
     savedLapsRef.current = nextLaps;
     try {

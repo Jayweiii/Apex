@@ -21,6 +21,10 @@ export type TrackTrace = {
   color: string;
   points: TelemetryPoint[];
   colorBySpeed?: boolean;
+  /** Out / in / hot — partial laps get a map badge. */
+  lapKind?: "out" | "in" | "hot";
+  /** SF crossing for this lap (start for in/hot, end for out). */
+  sfCrossing?: { lat: number; lon: number } | null;
 };
 
 type MapProps = {

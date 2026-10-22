@@ -23,6 +23,10 @@ export type TrackTrace = {
   color: string;
   points: TelemetryPoint[];
   colorBySpeed?: boolean;
+  /** Out / in / hot — partial laps get a map badge. */
+  lapKind?: "out" | "in" | "hot";
+  /** SF crossing for this lap (start for in/hot, end for out). */
+  sfCrossing?: { lat: number; lon: number } | null;
 };
 
 export type BasemapMode = "satellite" | "street";
@@ -206,6 +210,25 @@ function sfHandleIcon(label: string) {
     html: `<button type="button" class="apex-sf-handle__btn" aria-label="Start/finish ${label}">${label}</button>`,
     iconSize: [28, 28],
     iconAnchor: [14, 14],
+  });
+}
+
+function sfCrossingIcon() {
+  return L.divIcon({
+    className: "apex-sf-crossing",
+    html: `<div class="apex-sf-crossing__dot" title="SF crossing"></div><span class="apex-sf-crossing__label">SF</span>`,
+    iconSize: [28, 28],
+    iconAnchor: [5, 5],
+  });
+}
+
+function lapKindIcon(kind: "out" | "in") {
+  const label = kind === "out" ? "OUT" : "IN";
+  return L.divIcon({
+    className: "apex-lap-kind",
+    html: `<span class="apex-lap-kind__badge apex-lap-kind__badge--${kind}">${label}</span>`,
+    iconSize: [36, 18],
+    iconAnchor: [18, 22],
   });
 }
 
@@ -624,6 +647,37 @@ export function LeafletTrackMap({
           interactive: false,
         }),
       );
+
+      const crossing = trace.sfCrossing;
+      if (
+        crossing &&
+        Number.isFinite(crossing.lat) &&
+        Number.isFinite(crossing.lon)
+      ) {
+        layers.addLayer(
+          L.marker([crossing.lat, crossing.lon], {
+            icon: sfCrossingIcon(),
+            interactive: false,
+            keyboard: false,
+            zIndexOffset: 400,
+          }),
+        );
+        bounds.extend([crossing.lat, crossing.lon]);
+      }
+
+      if (trace.lapKind === "out" || trace.lapKind === "in") {
+        const mid = trace.points[Math.floor(trace.points.length / 2)];
+        if (mid) {
+          layers.addLayer(
+            L.marker([mid.lat, mid.lon], {
+              icon: lapKindIcon(trace.lapKind),
+              interactive: false,
+              keyboard: false,
+              zIndexOffset: 350,
+            }),
+          );
+        }
+      }
 
       for (const point of trace.points) {
         bounds.extend([point.lat, point.lon]);

@@ -28,6 +28,10 @@ import {
   mapMatchLap,
   type GpsDisplayMode,
 } from "@/lib/map-match";
+import {
+  lapKindsForSession,
+  resolveLapSfCrossing,
+} from "@/lib/lap-sf-boundary";
 import type { StartFinishLine } from "@/lib/start-finish-line";
 import {
   createSyncSuppress,
@@ -214,6 +218,30 @@ export function SyncedLapView({
       ),
     [matched, lap.telemetry, gpsMode, centerline],
   );
+  const mapLapMeta = useMemo(() => {
+    const qualityInputs = [
+      {
+        id: lap.id,
+        lap_number: lap.lap_number,
+        lap_time_ms: lap.lap_time_ms,
+        telemetry: lap.telemetry,
+      },
+      ...siblingLaps
+        .filter((s) => s.id !== lap.id)
+        .map((s) => ({
+          id: s.id,
+          lap_number: s.lap_number,
+          lap_time_ms: s.lap_time_ms,
+          telemetry: s.telemetry,
+        })),
+    ];
+    const kinds = lapKindsForSession(qualityInputs);
+    const kind = kinds.get(lap.lap_number) ?? "hot";
+    return {
+      lapKind: kind,
+      sfCrossing: resolveLapSfCrossing(data, kind, sfLine),
+    };
+  }, [lap, siblingLaps, data, sfLine]);
   const syncLaps = useMemo(
     () =>
       toSyncLaps(
@@ -603,6 +631,8 @@ export function SyncedLapView({
           color: "#f97316",
           points: data,
           colorBySpeed: true,
+          lapKind: mapLapMeta.lapKind,
+          sfCrossing: mapLapMeta.sfCrossing,
         },
       ]}
       activeProgress={clock.progress}
