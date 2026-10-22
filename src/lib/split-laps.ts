@@ -629,40 +629,56 @@ export function splitLapsByStartFinish(
   const candidates: GateCrossing[][] = [];
 
   if (sf) {
-    const heading =
-      storedHeadingRad ??
+    const estimated =
       (centerline ? headingFromCenterline(centerline, sf) : null) ??
       estimateHeadingNear(gps, sf) ??
       0;
-    candidates.push(
-      crossingsFromSfGate(gps, sf, heading, {
-        minLapMeters,
-        gateHalfWidthM,
-      }),
-    );
-  }
-
-  {
-    const start =
-      sf ??
-      ({
-        lat: moving[0].lat!,
-        lon: moving[0].lon!,
-      } as LatLon);
-    candidates.push(
-      crossingsFromLoopClosure(gps, start, {
-        minLapMeters,
-        closeMeters,
-      }),
-    );
-  }
-
-  if (centerline && centerline.length >= 8) {
-    const loopM = cumulativePath(centerline).at(-1) ?? 0;
-    if (loopM >= 800 && loopM <= 12_000) {
+    // Gate line orientation is fixed by endpoints; travel may be either
+    // direction along the track. Try stored heading and +180° so a flipped
+    // arrow (common on editable SF) still detects the driven crossings.
+    const headings =
+      storedHeadingRad != null
+        ? [storedHeadingRad, storedHeadingRad + Math.PI, estimated]
+        : [estimated];
+    const seen = new Set<string>();
+    for (const heading of headings) {
+      const key = ((heading % (2 * Math.PI)) + 2 * Math.PI).toFixed(3);
+      if (seen.has(key)) continue;
+      seen.add(key);
       candidates.push(
-        crossingsFromProgressWrap(gps, centerline, { minLapMeters }),
+        crossingsFromSfGate(gps, sf, heading, {
+          minLapMeters,
+          gateHalfWidthM,
+        }),
       );
+    }
+  }
+
+  // When the drawn/saved SF gate is locked, do not fall back to loop-closure
+  // or progress-wrap (those snap to nearest samples and drift off the line).
+  if (!sfLocked) {
+    {
+      const start =
+        sf ??
+        ({
+          lat: moving[0].lat!,
+          lon: moving[0].lon!,
+        } as LatLon);
+      candidates.push(
+        crossingsFromLoopClosure(gps, start, {
+          minLapMeters,
+          closeMeters,
+        }),
+      );
+    }
+
+    if (centerline && centerline.length >= 8) {
+      const loopM = cumulativePath(centerline).at(-1) ?? 0;
+      if (loopM >= 800 && loopM <= 12_000) {
+        candidates.push(
+          crossingsFromProgressWrap(gps, centerline, { minLapMeters }),
+        );
+      }
     }
   }
 

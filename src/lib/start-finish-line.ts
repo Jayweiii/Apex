@@ -79,22 +79,27 @@ export function parseStartFinishLine(raw: unknown): StartFinishLine | null {
   if (!raw || typeof raw !== "object") return null;
   const row = raw as Record<string, unknown>;
 
+  const headingRaw = row.headingDeg ?? row.heading;
+  const storedHeading =
+    typeof headingRaw === "number" && Number.isFinite(headingRaw)
+      ? ((headingRaw % 360) + 360) % 360
+      : undefined;
+
   const a = parsePoint(row.a);
   const b = parsePoint(row.b);
   if (a && b) {
     const mid = midpoint(a, b);
-    const headingDeg = headingFromGateEndpoints(a, b);
+    // Prefer persisted travel heading (e.g. 175° southbound on West).
+    // Endpoint geometry alone only recovers ±90° of the gate and can flip
+    // travel direction, which breaks forward-crossing detection.
+    const headingDeg = storedHeading ?? headingFromGateEndpoints(a, b);
     return { lat: mid.lat, lon: mid.lon, headingDeg, a, b };
   }
 
   const lat = Number(row.lat);
   const lon = Number(row.lon);
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-  const headingRaw = row.headingDeg ?? row.heading;
-  const headingDeg =
-    typeof headingRaw === "number" && Number.isFinite(headingRaw)
-      ? ((headingRaw % 360) + 360) % 360
-      : undefined;
+  const headingDeg = storedHeading;
   const line: StartFinishLine = { lat, lon };
   if (headingDeg != null) {
     line.headingDeg = headingDeg;

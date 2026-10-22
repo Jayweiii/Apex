@@ -57,25 +57,42 @@ const catalogOnly = resolveTrackStartFinish("custom-thunderhill-west");
 assert(catalogOnly, "catalog SF");
 assert(!catalogOnly.locked, "catalog SF is not locked");
 
+// Build repeated southbound hot-lap loops across the east-west gate at lat 39.53776.
 const longTrace: TelemetryPoint[] = [];
-for (let i = 0; i < 600; i += 1) {
-  const within = i % 100;
-  const goingSouth = within < 50;
-  const frac = goingSouth ? within / 50 : (within - 50) / 50;
-  const lat = goingSouth ? 39.539 - frac * 0.003 : 39.536 + frac * 0.003;
-  longTrace.push({
-    t: i * 0.2,
-    lat,
-    lon: -122.33875 + Math.sin(within / 10) * 0.00005,
-    speed: 90,
-  });
+let t = 0;
+for (let lap = 0; lap < 6; lap += 1) {
+  // Approach from north, cross SF, drive south loop, return north of SF for next.
+  for (let i = 0; i <= 80; i += 1) {
+    const frac = i / 80;
+    // Southbound: 39.539 → 39.536 across the gate.
+    const lat = 39.539 - frac * 0.003;
+    longTrace.push({
+      t,
+      lat,
+      lon: -122.33875,
+      speed: 100,
+    });
+    t += 0.25;
+  }
+  // Pit/return north of the line without counting as a forward crossing:
+  // go west then north then east (stays west of gate half-width? stay far).
+  for (let i = 0; i <= 40; i += 1) {
+    const frac = i / 40;
+    longTrace.push({
+      t,
+      lat: 39.536 + frac * 0.0035,
+      lon: -122.3395,
+      speed: 60,
+    });
+    t += 0.25;
+  }
 }
 const split = splitLapsByStartFinish(longTrace, {
   startFinish: splitRef,
-  minLapMeters: 200,
+  minLapMeters: 150,
   closeMeters: 60,
 });
-assert(split.length >= 2, `expected multiple laps, got ${split.length}`);
+assert(split.length >= 3, `expected multiple laps, got ${split.length}`);
 
 const hotBoundaries: Array<{ lap: number; which: string; dist: number }> = [];
 for (const lap of split) {
