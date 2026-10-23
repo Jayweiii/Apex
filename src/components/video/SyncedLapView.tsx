@@ -770,7 +770,7 @@ export function SyncedLapView({
       <div ref={rootRef} tabIndex={0} className="flex flex-col gap-3 outline-none">
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(220px,0.85fr)_minmax(0,1.35fr)] lg:items-start lg:gap-3">
           <aside className="flex flex-col gap-2">
-            <div className="min-h-[180px]">{mapBlock}</div>
+            <div className="min-h-[300px]">{mapBlock}</div>
             {sidebar ? (
               <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/40">
                 {sidebar}

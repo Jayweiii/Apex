@@ -1,6 +1,7 @@
 "use client";
 
 import { formatGap } from "@/lib/format";
+import { MAP_EMBED_HEIGHT_CLASS } from "@/lib/map-height";
 import {
   clampChaseZoom,
   POV_DEFAULT_ZOOM,
@@ -43,8 +44,10 @@ const MARKER_SHAPES = ["ring", "filled", "square", "diamond"] as const;
 
 const MAP_HEIGHT = {
   default: "h-[65vh] min-h-[320px] sm:min-h-[420px]",
+  /** Home / directory embeds — intentionally shorter. */
   compact: "h-[220px] min-h-[180px] sm:h-[280px]",
-  panel: "h-full min-h-[120px] min-h-0 flex-1",
+  /** Session + compare workspace — explicit vh/vw, never flex-collapse. */
+  panel: MAP_EMBED_HEIGHT_CLASS,
 } as const;
 
 function toGps(points: TelemetryPoint[]): GpsPoint[] {

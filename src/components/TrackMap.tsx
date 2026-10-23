@@ -201,7 +201,7 @@ export function TrackMap(props: MapProps) {
 
   if (useChase) {
     const shellClass = props.panel
-      ? "relative flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-zinc-800/80 bg-zinc-950/40 p-2"
+      ? "relative flex flex-col overflow-hidden rounded-xl border border-zinc-800/80 bg-zinc-950/40 p-2"
       : props.compact
         ? "relative overflow-hidden rounded-xl border border-zinc-800/80 bg-zinc-950/40 p-2"
         : "relative overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950/40 p-4";

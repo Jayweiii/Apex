@@ -2,6 +2,7 @@
 
 import { GpsModeToggle } from "@/components/GpsModeToggle";
 import { formatG, formatGap } from "@/lib/format";
+import { MAP_EMBED_HEIGHT_CLASS } from "@/lib/map-height";
 import type { GpsDisplayMode } from "@/lib/map-match";
 import {
   progressNearPoint,
@@ -199,9 +200,10 @@ function separateScrubPositions(
 
 const MAP_HEIGHT = {
   default: "h-[65vh] min-h-[320px] sm:min-h-[420px]",
+  /** Home / directory embeds — intentionally shorter. */
   compact: "h-[220px] min-h-[180px] sm:h-[280px]",
-  /** Fill a sized parent (prefer compact fixed heights for page scroll). */
-  panel: "h-full min-h-[120px]",
+  /** Session + compare workspace — explicit vh/vw, never flex-collapse. */
+  panel: MAP_EMBED_HEIGHT_CLASS,
 } as const;
 
 function sfHandleIcon(label: string) {
@@ -435,9 +437,21 @@ export function LeafletTrackMap({
       map.invalidateSize();
     };
     window.addEventListener("resize", onResize);
+    // Layout changes (POV toggle remount, tools, column reflow) need invalidateSize
+    // even when the window size is unchanged — same contract as MapLibre resize().
+    const ro =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(() => {
+            map.invalidateSize();
+          })
+        : null;
+    if (ro && containerRef.current) ro.observe(containerRef.current);
+    // First paint often happens before flex/grid settles.
+    requestAnimationFrame(() => map.invalidateSize());
 
     return () => {
       window.removeEventListener("resize", onResize);
+      ro?.disconnect();
       container.removeEventListener("mouseleave", onLeave);
       container.removeEventListener("touchstart", onTouchStart);
       container.removeEventListener("touchmove", onTouchMove);
@@ -780,9 +794,9 @@ export function LeafletTrackMap({
         }));
 
   const shellClass = embedded
-    ? "relative flex h-full min-h-0 flex-col"
+    ? "relative flex flex-col"
     : panel
-      ? "relative flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-zinc-800/80 bg-zinc-950/40 p-2"
+      ? "relative flex flex-col overflow-hidden rounded-xl border border-zinc-800/80 bg-zinc-950/40 p-2"
       : "relative overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950/40 p-4";
 
   return (
@@ -871,7 +885,7 @@ export function LeafletTrackMap({
         ref={containerRef}
         className={`${
           panel
-            ? `${MAP_HEIGHT.panel} min-h-0 flex-1`
+            ? MAP_HEIGHT.panel
             : compact
               ? MAP_HEIGHT.compact
               : MAP_HEIGHT.default

@@ -770,7 +770,7 @@ export function LapCompare({
           </div>
 
           <div className="grid grid-cols-1 gap-2 lg:grid-cols-[minmax(220px,0.85fr)_minmax(0,1.25fr)] lg:items-start">
-            <aside className="flex min-h-[180px] flex-col">
+            <aside className="flex min-h-[300px] flex-col">
               {showMap ? (
                 <TrackMap
                   traces={mapTraces}
@@ -790,7 +790,7 @@ export function LapCompare({
                   }
                   analysisDisabled={!hasAnalysisSnap}
                   defaultFollowId={ordered[0]?.lap.id}
-                  compact
+                  panel
                 />
               ) : (
                 <div className="flex items-center">
