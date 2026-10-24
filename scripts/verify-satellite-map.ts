@@ -14,6 +14,15 @@ const leaflet = readFileSync(
   resolve(root, "src/components/LeafletTrackMap.tsx"),
   "utf8",
 );
+const chase = readFileSync(
+  resolve(root, "src/components/ChaseTrackMap.tsx"),
+  "utf8",
+);
+const toggle = readFileSync(
+  resolve(root, "src/components/BasemapToggle.tsx"),
+  "utf8",
+);
+const prefs = readFileSync(resolve(root, "src/lib/basemap-prefs.ts"), "utf8");
 const pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8")) as {
   dependencies?: Record<string, string>;
   scripts?: Record<string, string>;
@@ -22,10 +31,18 @@ const pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8")) as {
 assert(pkg.dependencies?.leaflet, "leaflet dependency");
 assert(trackMap.includes('ssr: false'), "TrackMap dynamic import disables SSR");
 assert(trackMap.includes("LeafletTrackMap") || trackMap.includes("leaflet"), "dynamic Leaflet");
-assert(leaflet.includes("World_Imagery"), "Esri World Imagery tiles");
-assert(leaflet.includes("openstreetmap.org"), "OSM street basemap");
-assert(/Esri/i.test(leaflet), "Esri attribution");
-assert(leaflet.includes("satellite") && leaflet.includes("street"), "basemap toggle");
+assert(prefs.includes("World_Imagery"), "Esri World Imagery tiles");
+assert(prefs.includes("openstreetmap.org"), "OSM street basemap");
+assert(/Esri/i.test(prefs), "Esri attribution");
+assert(toggle.includes("Street") && toggle.includes("Satellite"), "basemap toggle labels");
+assert(toggle.includes("cursor-pointer"), "basemap toggle pointer cursor");
+assert(trackMap.includes("BasemapToggle") && trackMap.includes("basemapControl"), "POV shows basemap");
+assert(chase.includes("applyBasemapTiles"), "POV swaps tiles without setStyle");
+assert(
+  !/\.setStyle\s*\(/.test(chase),
+  "POV must not call map.setStyle (preserves camera)",
+);
+assert(leaflet.includes("BasemapToggle"), "overview/SF uses shared toggle");
 assert(leaflet.includes("colorBySpeed") || leaflet.includes("speedColor"), "speed coloring");
 assert(leaflet.includes("dragging: false"), "map pan disabled");
 assert(leaflet.includes("scrollWheelZoom: false"), "scroll zoom disabled");
@@ -62,6 +79,8 @@ console.log(
     ok: true,
     leaflet: pkg.dependencies?.leaflet,
     basemaps: ["satellite:esri-world-imagery", "street:osm"],
+    sharedToggle: true,
+    povBasemap: true,
     ssr: false,
     fixedMap: true,
     carMarkers: "divIcon-compact-ring-filled",

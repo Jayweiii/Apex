@@ -1,6 +1,14 @@
 "use client";
 
+import { BasemapToggle } from "@/components/BasemapToggle";
 import { GpsModeToggle } from "@/components/GpsModeToggle";
+import {
+  BASEMAP_PREFS_EVENT,
+  DEFAULT_BASEMAP,
+  readBasemapPrefs,
+  writeBasemapPrefs,
+  type BasemapMode,
+} from "@/lib/basemap-prefs";
 import { hasGps } from "@/lib/compare";
 import type { GpsDisplayMode } from "@/lib/map-match";
 import {
@@ -129,6 +137,7 @@ export function TrackMap(props: MapProps) {
   const [prefs, setPrefs] = useState<MapViewPrefs>(() => ({
     ...DEFAULT_MAP_VIEW_PREFS,
   }));
+  const [basemap, setBasemap] = useState<BasemapMode>(DEFAULT_BASEMAP);
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
@@ -139,13 +148,22 @@ export function TrackMap(props: MapProps) {
       props.traces[0]?.id ||
       "";
     setPrefs({ ...stored, followId });
+    setBasemap(readBasemapPrefs());
     setHydrated(true);
     function onExternal(event: Event) {
       const detail = (event as CustomEvent<MapViewPrefs>).detail;
       if (detail) setPrefs(detail);
     }
+    function onBasemapExternal(event: Event) {
+      const detail = (event as CustomEvent<BasemapMode>).detail;
+      if (detail === "street" || detail === "satellite") setBasemap(detail);
+    }
     window.addEventListener(MAP_VIEW_PREFS_EVENT, onExternal);
-    return () => window.removeEventListener(MAP_VIEW_PREFS_EVENT, onExternal);
+    window.addEventListener(BASEMAP_PREFS_EVENT, onBasemapExternal);
+    return () => {
+      window.removeEventListener(MAP_VIEW_PREFS_EVENT, onExternal);
+      window.removeEventListener(BASEMAP_PREFS_EVENT, onBasemapExternal);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -185,6 +203,11 @@ export function TrackMap(props: MapProps) {
     writeMapViewPrefs(next);
   }
 
+  function updateBasemap(next: BasemapMode) {
+    setBasemap(next);
+    writeBasemapPrefs(next);
+  }
+
   if (!hasDrawable) return null;
 
   const hideChrome = Boolean(props.hideCameraControls);
@@ -198,6 +221,14 @@ export function TrackMap(props: MapProps) {
     <PovToggle
       prefs={prefs}
       onChange={updatePrefs}
+      compact={compactChrome}
+    />
+  );
+
+  const basemapControl = hideChrome ? null : (
+    <BasemapToggle
+      value={basemap}
+      onChange={updateBasemap}
       compact={compactChrome}
     />
   );
@@ -237,6 +268,7 @@ export function TrackMap(props: MapProps) {
               disabled={props.analysisDisabled}
             />
           ) : null}
+          {basemapControl}
           {povControl}
         </div>
         <ChaseTrackMap
@@ -248,6 +280,7 @@ export function TrackMap(props: MapProps) {
           prefs={prefs}
           compact={props.compact}
           panel={props.panel}
+          basemap={basemap}
         />
       </div>
     );
@@ -259,6 +292,8 @@ export function TrackMap(props: MapProps) {
       compact={props.compact}
       panel={props.panel}
       headerSlot={povControl}
+      basemap={basemap}
+      onBasemapChange={hideChrome ? undefined : updateBasemap}
     />
   );
 }

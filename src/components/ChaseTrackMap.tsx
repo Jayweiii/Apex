@@ -1,5 +1,11 @@
 "use client";
 
+import {
+  DEFAULT_BASEMAP,
+  ESRI_IMAGERY,
+  OSM_STREET,
+  type BasemapMode,
+} from "@/lib/basemap-prefs";
 import { formatGap } from "@/lib/format";
 import { MAP_EMBED_HEIGHT_CLASS } from "@/lib/map-height";
 import {
@@ -34,9 +40,60 @@ export type ChaseTrace = {
   sfCrossing?: { lat: number; lon: number } | null;
 };
 
-/** Free Esri World Imagery — no API key. */
-const ESRI_TILES =
-  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
+const BASEMAP_SOURCE_ID = "basemap";
+const BASEMAP_LAYER_ID = "basemap";
+
+function basemapRaster(mode: BasemapMode) {
+  if (mode === "street") {
+    return {
+      tiles: [OSM_STREET.maplibreUrl],
+      attribution: OSM_STREET.attribution,
+    };
+  }
+  return {
+    tiles: [ESRI_IMAGERY.url],
+    attribution: ESRI_IMAGERY.attribution,
+  };
+}
+
+/**
+ * Swap only the raster basemap source/layer. Camera (center/zoom/bearing/pitch),
+ * GeoJSON lap lines, and HTML markers are left untouched — no setStyle().
+ */
+function applyBasemapTiles(map: MapLibreMap, mode: BasemapMode) {
+  const raster = basemapRaster(mode);
+  const center = map.getCenter();
+  const zoom = map.getZoom();
+  const bearing = map.getBearing();
+  const pitch = map.getPitch();
+
+  const beforeId = map
+    .getStyle()
+    .layers?.find((layer) => layer.id.startsWith("lap-line-"))?.id;
+
+  if (map.getLayer(BASEMAP_LAYER_ID)) map.removeLayer(BASEMAP_LAYER_ID);
+  if (map.getSource(BASEMAP_SOURCE_ID)) map.removeSource(BASEMAP_SOURCE_ID);
+
+  map.addSource(BASEMAP_SOURCE_ID, {
+    type: "raster",
+    tiles: raster.tiles,
+    tileSize: 256,
+    attribution: raster.attribution,
+  });
+  map.addLayer(
+    {
+      id: BASEMAP_LAYER_ID,
+      type: "raster",
+      source: BASEMAP_SOURCE_ID,
+      minzoom: 0,
+      maxzoom: 19,
+    },
+    beforeId,
+  );
+
+  // Re-assert chase camera after source churn (tiles async; camera sync).
+  map.jumpTo({ center, zoom, bearing, pitch });
+}
 
 export { POV_DEFAULT_ZOOM, POV_PITCH_DEG };
 
@@ -102,7 +159,7 @@ function lapKindHtml(kind: "out" | "in") {
 }
 
 /**
- * POV / third-person chase camera (MapLibre + free Esri raster).
+ * POV / third-person chase camera (MapLibre + free Esri/OSM raster).
  * Centers on follow lap, pitch ~60°, bearing = smoothed travel heading.
  */
 export function ChaseTrackMap({
@@ -115,6 +172,7 @@ export function ChaseTrackMap({
   pitch = POV_PITCH_DEG,
   compact = false,
   panel = false,
+  basemap = DEFAULT_BASEMAP,
 }: {
   traces: ChaseTrace[];
   activeProgress?: number | null;
@@ -126,6 +184,8 @@ export function ChaseTrackMap({
   pitch?: number;
   compact?: boolean;
   panel?: boolean;
+  /** Shared Street | Satellite selection (persists across Overview/POV). */
+  basemap?: BasemapMode;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -147,27 +207,27 @@ export function ChaseTrackMap({
   const drawableRef = useRef(drawable);
   drawableRef.current = drawable;
 
-  // Create map once.
+  // Create map once (initial basemap; later swaps via applyBasemapTiles).
   useEffect(() => {
     if (!hostRef.current || mapRef.current) return;
+    const initial = basemapRaster(basemap);
     const map = new maplibregl.Map({
       container: hostRef.current,
       style: {
         version: 8,
         sources: {
-          esri: {
+          [BASEMAP_SOURCE_ID]: {
             type: "raster",
-            tiles: [ESRI_TILES],
+            tiles: initial.tiles,
             tileSize: 256,
-            attribution:
-              'Tiles © <a href="https://www.esri.com/">Esri</a>',
+            attribution: initial.attribution,
           },
         },
         layers: [
           {
-            id: "esri",
+            id: BASEMAP_LAYER_ID,
             type: "raster",
-            source: "esri",
+            source: BASEMAP_SOURCE_ID,
             minzoom: 0,
             maxzoom: 19,
           },
@@ -260,6 +320,25 @@ export function ChaseTrackMap({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- create once
   }, []);
+
+  // Swap Street ↔ Satellite without setStyle (keeps chase camera + lap layers).
+  const appliedBasemapRef = useRef<BasemapMode | null>(null);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    // Initial style already has the correct tiles; skip no-op remount churn.
+    if (appliedBasemapRef.current == null) {
+      appliedBasemapRef.current = basemap;
+      return;
+    }
+    if (appliedBasemapRef.current === basemap) return;
+    const swap = () => {
+      applyBasemapTiles(map, basemap);
+      appliedBasemapRef.current = basemap;
+    };
+    if (map.isStyleLoaded()) swap();
+    else map.once("load", swap);
+  }, [basemap]);
 
   // SF crossing + out/in tags (additive; north-up + POV).
   useEffect(() => {

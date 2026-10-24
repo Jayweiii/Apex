@@ -1,7 +1,14 @@
 "use client";
 
+import { BasemapToggle } from "@/components/BasemapToggle";
 import { GpsModeToggle } from "@/components/GpsModeToggle";
 import { useSpeedUnit } from "@/components/useSpeedUnit";
+import {
+  DEFAULT_BASEMAP,
+  ESRI_IMAGERY,
+  OSM_STREET,
+  type BasemapMode,
+} from "@/lib/basemap-prefs";
 import { formatG, formatGap, formatSpeed } from "@/lib/format";
 import { MAP_EMBED_HEIGHT_CLASS } from "@/lib/map-height";
 import type { GpsDisplayMode } from "@/lib/map-match";
@@ -31,19 +38,7 @@ export type TrackTrace = {
   sfCrossing?: { lat: number; lon: number } | null;
 };
 
-export type BasemapMode = "satellite" | "street";
-
-const ESRI_IMAGERY = {
-  url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-  attribution:
-    'Tiles &copy; <a href="https://www.esri.com/">Esri</a> — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community',
-};
-
-const OSM_STREET = {
-  url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-  attribution:
-    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-};
+export type { BasemapMode };
 
 function speedColor(speed: number, min: number, max: number) {
   const t = max <= min ? 1 : Math.min(1, Math.max(0, (speed - min) / (max - min)));
@@ -254,6 +249,8 @@ export function LeafletTrackMap({
   sfLine = null,
   sfEditing = false,
   onSfEndpointMove,
+  basemap = DEFAULT_BASEMAP,
+  onBasemapChange,
 }: {
   traces: TrackTrace[];
   activeProgress?: number | null;
@@ -279,6 +276,9 @@ export function LeafletTrackMap({
   /** When true, A/B endpoints are draggable (touch + pointer). */
   sfEditing?: boolean;
   onSfEndpointMove?: (which: "a" | "b", lat: number, lon: number) => void;
+  /** Shared Street | Satellite selection (persists across Overview/POV). */
+  basemap?: BasemapMode;
+  onBasemapChange?: (mode: BasemapMode) => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -292,11 +292,13 @@ export function LeafletTrackMap({
   const sfEditingRef = useRef(sfEditing);
   const drawableRef = useRef<Array<TrackTrace & { points: GpsPoint[] }>>([]);
   const fittedKeyRef = useRef<string>("");
-  const [basemap, setBasemap] = useState<BasemapMode>("satellite");
+  const [localBasemap, setLocalBasemap] = useState<BasemapMode>(basemap);
   const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(
     null,
   );
   const [speedUnit] = useSpeedUnit();
+  const activeBasemap = onBasemapChange ? basemap : localBasemap;
+  const setActiveBasemap = onBasemapChange ?? setLocalBasemap;
 
   onProgressRef.current = onProgress;
   onPreviewProgressRef.current = onPreviewProgress;
@@ -588,12 +590,12 @@ export function LeafletTrackMap({
       map.removeLayer(tileRef.current);
       tileRef.current = null;
     }
-    const source = basemap === "satellite" ? ESRI_IMAGERY : OSM_STREET;
+    const source = activeBasemap === "satellite" ? ESRI_IMAGERY : OSM_STREET;
     tileRef.current = L.tileLayer(source.url, {
       attribution: source.attribution,
       maxZoom: 19,
     }).addTo(map);
-  }, [basemap]);
+  }, [activeBasemap]);
 
   // Draw traces + centerline only when geometry identity changes.
   useEffect(() => {
@@ -832,29 +834,11 @@ export function LeafletTrackMap({
               disabled={analysisDisabled}
             />
           ) : null}
-          <div
-            className="inline-flex rounded-lg border border-zinc-800 bg-zinc-950/80 p-0.5 text-xs"
-            role="group"
-            aria-label="Basemap"
-          >
-            {(["satellite", "street"] as const).map((value) => {
-              const active = basemap === value;
-              return (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => setBasemap(value)}
-                  className={`rounded-md px-2.5 py-1 capitalize transition ${
-                    active
-                      ? "bg-zinc-100 text-zinc-950"
-                      : "text-zinc-400 hover:text-zinc-200"
-                  }`}
-                >
-                  {value}
-                </button>
-              );
-            })}
-          </div>
+          <BasemapToggle
+            value={activeBasemap}
+            onChange={setActiveBasemap}
+            compact={compact || panel}
+          />
         </div>
         {showLegend ? (
           <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-400">

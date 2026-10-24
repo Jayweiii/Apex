@@ -2,6 +2,11 @@
  * POV / chase map: bearing calculation + prefs.
  */
 import {
+  DEFAULT_BASEMAP,
+  readBasemapPrefs,
+  writeBasemapPrefs,
+} from "../src/lib/basemap-prefs";
+import {
   clampChaseZoom,
   DEFAULT_MAP_VIEW_PREFS,
   MAP_VIEW_PREFS_KEY,
@@ -10,6 +15,8 @@ import {
   readMapViewPrefs,
   writeMapViewPrefs,
 } from "../src/lib/map-view-prefs";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   bearingAtProgress,
   bearingDeg,
@@ -100,10 +107,31 @@ const prefs = readMapViewPrefs();
 assert(prefs.mode === "overview", "read default mode");
 writeMapViewPrefs({ mode: "chase", followId: "lap-1", chaseZoom: 18 });
 
+assert(DEFAULT_BASEMAP === "satellite", "default basemap satellite");
+assert(
+  readBasemapPrefs() === "satellite" || readBasemapPrefs() === "street",
+  "basemap readable",
+);
+// Node has no window — prefs helpers no-op safely (same as map-view-prefs).
+writeBasemapPrefs("street");
+writeBasemapPrefs("satellite");
+
+const chaseSrc = readFileSync(
+  resolve(import.meta.dirname, "../src/components/ChaseTrackMap.tsx"),
+  "utf8",
+);
+assert(chaseSrc.includes("applyBasemapTiles"), "chase basemap swap helper");
+assert(
+  !/\.setStyle\s*\(/.test(chaseSrc),
+  "no map.setStyle on chase basemap swap",
+);
+assert(chaseSrc.includes("jumpTo"), "chase reasserts camera after swap");
+
 console.log("verify-chase-map ok", {
   b0: Math.round(b0),
   bMid: Math.round(bMid),
   smoothed: Math.round(smoothed!),
   pitch: POV_PITCH_DEG,
   zoom: clampChaseZoom(POV_DEFAULT_ZOOM),
+  basemap: readBasemapPrefs(),
 });
