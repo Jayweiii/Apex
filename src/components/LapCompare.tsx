@@ -445,15 +445,16 @@ export function LapCompare({
   const speedSeries = useMemo(
     () =>
       series.map((row) => {
-        const next: Record<string, number> = { ...row };
+        const next: MultiComparedPoint = { ...row };
+        const speeds = next as MultiComparedPoint & Record<string, number>;
         for (let i = 0; i < ordered.length; i += 1) {
           const key = `speed${i}`;
-          const raw = row[key as keyof MultiComparedPoint];
+          const raw = speeds[key];
           if (typeof raw === "number") {
-            next[key] = kmhToDisplay(raw, speedUnit);
+            speeds[key] = kmhToDisplay(raw, speedUnit);
           }
         }
-        return next as MultiComparedPoint;
+        return next;
       }),
     [series, ordered.length, speedUnit],
   );
