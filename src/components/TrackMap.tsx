@@ -188,7 +188,10 @@ export function TrackMap(props: MapProps) {
   if (!hasDrawable) return null;
 
   const hideChrome = Boolean(props.hideCameraControls);
-  const useChase = !hideChrome && prefs.mode === "chase";
+  // SF gate handles only exist on Leaflet overview — keep overview while editing
+  // without rewriting stored POV prefs (Cancel restores chase).
+  const useChase =
+    !hideChrome && prefs.mode === "chase" && !props.sfEditing;
   const compactChrome = Boolean(props.compact || props.panel);
 
   const povControl = hideChrome ? null : (

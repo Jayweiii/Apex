@@ -1,7 +1,8 @@
 "use client";
 
 import { GpsModeToggle } from "@/components/GpsModeToggle";
-import { formatG, formatGap } from "@/lib/format";
+import { useSpeedUnit } from "@/components/useSpeedUnit";
+import { formatG, formatGap, formatSpeed } from "@/lib/format";
 import { MAP_EMBED_HEIGHT_CLASS } from "@/lib/map-height";
 import type { GpsDisplayMode } from "@/lib/map-match";
 import {
@@ -295,6 +296,7 @@ export function LeafletTrackMap({
   const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(
     null,
   );
+  const [speedUnit] = useSpeedUnit();
 
   onProgressRef.current = onProgress;
   onPreviewProgressRef.current = onPreviewProgress;
@@ -445,7 +447,9 @@ export function LeafletTrackMap({
             map.invalidateSize();
           })
         : null;
-    if (ro && containerRef.current) ro.observe(containerRef.current);
+    // Observe the wrapper (parent) so height class changes still resize.
+    const observeEl = containerRef.current.parentElement ?? containerRef.current;
+    if (ro && observeEl) ro.observe(observeEl);
     // First paint often happens before flex/grid settles.
     requestAnimationFrame(() => map.invalidateSize());
 
@@ -881,8 +885,13 @@ export function LeafletTrackMap({
         ) : null}
       </div>
       {headerSlot}
+      {/*
+        Height / touch / handle chrome live on a WRAPPER. Leaflet mounts on a
+        stable inner node — React must never rewrite that node's className when
+        sfEditing toggles, or it wipes Leaflet's `leaflet-container` classes and
+        the map paints black (lost tiles).
+      */}
       <div
-        ref={containerRef}
         className={`${
           panel
             ? MAP_HEIGHT.panel
@@ -890,9 +899,14 @@ export function LeafletTrackMap({
               ? MAP_HEIGHT.compact
               : MAP_HEIGHT.default
         } w-full ${sfEditing ? "touch-manipulation" : "touch-none"} overflow-hidden rounded-xl [&_.apex-sf-handle]:bg-transparent [&_.apex-sf-handle__btn]:flex [&_.apex-sf-handle__btn]:h-7 [&_.apex-sf-handle__btn]:w-7 [&_.apex-sf-handle__btn]:cursor-pointer [&_.apex-sf-handle__btn]:items-center [&_.apex-sf-handle__btn]:justify-center [&_.apex-sf-handle__btn]:rounded-full [&_.apex-sf-handle__btn]:border-2 [&_.apex-sf-handle__btn]:border-orange-400 [&_.apex-sf-handle__btn]:bg-zinc-950 [&_.apex-sf-handle__btn]:text-[10px] [&_.apex-sf-handle__btn]:font-bold [&_.apex-sf-handle__btn]:text-orange-300 [&_.apex-sf-handle__btn]:shadow-md [&_.leaflet-control-attribution]:bg-zinc-950/80 [&_.leaflet-control-attribution]:text-[10px] [&_.leaflet-control-attribution]:text-zinc-400 ${sfEditing ? "[&_.leaflet-container]:cursor-pointer" : "[&_.leaflet-container]:cursor-crosshair"}`}
-        data-apex-map="fixed-scrub"
         data-apex-sf-editing={sfEditing ? "1" : "0"}
-      />
+      >
+        <div
+          ref={containerRef}
+          className="h-full w-full"
+          data-apex-map="fixed-scrub"
+        />
+      </div>
       {tooltipMarkers.length ? (
         <div
           className="pointer-events-none absolute z-[500] min-w-36 rounded-xl border border-zinc-800 bg-zinc-950/95 px-3 py-2 text-xs text-zinc-100 shadow-lg"
@@ -924,7 +938,7 @@ export function LeafletTrackMap({
               ) : (
                 <p className="text-zinc-500">{marker.point.t.toFixed(1)}s</p>
               )}
-              <p>{marker.point.speed.toFixed(0)} km/h</p>
+              <p>{formatSpeed(marker.point.speed, speedUnit)}</p>
               <p>{formatG(marker.point.g ?? 0)}</p>
             </div>
           ))}

@@ -85,6 +85,21 @@ assert(
   `speed chart height floor ${STACKED_SPEED_MIN_HEIGHT}`,
 );
 
+// Leaflet SF editor: dynamic classes must not sit on the map mount node.
+const leafletSrc = require("node:fs").readFileSync(
+  require("node:path").join(__dirname, "../src/components/LeafletTrackMap.tsx"),
+  "utf8",
+);
+assert(
+  leafletSrc.includes('className="h-full w-full"') &&
+    leafletSrc.includes("data-apex-map=\"fixed-scrub\""),
+  "SF map mount node is stable (avoids black tiles on edit)",
+);
+assert(
+  leafletSrc.includes("sfEditing") && leafletSrc.includes("apex-sf-handle"),
+  "SF handles still wired",
+);
+
 assert(
   nudged.locked === true,
   "stored start_finish marks SF locked for split",

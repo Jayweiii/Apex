@@ -4,8 +4,9 @@ import { ExcludeFromBestControl } from "@/components/ExcludeFromBestControl";
 import type { LapExcludeChange } from "@/components/LapList";
 import { LapTrimControls } from "@/components/LapTrimControls";
 import type { SessionToolTab } from "@/components/SessionToolsPanel";
+import { useSpeedUnit } from "@/components/useSpeedUnit";
 import { SyncedLapView } from "@/components/video/SyncedLapView";
-import { formatLapTime } from "@/lib/format";
+import { formatLapTime, formatSpeed } from "@/lib/format";
 import {
   applyLapTrimWithSession,
   buildTrimChartContext,
@@ -104,6 +105,8 @@ export function SessionLapDetail({
     }),
     [lap],
   );
+
+  const [speedUnit] = useSpeedUnit();
 
   const siblingTrimables = useMemo(
     () =>
@@ -365,7 +368,9 @@ export function SessionLapDetail({
             workspace ? "text-xs" : "gap-3 text-sm"
           }`}
         >
-          <span>Peak {peak.toFixed(0)} km/h</span>
+          <span data-apex-peak-speed="1">
+            Peak {formatSpeed(peak, speedUnit)}
+          </span>
           {deltaSec == null ? null : deltaSec !== 0 ? (
             <span className="font-mono">
               Δ best {deltaSec > 0 ? "+" : ""}

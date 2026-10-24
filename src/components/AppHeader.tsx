@@ -1,5 +1,6 @@
 "use client";
 
+import { SpeedUnitToggle } from "@/components/SpeedUnitToggle";
 import { isAnonymousUser } from "@/lib/guest-auth";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
 import Link from "next/link";
@@ -98,6 +99,7 @@ export function AppHeader({ email }: { email?: string }) {
           </nav>
         </div>
         <div className="flex items-center gap-2 sm:gap-3">
+          <SpeedUnitToggle />
           {signedIn ? (
             <>
               <Link

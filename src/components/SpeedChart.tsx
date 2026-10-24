@@ -4,10 +4,12 @@ import { hoverIndex, isSeekPointer } from "@/components/chart-hover";
 import { bindChartScrub } from "@/components/chart-scrub";
 import { HoverCursorLine, useHoverCursor } from "@/components/HoverCursor";
 import { type PlotPad } from "@/components/hover-cursor";
+import { useSpeedUnit } from "@/components/useSpeedUnit";
 import {
   STACKED_SPEED_MIN_HEIGHT,
   STACKED_SPEED_MIN_HEIGHT_SM,
 } from "@/lib/chart-height-contract";
+import { formatSpeed, kmhToDisplay, speedUnitSuffix } from "@/lib/format";
 import { chartTAtClientX } from "@/lib/lap-trim";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -90,6 +92,7 @@ export function SpeedChart({
   /** Grow to fill flex parent (speed hero ~40% of stacked panel). */
   fill?: boolean;
 }) {
+  const [speedUnit] = useSpeedUnit();
   const active = activeIndex != null ? points[activeIndex] : null;
   const hoverCursor = useHoverCursor();
   const scrub = bindChartScrub(points.length, {
@@ -100,7 +103,20 @@ export function SpeedChart({
   });
   const [dragging, setDragging] = useState<"start" | "end" | null>(null);
   const chartWrapRef = useRef<HTMLDivElement | null>(null);
-  const domain = useMemo(() => speedAxisDomain(points), [points]);
+  const displayPoints = useMemo(
+    () =>
+      points.map((point) => ({
+        ...point,
+        speed: kmhToDisplay(point.speed, speedUnit),
+        speedInTrim:
+          point.speedInTrim == null
+            ? point.speedInTrim
+            : kmhToDisplay(point.speedInTrim, speedUnit),
+      })),
+    [points, speedUnit],
+  );
+  const domain = useMemo(() => speedAxisDomain(displayPoints), [displayPoints]);
+  const unitLabel = speedUnitSuffix(speedUnit);
 
   const driveHover = useCallback(
     (clientX: number) => {
@@ -193,8 +209,8 @@ export function SpeedChart({
         <p className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">
           Speed
         </p>
-        <p className="font-mono text-[10px] text-zinc-400">
-          {active ? `${active.speed.toFixed(0)} km/h` : "km/h"}
+        <p className="font-mono text-[10px] text-zinc-400" data-apex-speed-unit-label={speedUnit}>
+          {active ? formatSpeed(active.speed, speedUnit) : unitLabel}
           {trimMarkers && onTrimBoundaryDrag ? (
             <span className="ml-2 text-zinc-600">· drag trim</span>
           ) : null}
@@ -219,7 +235,7 @@ export function SpeedChart({
       >
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart
-            data={points}
+            data={displayPoints}
             syncId={syncId}
             margin={{ top: 8, right: 8, left: 0, bottom: 4 }}
             onMouseMove={(state) => {
@@ -263,7 +279,10 @@ export function SpeedChart({
             <Tooltip
               cursor={false}
               contentStyle={tooltipStyle}
-              formatter={(value) => [`${Number(value).toFixed(1)} km/h`, "Speed"]}
+              formatter={(value) => [
+                `${Number(value).toFixed(1)} ${unitLabel}`,
+                "Speed",
+              ]}
               labelFormatter={(label) => `${Number(label).toFixed(1)}s`}
             />
             {hasPad && trimMarkers ? (

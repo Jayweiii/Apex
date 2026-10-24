@@ -34,3 +34,11 @@ export function formatKmh(kmh: number): string {
   if (!Number.isFinite(kmh)) return "—";
   return `${kmh.toFixed(0)} km/h`;
 }
+
+export {
+  formatSpeed,
+  kmhToDisplay,
+  speedUnitSuffix,
+  type SpeedUnit,
+} from "@/lib/speed-units";
+

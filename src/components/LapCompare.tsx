@@ -27,7 +27,14 @@ import {
   type ComparisonDraftSnapshot,
 } from "@/lib/comparisons";
 import { lapAsSyncLap } from "@/lib/dual-video-sync";
-import { formatG, formatGap, formatLapTime } from "@/lib/format";
+import { useSpeedUnit } from "@/components/useSpeedUnit";
+import {
+  formatG,
+  formatGap,
+  formatLapTime,
+  kmhToDisplay,
+  speedUnitSuffix,
+} from "@/lib/format";
 import { enrichTelemetry } from "@/lib/gforce";
 import {
   analysisPoints,
@@ -411,6 +418,9 @@ export function LapCompare({
     }
   }, [initialAnalysisMode, setAnalysisMode]);
 
+  const [speedUnit] = useSpeedUnit();
+  const speedUnitLabel = speedUnitSuffix(speedUnit);
+
   const series: MultiComparedPoint[] = useMemo(() => {
     if (ordered.length < 2 || sameLap) return [];
     const ref = ordered[0];
@@ -430,6 +440,23 @@ export function LapCompare({
       ),
     );
   }, [ordered, sameLap, matchedByLapId, analysisMode]);
+
+  /** Speed channels converted for the preferred unit (telemetry stays km/h). */
+  const speedSeries = useMemo(
+    () =>
+      series.map((row) => {
+        const next: Record<string, number> = { ...row };
+        for (let i = 0; i < ordered.length; i += 1) {
+          const key = `speed${i}`;
+          const raw = row[key as keyof MultiComparedPoint];
+          if (typeof raw === "number") {
+            next[key] = kmhToDisplay(raw, speedUnit);
+          }
+        }
+        return next as MultiComparedPoint;
+      }),
+    [series, ordered.length, speedUnit],
+  );
 
   const stackedChannels = useMemo(
     () => compareChannelsForSeries(series, ordered.length),
@@ -828,7 +855,7 @@ export function LapCompare({
                 >
                   <ResponsiveContainer width="100%" height="100%" minHeight={120}>
                     <LineChart
-                      data={series}
+                      data={speedSeries}
                       syncId="compare"
                       margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
                       onMouseMove={onChartMouseMove}
@@ -842,8 +869,15 @@ export function LapCompare({
                         stroke="#71717a"
                         fontSize={11}
                       />
-                      <YAxis stroke="#71717a" fontSize={11} unit=" km/h" width={48} />
-                      <Tooltip content={<CompareTooltip />} />
+                      <YAxis
+                        stroke="#71717a"
+                        fontSize={11}
+                        unit={` ${speedUnitLabel}`}
+                        width={48}
+                      />
+                      <Tooltip
+                        content={<CompareTooltip mode="speed" speedUnit={speedUnit} />}
+                      />
                       <Legend />
                       {hoverAt != null ? (
                         <ReferenceLine
@@ -1325,13 +1359,17 @@ function CompareTooltip({
   payload,
   label,
   mode = "speed",
+  speedUnit = "mph",
 }: {
   active?: boolean;
   payload?: { name?: string; value?: number; color?: string }[];
   label?: number;
   mode?: "speed" | "delta" | "g";
+  /** When mode=speed, values are already converted to this unit. */
+  speedUnit?: "mph" | "kmh";
 }) {
   if (!active || !payload?.length) return null;
+  const unit = speedUnitSuffix(speedUnit);
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-zinc-100">
       <p className="mb-1 text-zinc-500">{formatDistance(Number(label))}</p>
@@ -1342,7 +1380,7 @@ function CompareTooltip({
             ? formatGap(Number(item.value))
             : mode === "g"
               ? formatG(Number(item.value))
-              : `${Number(item.value).toFixed(0)} km/h`}
+              : `${Number(item.value).toFixed(0)} ${unit}`}
         </p>
       ))}
     </div>

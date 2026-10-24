@@ -15,12 +15,8 @@ import type { VideoPlayerHandle } from "@/components/video/useVideoSync";
 import { useAnalysisMode } from "@/lib/analysis-mode";
 import { resolveTrackCenterline } from "@/lib/cloud-tracks";
 import { hasGps } from "@/lib/compare";
-import {
-  formatGap,
-  formatKmh,
-  formatLapTime,
-  formatMph,
-} from "@/lib/format";
+import { useSpeedUnit } from "@/components/useSpeedUnit";
+import { formatGap, formatLapTime, formatSpeed } from "@/lib/format";
 import { enrichTelemetry } from "@/lib/gforce";
 import {
   analysisPoints,
@@ -515,14 +511,15 @@ export function SyncedLapView({
   // Playback solid cursor only — hover dashed line is DOM/rAF (ignores
   // clock/video timeupdate while the pointer is over the chart stack).
   const playbackIndex = indexFromLapProgress(clock.progress);
+  const [speedUnit] = useSpeedUnit();
   const formatCursorReadout = useCallback(
     (index: number | null) => {
       if (index == null) return "";
       const point = chartData[index];
       if (!point) return "";
-      return `${formatMph(point.speed)} · ${formatKmh(point.speed)}`;
+      return formatSpeed(point.speed, speedUnit);
     },
-    [chartData],
+    [chartData, speedUnit],
   );
   const deltaVsBest =
     bestLapMs != null ? (lap.lap_time_ms - bestLapMs) / 1000 : null;

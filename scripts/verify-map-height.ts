@@ -1,11 +1,13 @@
 /**
  * Map embed height contracts: session/compare maps must stay readable
- * (≥300px) at desktop and mobile viewports — never collapse under flex/min-h-0.
+ * (mobile ~360–400px, desktop ~550–600px) — never collapse under flex/min-h-0.
  */
 import fs from "node:fs";
 import path from "node:path";
 import {
   MAP_EMBED_HEIGHT_CLASS,
+  MAP_HEIGHT_DESKTOP_MAX_PX,
+  MAP_HEIGHT_DESKTOP_MIN_PX,
   MAP_HEIGHT_MIN_PX,
   mapEmbedHeightPx,
 } from "../src/lib/map-height";
@@ -17,34 +19,43 @@ function assert(condition: unknown, message: string): asserts condition {
 const root = path.resolve(__dirname, "..");
 const read = (rel: string) => fs.readFileSync(path.join(root, rel), "utf8");
 
-// --- Viewport math (≥300px floor) ---
+// --- Viewport math ---
 const desktop = mapEmbedHeightPx({ width: 1280, height: 800 });
 const laptop = mapEmbedHeightPx({ width: 1440, height: 900 });
 const iphone = mapEmbedHeightPx({ width: 390, height: 844 });
 const iphoneLandscape = mapEmbedHeightPx({ width: 844, height: 390 });
 
-assert(desktop >= MAP_HEIGHT_MIN_PX, `desktop map height ${desktop} < 300`);
-assert(laptop >= MAP_HEIGHT_MIN_PX, `laptop map height ${laptop} < 300`);
-assert(iphone >= MAP_HEIGHT_MIN_PX, `iPhone map height ${iphone} < 300`);
+assert(desktop >= MAP_HEIGHT_MIN_PX, `desktop map height ${desktop} < ${MAP_HEIGHT_MIN_PX}`);
+assert(laptop >= MAP_HEIGHT_MIN_PX, `laptop map height ${laptop} < ${MAP_HEIGHT_MIN_PX}`);
+assert(iphone >= MAP_HEIGHT_MIN_PX, `iPhone map height ${iphone} < ${MAP_HEIGHT_MIN_PX}`);
 assert(
   iphoneLandscape >= MAP_HEIGHT_MIN_PX,
-  `iPhone landscape map height ${iphoneLandscape} < 300`,
+  `iPhone landscape map height ${iphoneLandscape} < ${MAP_HEIGHT_MIN_PX}`,
 );
 
-// Laptop band ~45–55vh → 50vh of 800 = 400
-assert(desktop === 400, `desktop expected 50vh=400, got ${desktop}`);
-// iPhone portrait: 55vw of 390 ≈ 214.5 → floored to 300
-assert(iphone === 300, `iPhone expected min 300, got ${iphone}`);
+assert(
+  laptop >= MAP_HEIGHT_DESKTOP_MIN_PX && laptop <= MAP_HEIGHT_DESKTOP_MAX_PX,
+  `laptop expected 550–600, got ${laptop}`,
+);
+assert(
+  desktop >= MAP_HEIGHT_DESKTOP_MIN_PX && desktop <= MAP_HEIGHT_DESKTOP_MAX_PX,
+  `desktop expected 550–600, got ${desktop}`,
+);
+assert(
+  iphone >= 360 && iphone <= 400,
+  `iPhone expected 360–400, got ${iphone}`,
+);
 
 // --- Source wiring ---
 assert(
-  MAP_EMBED_HEIGHT_CLASS.includes("min-h-[300px]"),
-  "embed class has min-h-[300px]",
+  MAP_EMBED_HEIGHT_CLASS.includes("min-h-[360px]"),
+  "embed class has min-h-[360px]",
 );
 assert(
-  MAP_EMBED_HEIGHT_CLASS.includes("55vw") &&
-    MAP_EMBED_HEIGHT_CLASS.includes("sm:h-[50vh]"),
-  "embed class uses ~55vw mobile / ~50vh desktop",
+  MAP_EMBED_HEIGHT_CLASS.includes("380px") &&
+    MAP_EMBED_HEIGHT_CLASS.includes("sm:h-[min(60vh,600px)]") &&
+    MAP_EMBED_HEIGHT_CLASS.includes("sm:min-h-[550px]"),
+  "embed class uses ~380px mobile / ~60vh desktop clamped 550–600",
 );
 
 const leaflet = read("src/components/LeafletTrackMap.tsx");
@@ -87,8 +98,8 @@ assert(
   !trackMap.includes("h-full min-h-0 flex-col"),
   "TrackMap POV shell no longer relies on parent height",
 );
-assert(synced.includes("min-h-[300px]"), "session workspace map floor 300px");
-assert(compare.includes("min-h-[300px]"), "compare map column floor 300px");
+assert(synced.includes("min-h-[300px]") || synced.includes("min-h-[360px]"), "session workspace map floor");
+assert(compare.includes("min-h-[300px]") || compare.includes("min-h-[360px]"), "compare map column floor");
 assert(
   synced.includes("panel={workspace}") && synced.includes("compact={workspace}"),
   "session workspace still uses panel+compact map",
@@ -96,6 +107,19 @@ assert(
 assert(
   trackMap.includes("Overview") && trackMap.includes("POV"),
   "Overview|POV toggle still present",
+);
+
+// Leaflet mount node must be stable — dynamic sfEditing classes on a WRAPPER only.
+assert(
+  leaflet.includes("wipes Leaflet") ||
+    leaflet.includes("stable inner node"),
+  "Leaflet documents className wipe / black-map fix",
+);
+assert(
+  /data-apex-map="fixed-scrub"[\s\S]*?className="h-full w-full"|className="h-full w-full"[\s\S]*?data-apex-map="fixed-scrub"/.test(
+    leaflet,
+  ),
+  "Leaflet map mount uses stable h-full w-full inner node",
 );
 
 // Page scroll — no nested overflow trap on session/compare shells
@@ -116,5 +140,6 @@ console.log(
       iphoneLandscape844x390: iphoneLandscape,
     },
     minPx: MAP_HEIGHT_MIN_PX,
+    desktopBand: [MAP_HEIGHT_DESKTOP_MIN_PX, MAP_HEIGHT_DESKTOP_MAX_PX],
   }),
 );
