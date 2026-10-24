@@ -2,7 +2,9 @@ import {
   defaultComparisonTitle,
   normalizeComparisonItems,
   parseComparisonRow,
+  remapComparisonItemsByLapNumber,
   type ComparisonDraft,
+  type ComparisonItem,
   type ComparisonRow,
 } from "@/lib/comparisons";
 import type { SessionVisibility } from "@/lib/visibility";
@@ -160,4 +162,55 @@ export async function deleteComparison(
 ): Promise<void> {
   const { error } = await client.from("comparisons").delete().eq("id", id);
   if (error) throw new Error(error.message);
+}
+
+/**
+ * After re-parse recreates lap UUIDs, rewrite the caller's saved comparisons
+ * that reference this session (RLS only allows updating own rows).
+ */
+export async function remapOwnComparisonsForSessionReparse(
+  client: SupabaseLike,
+  userId: string,
+  sessionId: string,
+  previousLapIdToNumber: Map<string, number>,
+  nextLapNumberToId: Map<number, string>,
+): Promise<number> {
+  const { data, error } = await client
+    .from("comparisons")
+    .select("id, items")
+    .eq("user_id", userId)
+    .limit(200);
+  if (error) {
+    if (
+      /relation .*comparisons.* does not exist|Could not find the table/i.test(
+        error.message,
+      )
+    ) {
+      return 0;
+    }
+    throw new Error(error.message);
+  }
+
+  let updated = 0;
+  for (const row of (data ?? []) as Array<{ id: string; items: unknown }>) {
+    const items = normalizeComparisonItems(row.items) as ComparisonItem[];
+    if (!items.some((item) => item.session_id === sessionId)) continue;
+    const remapped = remapComparisonItemsByLapNumber(
+      items,
+      sessionId,
+      previousLapIdToNumber,
+      nextLapNumberToId,
+    );
+    if (!remapped.changed) continue;
+    const { error: updateError } = await client
+      .from("comparisons")
+      .update({ items: remapped.items })
+      .eq("id", row.id)
+      .eq("user_id", userId);
+    if (updateError) {
+      throw new Error(updateError.message);
+    }
+    updated += 1;
+  }
+  return updated;
 }

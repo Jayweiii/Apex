@@ -1,3 +1,4 @@
+import { remapOwnComparisonsForSessionReparse } from "@/lib/comparisons-cloud";
 import {
   REPARSE_BODY_MAX_BYTES,
   reparseBodyTooLargeMessage,
@@ -493,6 +494,22 @@ export async function POST(
     }
   }
 
+  let comparisonsRemapped = 0;
+  try {
+    comparisonsRemapped = await remapOwnComparisonsForSessionReparse(
+      supabase,
+      user.id,
+      sessionId,
+      previousLapIdToNumber,
+      nextLapNumberToId,
+    );
+  } catch (err) {
+    console.error("reparse comparison remap failed", {
+      sessionId,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+
   const clearedTrimCount = [...preserved.values()].filter((side) => {
     const prev = previousSide.find((p) => p.lap_number === side.lap_number);
     if (!prev) return false;
@@ -508,6 +525,7 @@ export async function POST(
     lapCount: parsedLaps.length,
     preservedLapMeta: [...preserved.keys()].length,
     clearedStaleTrim: clearedTrimCount,
+    comparisonsRemapped,
     sessionBestMs: derived.sessionBestMs,
     sourceGpsStored: Boolean(sourceGps),
     sourceGpsPoints: sourceGps ? sourceGpsPointCount(sourceGps) : 0,

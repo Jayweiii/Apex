@@ -139,6 +139,87 @@ export function comparisonSharePath(id: string) {
   return `/compare/${id}`;
 }
 
+/** Minimal lap identity for resolving saved comparison slots after re-parse. */
+export type ComparisonLapIdentity = {
+  id: string;
+  session_id: string;
+  lap_number: number;
+};
+
+/**
+ * Resolve a comparison item to a live lap id.
+ * Prefer exact lap_id; if that row was deleted/recreated (re-parse), fall back
+ * to session_id + lap_number so public/owner views keep working.
+ */
+export function resolveComparisonItemLapId(
+  item: ComparisonItem,
+  laps: ComparisonLapIdentity[],
+): string | null {
+  const byId = laps.find(
+    (lap) => lap.id === item.lap_id && lap.session_id === item.session_id,
+  );
+  if (byId) return byId.id;
+  if (item.lap_number == null) return null;
+  const byNumber = laps.find(
+    (lap) =>
+      lap.session_id === item.session_id &&
+      lap.lap_number === item.lap_number,
+  );
+  return byNumber?.id ?? null;
+}
+
+/**
+ * Map saved comparison items onto currently loaded laps.
+ * Stale lap_ids (post re-parse) remapped via lap_number when present.
+ */
+export function resolveComparisonItemsAgainstLaps(
+  items: ComparisonItem[],
+  laps: ComparisonLapIdentity[],
+): {
+  resolved: ComparisonItem[];
+  missing: ComparisonItem[];
+  remappedCount: number;
+} {
+  const resolved: ComparisonItem[] = [];
+  const missing: ComparisonItem[] = [];
+  let remappedCount = 0;
+  for (const item of items) {
+    const lapId = resolveComparisonItemLapId(item, laps);
+    if (!lapId) {
+      missing.push(item);
+      continue;
+    }
+    if (lapId !== item.lap_id) remappedCount += 1;
+    resolved.push({ ...item, lap_id: lapId });
+  }
+  return { resolved, missing, remappedCount };
+}
+
+/**
+ * After a session re-parse recreates lap rows, rewrite comparison items that
+ * pointed at the old lap ids using lap_number continuity (same as videos).
+ */
+export function remapComparisonItemsByLapNumber(
+  items: ComparisonItem[],
+  sessionId: string,
+  previousLapIdToNumber: Map<string, number>,
+  nextLapNumberToId: Map<number, string>,
+): { items: ComparisonItem[]; changed: boolean } {
+  let changed = false;
+  const next = items.map((item) => {
+    if (item.session_id !== sessionId) return item;
+    const lapNumber =
+      item.lap_number ?? previousLapIdToNumber.get(item.lap_id) ?? null;
+    if (lapNumber == null) return item;
+    const nextId = nextLapNumberToId.get(lapNumber);
+    if (!nextId) return item;
+    if (nextId === item.lap_id && item.lap_number === lapNumber) return item;
+    changed = true;
+    return { ...item, lap_id: nextId, lap_number: lapNumber };
+  });
+  return { items: changed ? normalizeComparisonItems(next) : items, changed };
+}
+
 export function parseComparisonRow(row: Record<string, unknown>): ComparisonRow {
   const items = normalizeComparisonItems(row.items);
   const reference_index = Math.max(

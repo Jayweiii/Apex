@@ -7,6 +7,8 @@ import {
   defaultComparisonTitle,
   normalizeComparisonItems,
   parseComparisonRow,
+  remapComparisonItemsByLapNumber,
+  resolveComparisonItemsAgainstLaps,
   slotsFromComparisonItems,
 } from "../src/lib/comparisons";
 import { MAX_COMPARE_LAPS } from "../src/lib/compare";
@@ -94,8 +96,49 @@ const bad = normalizeComparisonItems([
 ]);
 assert(bad.length === 0, "rejects invalid items");
 
+// Re-parse leaves stale lap_ids; resolve via lap_number.
+const stale = normalizeComparisonItems([
+  {
+    session_id: "sess-a",
+    lap_id: "old-lap-8",
+    lap_number: 8,
+    color: "#f97316",
+  },
+  {
+    session_id: "sess-a",
+    lap_id: "old-lap-10",
+    lap_number: 10,
+    color: "#38bdf8",
+  },
+]);
+const liveLaps = [
+  { id: "new-lap-8", session_id: "sess-a", lap_number: 8 },
+  { id: "new-lap-10", session_id: "sess-a", lap_number: 10 },
+];
+const resolved = resolveComparisonItemsAgainstLaps(stale, liveLaps);
+assert(resolved.missing.length === 0, "stale ids resolve via lap_number");
+assert(resolved.remappedCount === 2, "both items remapped");
+assert(resolved.resolved[0].lap_id === "new-lap-8", "lap 8 id");
+assert(resolved.resolved[1].lap_id === "new-lap-10", "lap 10 id");
+
+const remapped = remapComparisonItemsByLapNumber(
+  stale,
+  "sess-a",
+  new Map([
+    ["old-lap-8", 8],
+    ["old-lap-10", 10],
+  ]),
+  new Map([
+    [8, "new-lap-8"],
+    [10, "new-lap-10"],
+  ]),
+);
+assert(remapped.changed, "reparse remap changes items");
+assert(remapped.items[0].lap_id === "new-lap-8", "persist lap 8");
+
 console.log("verify-comparisons ok", {
   items: items.length,
   title: row.title,
   path: comparisonSharePath(row.id),
+  remapped: resolved.remappedCount,
 });

@@ -10,7 +10,9 @@ import {
 } from "@/lib/compare-sessions";
 import {
   comparisonSharePath,
+  resolveComparisonItemsAgainstLaps,
   type ComparisonDraftSnapshot,
+  type ComparisonItem,
   type ComparisonRow,
 } from "@/lib/comparisons";
 import { fetchComparison } from "@/lib/comparisons-cloud";
@@ -30,9 +32,8 @@ export function SavedComparisonView({ id }: { id: string }) {
     undefined,
   );
   const [sessions, setSessions] = useState<CompareSessionOption[]>([]);
-  const [inaccessible, setInaccessible] = useState<
-    Array<{ session_id: string; lap_id: string }>
-  >([]);
+  const [resolvedItems, setResolvedItems] = useState<ComparisonItem[]>([]);
+  const [inaccessible, setInaccessible] = useState<ComparisonItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<ComparisonDraftSnapshot | null>(null);
 
@@ -121,15 +122,19 @@ export function SavedComparisonView({ id }: { id: string }) {
           // videos optional
         }
 
-        const foundKeys = new Set(
-          options.flatMap((s) => s.laps.map((l) => `${s.id}:${l.id}`)),
-        );
-        const missing = row.items.filter(
-          (item) => !foundKeys.has(`${item.session_id}:${item.lap_id}`),
+        // Re-parse recreates lap UUIDs; resolve via lap_number when lap_id is stale.
+        const { resolved, missing } = resolveComparisonItemsAgainstLaps(
+          row.items,
+          allLaps.map((lap) => ({
+            id: lap.id,
+            session_id: lap.session_id,
+            lap_number: lap.lap_number,
+          })),
         );
 
         if (!cancelled) {
           setSessions(options);
+          setResolvedItems(resolved);
           setInaccessible(missing);
         }
       } catch (err) {
@@ -148,19 +153,11 @@ export function SavedComparisonView({ id }: { id: string }) {
   const mine = Boolean(userId && comparison && comparison.user_id === userId);
 
   const initialLaps = useMemo(() => {
-    if (!comparison?.items.length) return undefined;
-    // Only include items the viewer can load.
-    const accessible = comparison.items.filter(
-      (item) =>
-        !inaccessible.some(
-          (m) => m.session_id === item.session_id && m.lap_id === item.lap_id,
-        ),
-    );
-    if (accessible.length < 2) return undefined;
-    return accessible
+    if (resolvedItems.length < 2) return undefined;
+    return resolvedItems
       .map((item) => `${item.session_id}:${item.lap_id}`)
       .join(",");
-  }, [comparison, inaccessible]);
+  }, [resolvedItems]);
 
   const primaryLaps = sessions[0]?.laps ?? [];
 
@@ -193,7 +190,11 @@ export function SavedComparisonView({ id }: { id: string }) {
     );
   }
 
-  const accessibleCount = comparison.items.length - inaccessible.length;
+  const accessibleCount = resolvedItems.length;
+  const displayItems =
+    resolvedItems.length >= 2 ? resolvedItems : comparison.items;
+  const refItem =
+    displayItems[comparison.reference_index] ?? displayItems[0] ?? null;
 
   return (
     <>
@@ -232,11 +233,11 @@ export function SavedComparisonView({ id }: { id: string }) {
         {inaccessible.length ? (
           <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
             <p>
-              {inaccessible.length} of {comparison.items.length} laps are not
-              accessible (private/friends session, or deleted).
+              {inaccessible.length} of {comparison.items.length} laps could not
+              be matched (private/friends session, deleted, or re-parsed away).
               {accessibleCount >= 2
                 ? " Showing the laps you can open."
-                : " Need the owner to make those sessions Public."}
+                : " Need the owner to make those sessions Public, or re-save the comparison after re-parse."}
             </p>
             {!userId ? (
               <p className="mt-2 text-amber-200/80">
@@ -249,7 +250,8 @@ export function SavedComparisonView({ id }: { id: string }) {
             ) : (
               <p className="mt-2 text-amber-200/80">
                 Ask the owner to open each session and set visibility to{" "}
-                <strong className="font-medium">Public</strong>.
+                <strong className="font-medium">Public</strong>, or re-save
+                after re-parse so lap ids refresh.
               </p>
             )}
           </div>
@@ -257,7 +259,11 @@ export function SavedComparisonView({ id }: { id: string }) {
 
         <SaveComparisonControls
           draft={draft}
-          existing={comparison}
+          existing={
+            resolvedItems.length
+              ? { ...comparison, items: resolvedItems }
+              : comparison
+          }
           canEdit={mine}
         />
 
@@ -266,13 +272,10 @@ export function SavedComparisonView({ id }: { id: string }) {
             laps={primaryLaps}
             sessions={sessions}
             initialLaps={initialLaps}
-            initialRef={
-              comparison.items[comparison.reference_index]?.lap_id ??
-              comparison.items[0]?.lap_id
-            }
+            initialRef={refItem?.lap_id}
             initialRefIndex={Math.min(
               comparison.reference_index,
-              Math.max(0, comparison.items.length - inaccessible.length - 1),
+              Math.max(0, accessibleCount - 1),
             )}
             initialAnalysisMode={comparison.analysis_mode}
             initialTrackId={sessions[0]?.trackId}
