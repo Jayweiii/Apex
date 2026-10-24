@@ -1,0 +1,68 @@
+[
+  {
+    "viewport": "desktop-1440x900",
+    "beforeEdit": {
+      "mapHeight": 550,
+      "mapWidth": 521,
+      "tiles": 9,
+      "handles": 2,
+      "leafletHasContainerClass": true,
+      "mountClass": "h-full w-full leaflet-container leaflet-touch leaflet-fade-anim",
+      "mapIsInner": true,
+      "peak": "Peak 35 mph",
+      "chartUnit": "mph",
+      "unitToggle": "mph",
+      "unitToggleAttr": "mph",
+      "mphHits": 5,
+      "kmhHits": 0,
+      "hasEditBtn": false
+    },
+    "afterEdit": {
+      "simulated": true,
+      "beforeMountClass": "h-full w-full leaflet-container leaflet-touch leaflet-fade-anim",
+      "afterMountClass": "h-full w-full leaflet-container leaflet-touch leaflet-fade-anim",
+      "stillHasLeafletContainer": true,
+      "tilesLoaded": 9,
+      "handles": 2,
+      "sfEditing": "1",
+      "mapHeight": 550
+    },
+    "screenshots": {
+      "overview": "/opt/cursor/artifacts/prod-sf-mph-desktop-1440x900-overview.png",
+      "sf": "/opt/cursor/artifacts/prod-sf-mph-desktop-1440x900-sf-editor.png"
+    }
+  },
+  {
+    "viewport": "iphone-390x844",
+    "beforeEdit": {
+      "mapHeight": 380,
+      "mapWidth": 348,
+      "tiles": 4,
+      "handles": 2,
+      "leafletHasContainerClass": true,
+      "mountClass": "h-full w-full leaflet-container leaflet-touch leaflet-retina leaflet-safari leaflet-fade-anim",
+      "mapIsInner": true,
+      "peak": "Peak 78 mph",
+      "chartUnit": "mph",
+      "unitToggle": "mph",
+      "unitToggleAttr": "mph",
+      "mphHits": 5,
+      "kmhHits": 0,
+      "hasEditBtn": false
+    },
+    "afterEdit": {
+      "simulated": true,
+      "beforeMountClass": "h-full w-full leaflet-container leaflet-touch leaflet-retina leaflet-safari leaflet-fade-anim",
+      "afterMountClass": "h-full w-full leaflet-container leaflet-touch leaflet-retina leaflet-safari leaflet-fade-anim",
+      "stillHasLeafletContainer": true,
+      "tilesLoaded": 4,
+      "handles": 2,
+      "sfEditing": "1",
+      "mapHeight": 380
+    },
+    "screenshots": {
+      "overview": "/opt/cursor/artifacts/prod-sf-mph-iphone-390x844-overview.png",
+      "sf": "/opt/cursor/artifacts/prod-sf-mph-iphone-390x844-sf-editor.png"
+    }
+  }
+]
