@@ -41,6 +41,7 @@ export function StackedLapTelemetry({
   hoverReadoutRef,
   formatHoverReadout,
   formatPlaybackReadout,
+  hoverEnabled = true,
 }: {
   points: TelemetryPoint[];
   /** Playback cursor index only — never hover (hover is DOM/rAF). */
@@ -57,6 +58,8 @@ export function StackedLapTelemetry({
   hoverReadoutRef?: RefObject<HTMLElement | null>;
   formatHoverReadout?: (index: number) => string;
   formatPlaybackReadout?: (index: number | null) => string;
+  /** False while playback is playing — no hover preview. */
+  hoverEnabled?: boolean;
 }) {
   const channels = detectLapChannels(points);
   if (!channels.length) return fallback ?? null;
@@ -77,7 +80,8 @@ export function StackedLapTelemetry({
     <HoverCursorScope
       className={`flex flex-col gap-2 ${className ?? ""}`}
       playbackIndex={activeIndex}
-      onPreviewIndex={onPreviewIndex}
+      onPreviewIndex={hoverEnabled ? onPreviewIndex : undefined}
+      hoverEnabled={hoverEnabled}
     >
       {hoverReadoutRef && formatHoverReadout && formatPlaybackReadout ? (
         <HoverReadoutBridge

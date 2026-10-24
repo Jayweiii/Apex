@@ -41,6 +41,8 @@ type MapProps = {
   /** Hover preview — ghost marker only; never seeks video. */
   previewProgress?: number | null;
   onPreviewProgress?: (progress: number | null) => void;
+  /** False while playback is playing — no ghost/hover tooltip preview. */
+  hoverPreviewEnabled?: boolean;
   onProgress?: (progress: number | null) => void;
   gpsMode?: GpsDisplayMode;
   onGpsModeChange?: (mode: GpsDisplayMode) => void;
@@ -276,6 +278,7 @@ export function TrackMap(props: MapProps) {
           activeProgress={props.activeProgress}
           previewProgress={props.previewProgress}
           onPreviewProgress={props.onPreviewProgress}
+          hoverPreviewEnabled={props.hoverPreviewEnabled}
           onProgress={props.onProgress}
           prefs={prefs}
           compact={props.compact}

@@ -5,6 +5,10 @@
  * plot fraction + sample index). Hover line(s) and readout paint in the
  * same rAF — no React state round-trip per chart. Playback progress is a
  * separate solid cursor and is ignored for the readout while hovering.
+ *
+ * While playback is playing, hover is disabled entirely: no hover line,
+ * no hover readout, no map preview index — readouts follow playback only.
+ * Seek (click/drag) is owned by chart scrub handlers, not this controller.
  */
 
 export type PlotPad = { left: number; right: number };
@@ -61,6 +65,12 @@ export type HoverCursorController = {
   isHovering: () => boolean;
   getIndex: () => number | null;
   setPlaybackIndex: (index: number | null) => void;
+  /**
+   * When false (e.g. playback playing), ignore pointer moves and clear any
+   * active hover so lines/readouts follow playback only.
+   */
+  setEnabled: (enabled: boolean) => void;
+  isEnabled: () => boolean;
   attachHoverLine: (
     el: HTMLElement,
     plotEl: HTMLElement,
@@ -83,6 +93,7 @@ export function createHoverCursorController(): HoverCursorController {
   let hoverIndex: number | null = null;
   let playbackIndex: number | null = null;
   let hovering = false;
+  let enabled = true;
   let raf = 0;
   let leaveTimer: ReturnType<typeof setTimeout> | null = null;
   let onIndex: ((index: number | null) => void) | null = null;
@@ -99,8 +110,19 @@ export function createHoverCursorController(): HoverCursorController {
     });
   };
 
+  const clearHover = () => {
+    if (leaveTimer != null) {
+      clearTimeout(leaveTimer);
+      leaveTimer = null;
+    }
+    hovering = false;
+    fraction = null;
+    hoverIndex = null;
+  };
+
   const paint = () => {
-    const showHover = hovering && fraction != null && hoverIndex != null;
+    const showHover =
+      enabled && hovering && fraction != null && hoverIndex != null;
 
     for (const line of lines) {
       if (!showHover || fraction == null) {
@@ -129,6 +151,7 @@ export function createHoverCursorController(): HoverCursorController {
 
   return {
     move({ clientX, plotEl, pad = DEFAULT_PLOT_PAD, length }) {
+      if (!enabled) return;
       if (leaveTimer != null) {
         clearTimeout(leaveTimer);
         leaveTimer = null;
@@ -143,6 +166,7 @@ export function createHoverCursorController(): HoverCursorController {
     },
 
     leave() {
+      if (!enabled) return;
       if (leaveTimer != null) clearTimeout(leaveTimer);
       leaveTimer = setTimeout(() => {
         leaveTimer = null;
@@ -153,14 +177,23 @@ export function createHoverCursorController(): HoverCursorController {
       }, LEAVE_DELAY_MS);
     },
 
-    isHovering: () => hovering,
+    isHovering: () => enabled && hovering,
 
-    getIndex: () => (hovering ? hoverIndex : null),
+    getIndex: () => (enabled && hovering ? hoverIndex : null),
 
     setPlaybackIndex(index) {
       playbackIndex = index;
-      if (!hovering) schedule();
+      if (!hovering || !enabled) schedule();
     },
+
+    setEnabled(next) {
+      if (enabled === next) return;
+      enabled = next;
+      if (!enabled) clearHover();
+      schedule();
+    },
+
+    isEnabled: () => enabled,
 
     attachHoverLine(el, plotEl, pad = DEFAULT_PLOT_PAD) {
       const target: LineTarget = { el, plotEl, pad };

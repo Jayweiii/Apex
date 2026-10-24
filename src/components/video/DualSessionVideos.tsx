@@ -109,6 +109,7 @@ export function DualSessionVideos({
   otherSide,
   progress,
   onProgress,
+  onPlayingChange,
   compact = false,
 }: {
   sides?: MultiVideoSide[];
@@ -118,6 +119,8 @@ export function DualSessionVideos({
   otherSide?: DualVideoSide;
   progress: number | null;
   onProgress: (next: number | null) => void;
+  /** Lets parent gate hover preview while videos are playing. */
+  onPlayingChange?: (playing: boolean) => void;
   /** Dense chrome for one-screen compare dashboard. */
   compact?: boolean;
 }) {
@@ -134,6 +137,10 @@ export function DualSessionVideos({
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState<PlaybackSpeed>(1);
+
+  useEffect(() => {
+    onPlayingChange?.(playing);
+  }, [playing, onPlayingChange]);
   const progressRef = useRef(progress ?? 0);
   progressRef.current = progress ?? 0;
   const authorityRef = useRef<SyncAuthority>("clock");

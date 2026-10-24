@@ -178,6 +178,25 @@ async function runControllerTests() {
   assert(text === "play:9", "playback readout restored");
   assert(opacityA === "0", "hover line cleared");
 
+  // While disabled (playback playing): no hover line / readout; playback only.
+  cursor.setPlaybackIndex(3);
+  cursor.setEnabled(false);
+  await raf();
+  cursor.move({ clientX: 215, plotEl: plotA, pad, length: 11 });
+  await raf();
+  assert(!cursor.isHovering(), "disabled: not hovering");
+  assert(cursor.getIndex() == null, "disabled: no hover index");
+  assert(String(readout.textContent) === "play:3", "disabled: playback readout");
+  assert(String(lineA.style.opacity) === "0", "disabled: hover line hidden");
+
+  // Re-enable (paused): hover preview returns.
+  cursor.setEnabled(true);
+  cursor.move({ clientX: 215, plotEl: plotA, pad, length: 11 });
+  await raf();
+  assert(cursor.isHovering(), "re-enabled: hovering");
+  assert(String(readout.textContent) === "hover:5", "re-enabled: hover readout");
+  assert(String(lineA.style.opacity) === "1", "re-enabled: hover line visible");
+
   cursor.dispose();
 }
 
@@ -194,15 +213,21 @@ function assertArchitecture() {
   const scope = read("src/components/HoverCursor.tsx");
   assert(scope.includes("HoverCursorScope"), "scope component");
   assert(scope.includes("data-apex-hover-line"), "hover line marker");
+  assert(scope.includes("hoverEnabled"), "scope hoverEnabled prop");
+  assert(scope.includes("data-apex-hover-enabled"), "hover enabled marker");
   assert(
     scope.includes('transition: "none"') ||
       scope.includes("transition: 'none'"),
     "no line transition",
   );
 
+  const hoverModGate = read("src/components/hover-cursor.ts");
+  assert(hoverModGate.includes("setEnabled"), "controller setEnabled");
+
   const stacked = read("src/components/StackedTelemetry.tsx");
   assert(stacked.includes("HoverCursorScope"), "stack uses hover scope");
   assert(stacked.includes("playbackIndex"), "playback index into scope");
+  assert(stacked.includes("hoverEnabled"), "stack passes hoverEnabled");
 
   const speed = read("src/components/SpeedChart.tsx");
   assert(speed.includes("HoverCursorLine"), "speed hover line");
@@ -212,9 +237,21 @@ function assertArchitecture() {
   const synced = read("src/components/video/SyncedLapView.tsx");
   assert(synced.includes("playbackIndex"), "session playback-only chart index");
   assert(synced.includes("hoverReadoutRef"), "session hover readout bridge");
+  assert(synced.includes("hoverEnabled"), "session gates hover while playing");
+  assert(
+    synced.includes("hoverPreviewEnabled={hoverEnabled}"),
+    "session gates map hover while playing",
+  );
   assert(
     !synced.includes("displayProgress = previewProgress ?? clock.progress"),
     "session must not merge preview into chart activeIndex",
+  );
+
+  const compare = read("src/components/LapCompare.tsx");
+  assert(compare.includes("hoverEnabled"), "compare gates hover while playing");
+  assert(
+    compare.includes("onPlayingChange={setPlaying}"),
+    "compare listens to dual video playing",
   );
 
   const lapCharts = read("src/components/LapCharts.tsx");
@@ -231,6 +268,7 @@ runControllerTests()
         sameFrameLineAndReadout: true,
         dualCursor: "hover-dashed playback-solid",
         ignorePlaybackWhileHovering: true,
+        disableHoverWhilePlaying: true,
         stackedPointerMove: true,
       }),
     );

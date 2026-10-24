@@ -26,6 +26,7 @@
     "test:scrub-sync": "tsx scripts/verify-scrub-sync.ts",
     "test:hover-preview": "tsx scripts/verify-hover-preview.ts",
     "test:hover-cursor": "tsx scripts/verify-hover-cursor.ts",
+    "test:hover-while-playing": "tsx scripts/verify-hover-cursor.ts && tsx scripts/verify-hover-preview.ts",
     "test:delta-align": "tsx scripts/verify-delta-align.ts",
     "test:analysis-mode": "tsx scripts/verify-analysis-mode.ts",
     "test:gopro": "tsx scripts/verify-gopro.ts",

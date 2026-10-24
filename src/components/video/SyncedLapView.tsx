@@ -459,6 +459,14 @@ export function SyncedLapView({
 
   const [previewProgress, setPreviewProgress] = useState<number | null>(null);
   const hoverReadoutRef = useRef<HTMLSpanElement | null>(null);
+  const hoverEnabled = !clock.playing;
+
+  // While playing, drop any lingering hover preview so readouts/markers
+  // follow the playback clock only.
+  useEffect(() => {
+    if (hoverEnabled) return;
+    setPreviewProgress(null);
+  }, [hoverEnabled]);
 
   /** Map playback 0..1 onto padded chart index when trim context is shown. */
   const indexFromLapProgress = useCallback(
@@ -539,9 +547,13 @@ export function SyncedLapView({
 
   const previewFromChart = useCallback(
     (next: number | null) => {
+      if (!hoverEnabled) {
+        setPreviewProgress(null);
+        return;
+      }
       setPreviewProgress(lapProgressFromChartIndex(next));
     },
-    [lapProgressFromChartIndex],
+    [hoverEnabled, lapProgressFromChartIndex],
   );
 
   const seekFromChart = useCallback(
@@ -633,8 +645,9 @@ export function SyncedLapView({
         },
       ]}
       activeProgress={clock.progress}
-      previewProgress={previewProgress}
-      onPreviewProgress={setPreviewProgress}
+      previewProgress={hoverEnabled ? previewProgress : null}
+      onPreviewProgress={hoverEnabled ? setPreviewProgress : undefined}
+      hoverPreviewEnabled={hoverEnabled}
       onProgress={setProgressFromUi}
       compact={workspace}
       panel={workspace}
@@ -748,6 +761,7 @@ export function SyncedLapView({
       hoverReadoutRef={hoverReadoutRef}
       formatHoverReadout={(i) => formatCursorReadout(i)}
       formatPlaybackReadout={formatCursorReadout}
+      hoverEnabled={hoverEnabled}
     />
   );
 

@@ -25,17 +25,21 @@ export function useHoverCursor(): HoverCursorController | null {
 /**
  * Owns a pointer-x hover cursor for a stacked chart group. Hover line +
  * readout paint via rAF; playback index is separate and ignored while hovering.
+ * Pass hoverEnabled={false} while playback is playing to suppress preview.
  */
 export function HoverCursorScope({
   children,
   playbackIndex = null,
   onPreviewIndex,
+  hoverEnabled = true,
   className,
 }: {
   children: ReactNode;
   playbackIndex?: number | null;
   /** Map / external preview only — not used to drive chart React lines. */
   onPreviewIndex?: (index: number | null) => void;
+  /** False while playing — no hover line / readout / preview index. */
+  hoverEnabled?: boolean;
   className?: string;
 }) {
   const cursor = useMemo(() => createHoverCursorController(), []);
@@ -54,11 +58,16 @@ export function HoverCursorScope({
     cursor.setPlaybackIndex(playbackIndex);
   }, [cursor, playbackIndex]);
 
+  useEffect(() => {
+    cursor.setEnabled(hoverEnabled);
+  }, [cursor, hoverEnabled]);
+
   return (
     <HoverCursorContext.Provider value={cursor}>
       <div
         className={className}
         data-apex-hover-scope="1"
+        data-apex-hover-enabled={hoverEnabled ? "1" : "0"}
         onPointerLeave={() => cursor.leave()}
       >
         {children}

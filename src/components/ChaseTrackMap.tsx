@@ -167,6 +167,7 @@ export function ChaseTrackMap({
   activeProgress,
   previewProgress = null,
   onPreviewProgress,
+  hoverPreviewEnabled = true,
   onProgress,
   prefs,
   pitch = POV_PITCH_DEG,
@@ -179,6 +180,8 @@ export function ChaseTrackMap({
   /** Chart hover preview — markers/camera without seeking video. */
   previewProgress?: number | null;
   onPreviewProgress?: (progress: number | null) => void;
+  /** False while playback is playing — no ghost/hover preview. */
+  hoverPreviewEnabled?: boolean;
   onProgress?: (progress: number | null) => void;
   prefs: MapViewPrefs;
   pitch?: number;
@@ -194,8 +197,15 @@ export function ChaseTrackMap({
   const bearingRef = useRef<number | null>(null);
   const onProgressRef = useRef(onProgress);
   const onPreviewProgressRef = useRef(onPreviewProgress);
+  const hoverPreviewEnabledRef = useRef(hoverPreviewEnabled);
   onProgressRef.current = onProgress;
   onPreviewProgressRef.current = onPreviewProgress;
+  hoverPreviewEnabledRef.current = hoverPreviewEnabled;
+
+  useEffect(() => {
+    if (hoverPreviewEnabled) return;
+    onPreviewProgressRef.current?.(null);
+  }, [hoverPreviewEnabled]);
 
   const drawable = useMemo(
     () =>
@@ -297,6 +307,8 @@ export function ChaseTrackMap({
         onProgressRef.current?.(progress);
         return;
       }
+      // While playing, hover preview is disabled; drag-seek still works above.
+      if (!hoverPreviewEnabledRef.current) return;
       onPreviewProgressRef.current?.(progress);
     };
     const onLeave = () => {
@@ -444,7 +456,10 @@ export function ChaseTrackMap({
     const map = mapRef.current;
     if (!map || !drawable.length) return;
 
-    const progress = previewProgress ?? activeProgress ?? 0;
+    const progress =
+      (hoverPreviewEnabled ? previewProgress : null) ??
+      activeProgress ??
+      0;
     const zoom = clampChaseZoom(prefs.chaseZoom || POV_DEFAULT_ZOOM);
 
     const samples = drawable.map((trace) => {
@@ -550,6 +565,7 @@ export function ChaseTrackMap({
   }, [
     activeProgress,
     previewProgress,
+    hoverPreviewEnabled,
     drawable,
     prefs.chaseZoom,
     prefs.followId,
@@ -570,6 +586,7 @@ export function ChaseTrackMap({
       className={`${heightClass} w-full touch-none overflow-hidden rounded-xl cursor-pointer [&_.maplibregl-canvas]:cursor-pointer [&_.maplibregl-ctrl-attrib]:bg-zinc-950/80 [&_.maplibregl-ctrl-attrib]:text-[10px] [&_.maplibregl-ctrl-attrib]:text-zinc-400`}
       data-apex-map="chase"
       data-apex-pov="1"
+      data-apex-map-hover={hoverPreviewEnabled ? "1" : "0"}
     />
   );
 }

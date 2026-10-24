@@ -23,6 +23,7 @@ assert(
 const leaflet = read("src/components/LeafletTrackMap.tsx");
 assert(leaflet.includes("onPreviewProgress"), "map preview callback");
 assert(leaflet.includes("previewProgress"), "map preview prop");
+assert(leaflet.includes("hoverPreviewEnabled"), "map hover can disable while playing");
 assert(leaflet.includes("apex-car-marker__dot--ghost") || leaflet.includes("ghost"), "ghost marker");
 assert(leaflet.includes('map.on("mousemove"'), "map hover preview");
 assert(leaflet.includes('map.on("click"'), "map click seek");
@@ -35,6 +36,10 @@ assert(
       leaflet.includes("onProgressRef.current?.(progress)")),
   "mousemove previews; click seeks",
 );
+assert(
+  leaflet.includes("hoverPreviewEnabledRef.current"),
+  "map mousemove respects hoverPreviewEnabled",
+);
 
 const synced = read("src/components/video/SyncedLapView.tsx");
 assert(synced.includes("previewProgress"), "session preview state");
@@ -42,6 +47,11 @@ assert(synced.includes("previewFromChart"), "session chart preview");
 assert(synced.includes("seekFromChart"), "session chart seek");
 assert(synced.includes("onPreviewIndex={previewFromChart}"), "telemetry preview");
 assert(synced.includes("onSeekIndex={seekFromChart}"), "telemetry seek");
+assert(synced.includes("hoverEnabled = !clock.playing"), "no hover while playing");
+assert(
+  synced.includes("hoverPreviewEnabled={hoverEnabled}"),
+  "map hover gated while playing",
+);
 assert(
   !synced.includes("onHoverIndex={hoverFromChart}"),
   "session must not seek on hover callback",
@@ -66,6 +76,7 @@ console.log(
   JSON.stringify({
     ok: true,
     hover: "preview-only",
+    hoverWhilePlaying: false,
     seek: "click-or-scrubber-drag",
     syncHere: "click",
     session: true,

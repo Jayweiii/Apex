@@ -235,6 +235,7 @@ export function LeafletTrackMap({
   activeProgress = null,
   previewProgress = null,
   onPreviewProgress,
+  hoverPreviewEnabled = true,
   onProgress,
   gpsMode,
   onGpsModeChange,
@@ -257,6 +258,8 @@ export function LeafletTrackMap({
   /** Hover-only ghost position — never seeks video/playback. */
   previewProgress?: number | null;
   onPreviewProgress?: (progress: number | null) => void;
+  /** False while playback is playing — no ghost/hover tooltip preview. */
+  hoverPreviewEnabled?: boolean;
   onProgress?: (progress: number | null) => void;
   gpsMode?: GpsDisplayMode;
   onGpsModeChange?: (mode: GpsDisplayMode) => void;
@@ -288,6 +291,7 @@ export function LeafletTrackMap({
   const tileRef = useRef<L.TileLayer | null>(null);
   const onProgressRef = useRef(onProgress);
   const onPreviewProgressRef = useRef(onPreviewProgress);
+  const hoverPreviewEnabledRef = useRef(hoverPreviewEnabled);
   const onSfEndpointMoveRef = useRef(onSfEndpointMove);
   const sfEditingRef = useRef(sfEditing);
   const drawableRef = useRef<Array<TrackTrace & { points: GpsPoint[] }>>([]);
@@ -302,8 +306,16 @@ export function LeafletTrackMap({
 
   onProgressRef.current = onProgress;
   onPreviewProgressRef.current = onPreviewProgress;
+  hoverPreviewEnabledRef.current = hoverPreviewEnabled;
   onSfEndpointMoveRef.current = onSfEndpointMove;
   sfEditingRef.current = sfEditing;
+
+  // Drop any lingering ghost/tooltip when playback starts.
+  useEffect(() => {
+    if (hoverPreviewEnabled) return;
+    setHoverPos(null);
+    onPreviewProgressRef.current?.(null);
+  }, [hoverPreviewEnabled]);
 
   const drawable = useMemo(
     () =>
@@ -380,8 +392,10 @@ export function LeafletTrackMap({
     };
 
     // Hover = preview only (ghost marker + readout). Never seeks playback.
+    // While playing, hover preview is disabled entirely.
     const onMove = (event: L.LeafletMouseEvent) => {
       if (sfEditingRef.current) return;
+      if (!hoverPreviewEnabledRef.current) return;
       const progress = progressAt(event.latlng);
       if (progress == null) return;
       onPreviewProgressRef.current?.(progress);
@@ -779,18 +793,20 @@ export function LeafletTrackMap({
     };
 
     if (activeProgress != null) placeAt(activeProgress, false);
+    const ghost =
+      hoverPreviewEnabled && previewProgress != null ? previewProgress : null;
     if (
-      previewProgress != null &&
-      (activeProgress == null ||
-        Math.abs(previewProgress - activeProgress) > 0.002)
+      ghost != null &&
+      (activeProgress == null || Math.abs(ghost - activeProgress) > 0.002)
     ) {
-      placeAt(previewProgress, true);
+      placeAt(ghost, true);
     }
-  }, [activeProgress, previewProgress, drawable]);
+  }, [activeProgress, previewProgress, hoverPreviewEnabled, drawable]);
 
   if (!drawable.length) return null;
 
-  const tooltipProgress = previewProgress ?? activeProgress;
+  const tooltipProgress =
+    (hoverPreviewEnabled ? previewProgress : null) ?? activeProgress;
   const tooltipMarkers =
     tooltipProgress == null
       ? []
@@ -806,7 +822,10 @@ export function LeafletTrackMap({
       : "relative overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950/40 p-4";
 
   return (
-    <div className={shellClass}>
+    <div
+      className={shellClass}
+      data-apex-map-hover={hoverPreviewEnabled ? "1" : "0"}
+    >
       <div
         className={`flex flex-wrap items-center justify-between gap-2 ${
           panel ? "mb-1.5 shrink-0" : "mb-3 gap-3"

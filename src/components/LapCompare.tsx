@@ -480,7 +480,15 @@ export function LapCompare({
 
   const [progress, setProgress] = useState<number | null>(null);
   const [previewProgress, setPreviewProgress] = useState<number | null>(null);
-  const displayProgress = previewProgress ?? progress;
+  const [playing, setPlaying] = useState(false);
+  const hoverEnabled = !playing;
+  const displayProgress =
+    (hoverEnabled ? previewProgress : null) ?? progress;
+
+  useEffect(() => {
+    if (hoverEnabled) return;
+    setPreviewProgress(null);
+  }, [hoverEnabled]);
 
   const draftKey = resolved
     .map((item) => `${item.session.id}:${item.lap.id}:${item.isRef ? "r" : ""}`)
@@ -519,9 +527,13 @@ export function LapCompare({
 
   const previewFromChart = useCallback(
     (next: number | null) => {
+      if (!hoverEnabled) {
+        setPreviewProgress(null);
+        return;
+      }
       setPreviewProgress(progressFromIndex(next, series.length));
     },
-    [series.length],
+    [hoverEnabled, series.length],
   );
   const seekFromChart = useCallback(
     (next: number | null) => {
@@ -531,16 +543,16 @@ export function LapCompare({
     [series.length],
   );
   const chartScrub = bindChartScrub(series.length, {
-    onPreviewIndex: previewFromChart,
+    onPreviewIndex: hoverEnabled ? previewFromChart : undefined,
     onSeekIndex: seekFromChart,
   });
   const onChartMouseMove = useCallback(
     (state: Parameters<typeof hoverIndex>[0]) => {
       const index = hoverIndex(state);
       if (isSeekPointer(state)) seekFromChart(index);
-      else previewFromChart(index);
+      else if (hoverEnabled) previewFromChart(index);
     },
-    [previewFromChart, seekFromChart],
+    [hoverEnabled, previewFromChart, seekFromChart],
   );
 
   const showMap = ordered.some((item) => hasGps(item.lap.telemetry));
@@ -802,8 +814,11 @@ export function LapCompare({
                 <TrackMap
                   traces={mapTraces}
                   activeProgress={progress}
-                  previewProgress={previewProgress}
-                  onPreviewProgress={setPreviewProgress}
+                  previewProgress={hoverEnabled ? previewProgress : null}
+                  onPreviewProgress={
+                    hoverEnabled ? setPreviewProgress : undefined
+                  }
+                  hoverPreviewEnabled={hoverEnabled}
                   onProgress={(next) => {
                     setPreviewProgress(null);
                     setProgress(next);
@@ -835,6 +850,7 @@ export function LapCompare({
                     setPreviewProgress(null);
                     setProgress(next);
                   }}
+                  onPlayingChange={setPlaying}
                   compact
                 />
               </div>
