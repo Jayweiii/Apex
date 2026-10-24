@@ -4,6 +4,10 @@ import { hoverIndex, isSeekPointer } from "@/components/chart-hover";
 import { bindChartScrub } from "@/components/chart-scrub";
 import { HoverCursorLine, useHoverCursor } from "@/components/HoverCursor";
 import { type PlotPad } from "@/components/hover-cursor";
+import {
+  STACKED_SPEED_MIN_HEIGHT,
+  STACKED_SPEED_MIN_HEIGHT_SM,
+} from "@/lib/chart-height-contract";
 import { chartTAtClientX } from "@/lib/lap-trim";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -39,7 +43,10 @@ export function speedAxisDomain(
   let min = Infinity;
   let max = -Infinity;
   for (const point of points) {
+    // Ignore non-physical speeds so a corrupt source_gps hydrate cannot
+    // collapse the axis to an empty-looking domain.
     if (!Number.isFinite(point.speed)) continue;
+    if (point.speed < -2 || point.speed > 400) continue;
     if (point.speed < min) min = point.speed;
     if (point.speed > max) max = point.speed;
   }
@@ -115,8 +122,11 @@ export function SpeedChart({
   const hasPad = points.some((p) => p.inLap === false);
   const hasTrimOverlay = points.some((p) => p.speedInTrim != null);
 
+  // Explicit px heights — `h-full`/`flex-1` inside a min-height-only flex
+  // parent collapses ResponsiveContainer to 0×0 (empty speed chart on prod).
+  // Class strings must be static so Tailwind JIT keeps them.
   const bodyHeight = fill
-    ? "h-full min-h-[140px] sm:min-h-[160px]"
+    ? "h-[124px] min-h-[124px] sm:h-[160px] sm:min-h-[160px]"
     : compact
       ? "h-[100px] min-h-[100px] sm:h-[120px]"
       : "h-[200px] sm:h-[260px]";
@@ -160,13 +170,24 @@ export function SpeedChart({
   const firstT = points[0]?.t ?? 0;
   const lastT = points[points.length - 1]?.t ?? 1;
 
+  // Keep literal classes in sync with STACKED_SPEED_MIN_HEIGHT / _SM (160 / 200).
+  if (
+    process.env.NODE_ENV !== "production" &&
+    (STACKED_SPEED_MIN_HEIGHT !== 160 || STACKED_SPEED_MIN_HEIGHT_SM !== 200)
+  ) {
+    throw new Error("SpeedChart fill heights drifted from chart-height-contract");
+  }
+  const fillShell = fill
+    ? "h-[160px] min-h-[160px] sm:h-[200px] sm:min-h-[200px]"
+    : "";
+
   return (
     <div
       className={`flex w-full max-w-full flex-col overflow-hidden border border-zinc-800/80 bg-zinc-950/40 ${
         compact
           ? "rounded-xl px-2.5 py-2"
           : "h-[260px] rounded-2xl p-3 sm:h-[320px] sm:p-4"
-      } ${fill ? "min-h-0 flex-1" : ""}`}
+      } ${fillShell}`}
     >
       <div className="mb-1 flex shrink-0 items-baseline justify-between gap-2">
         <p className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">

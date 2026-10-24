@@ -269,18 +269,25 @@ function interpolateGatePoint(
     x: local.x + gateDir.y * side,
     y: local.y - gateDir.x * side,
   });
-  const lerp = (a: number | undefined, b: number | undefined) => {
+  const lerpOpt = (
+    a: number | undefined,
+    b: number | undefined,
+  ): number | undefined => {
     if (a == null && b == null) return undefined;
     if (a == null) return b;
     if (b == null) return a;
     return a + (b - a) * t;
   };
+  // TelemetryPoint.speed is required; fall back to either neighbor or 0.
+  const speed =
+    lerpOpt(prev.speed, next.speed) ?? prev.speed ?? next.speed ?? 0;
+  const alt = lerpOpt(prev.alt, next.alt);
   return {
     t: Number((prev.t + (next.t - prev.t) * t).toFixed(3)),
     lat: onGate.lat,
     lon: onGate.lon,
-    speed: lerp(prev.speed, next.speed),
-    alt: lerp(prev.alt, next.alt),
+    speed,
+    ...(alt != null ? { alt } : {}),
   };
 }
 

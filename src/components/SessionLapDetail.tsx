@@ -125,7 +125,12 @@ export function SessionLapDetail({
   );
   const bounds = applied.bounds;
   const points = applied.telemetry;
-  const peak = points.reduce((max, point) => Math.max(max, point.speed), 0);
+  const peak = points.reduce((max, point) => {
+    if (!Number.isFinite(point.speed) || point.speed < 0 || point.speed > 400) {
+      return max;
+    }
+    return Math.max(max, point.speed);
+  }, 0);
 
   const trimChart = useMemo(() => {
     if (!(canEdit && onTrimChange)) return null;

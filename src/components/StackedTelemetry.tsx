@@ -88,7 +88,7 @@ export function StackedLapTelemetry({
       ) : null}
       {hasSpeed ? (
         <div
-          className="flex min-h-[160px] shrink-0 flex-col overflow-hidden sm:min-h-[200px]"
+          className="flex h-[160px] min-h-[160px] shrink-0 flex-col overflow-hidden sm:h-[200px] sm:min-h-[200px]"
           data-apex-speed-chart-height={String(STACKED_SPEED_MIN_HEIGHT)}
           data-apex-speed-chart-min-sm={String(STACKED_SPEED_MIN_HEIGHT_SM)}
         >
