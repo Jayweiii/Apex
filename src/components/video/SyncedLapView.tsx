@@ -293,6 +293,8 @@ export function SyncedLapView({
   );
   const authorityRef = useRef<SyncAuthority>("clock");
   const suppress = useRef(createSyncSuppress());
+  /** Mirrors `clock.playing` for player-event handlers (avoid stale closures). */
+  const playingRef = useRef(false);
   useEffect(() => {
     setDraftVideo(video ?? null);
   }, [video]);
@@ -341,6 +343,7 @@ export function SyncedLapView({
     enabled: true,
     rootRef,
   });
+  playingRef.current = clock.playing;
 
   const hoverController = useMemo(() => createHoverCursorController(), []);
   useEffect(() => () => hoverController.dispose(), [hoverController]);
@@ -456,11 +459,38 @@ export function SyncedLapView({
       }
 
       if (event.type === "play") {
+        // Clock owns play/pause from PlaybackControls — ignore player play
+        // echoes (buffering resume) so the wall-clock RAF keeps advancing.
+        if (authorityRef.current === "clock" && playingRef.current) return;
         authorityRef.current = "video";
+        const t = player?.getTime() ?? videoTime;
+        const lapStartVideo = videoTimeFromLapProgress(
+          currentSyncLap,
+          0,
+          activeVideo,
+        );
+        // Video scrubbed/paused before the lap's synced start: jump to lap
+        // start so progress isn't stuck at 0 while the video plays intro.
+        if (t < lapStartVideo - 0.2) {
+          authorityRef.current = "clock";
+          drivePlayer("seek", lapStartVideo);
+          clock.setProgress(0);
+          clock.play();
+          return;
+        }
         clock.play();
+        applyVideoTime(t);
         return;
       }
       if (event.type === "pause" || event.type === "ended") {
+        // Ignore pause echoes while the shared clock is driving playback.
+        if (
+          event.type === "pause" &&
+          authorityRef.current === "clock" &&
+          playingRef.current
+        ) {
+          return;
+        }
         authorityRef.current = "video";
         clock.pause();
         if (event.type === "ended") {
@@ -486,7 +516,16 @@ export function SyncedLapView({
         applyVideoTime(event.time);
       }
     },
-    [activeVideo, locked, applyVideoTime, clock, player, videoTime],
+    [
+      activeVideo,
+      locked,
+      applyVideoTime,
+      clock,
+      player,
+      videoTime,
+      currentSyncLap,
+      drivePlayer,
+    ],
   );
 
   const [previewProgress, setPreviewProgress] = useState<number | null>(null);
@@ -663,8 +702,39 @@ export function SyncedLapView({
 
   const onTogglePlay = useCallback(() => {
     authorityRef.current = "clock";
-    clock.toggle();
-  }, [clock]);
+    if (clock.playing) {
+      clock.pause();
+      return;
+    }
+    const nextProgress = clock.progress >= 1 ? 0 : clock.progress;
+    if (clock.progress >= 1) clock.setProgress(0);
+    // Seek video to the lap-synced frame for this progress so Play never
+    // leaves the clock stuck at 0 while YouTube plays pre-lap content.
+    if (locked && activeVideo) {
+      const t = videoTimeFromLapProgress(
+        currentSyncLap,
+        nextProgress,
+        activeVideo,
+      );
+      const actual = player?.getTime();
+      if (
+        actual == null ||
+        actual < t - 0.15 ||
+        needsDriftCorrection(t, actual)
+      ) {
+        drivePlayer("seek", t);
+      }
+      drivePlayer("play");
+    }
+    clock.play();
+  }, [
+    clock,
+    locked,
+    activeVideo,
+    currentSyncLap,
+    player,
+    drivePlayer,
+  ]);
 
   const onSpeed = useCallback(
     (next: Parameters<typeof clock.setSpeed>[0]) => {
@@ -677,12 +747,13 @@ export function SyncedLapView({
 
   const playBoth = useCallback(() => {
     authorityRef.current = "clock";
+    const nextProgress = clock.progress >= 1 ? 0 : clock.progress;
     if (clock.progress >= 1) clock.setProgress(0);
     clock.play();
     if (activeVideo) {
       const t = videoTimeFromLapProgress(
         currentSyncLap,
-        clock.progress >= 1 ? 0 : clock.progress,
+        nextProgress,
         activeVideo,
       );
       drivePlayer("seek", t);

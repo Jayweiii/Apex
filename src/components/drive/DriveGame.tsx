@@ -1,13 +1,15 @@
 "use client";
 
-import { toLocalMeters } from "@/lib/drive/coords";
+import { pathLength, toLocalMeters } from "@/lib/drive/coords";
 import {
   buildSfGate,
   crossedStartFinishRobust,
+  LAP_FINISH_COVER_FRAC,
+  lapCoverFraction,
 } from "@/lib/drive/lap-timing";
 import type { SfGate } from "@/lib/drive/lap-timing";
 import { spawnAtStart, stepCar } from "@/lib/drive/physics";
-import { ribbonEdges } from "@/lib/drive/ribbon";
+import { projectOnRibbon, ribbonEdges } from "@/lib/drive/ribbon";
 import {
   loadGameLeaderboard,
   loadPersonalBest,
@@ -59,6 +61,7 @@ export function DriveGame({ trackId }: Props) {
     lap: 0,
     onTrack: true,
     sliding: false,
+    carPx: 0,
   });
   const [board, setBoard] = useState<DriveLeaderboardEntry[]>([]);
   const [started, setStarted] = useState(false);
@@ -70,6 +73,8 @@ export function DriveGame({ trackId }: Props) {
   const cameraRef = useRef<DriveCameraMode>("chase");
   const pausedRef = useRef(false);
   const startedRef = useRef(false);
+  /** Lateral shove (m) applied once in the sim loop — QA / recovery. */
+  const shoveRef = useRef(0);
 
   useEffect(() => {
     cameraRef.current = camera;
@@ -147,6 +152,10 @@ export function DriveGame({ trackId }: Props) {
       }
       if (e.code === "KeyP" || e.code === "Escape") {
         setPaused((p) => !p);
+      }
+      // Shove perpendicular to heading onto the grass (also helps QA prove crawl-off).
+      if (e.code === "KeyX") {
+        shoveRef.current = 22;
       }
     };
     const up = (e: KeyboardEvent) => {
@@ -229,6 +238,7 @@ export function DriveGame({ trackId }: Props) {
       lat: payload.startFinish.lat,
       lon: payload.startFinish.lon,
     });
+    const trackLenM = Math.max(1, pathLength(centerline));
 
     let car: DriveCarState = spawnAtStart(
       centerline,
@@ -241,12 +251,15 @@ export function DriveGame({ trackId }: Props) {
     let pausedAccum = 0;
     let armed = false; // ignore SF until we've left the gate once
     let leaveTimer = 0;
+    let lapStartAlong = projectOnRibbon(centerline, car.x, car.y).along;
+    let maxCover = 0;
     let acc = 0;
     let last = performance.now();
     let raf = 0;
     let recordBuf: DrivePoint[] = [];
     let lastRecord = 0;
     let hudTick = 0;
+    let lastHudMs = 0;
 
     const playerGhost: DriveGhostLap | null = loadPlayerGhost(trackId);
     const realGhost = payload.realGhost;
@@ -291,18 +304,144 @@ export function DriveGame({ trackId }: Props) {
       c.save();
       c.translate(x, y);
       c.rotate(heading);
+      // World meters → CSS px; enforce a clearly visible minimum at both cams.
+      const pxPerM = Math.max(scale, 0.001);
+      const L = Math.max(56, 11 * pxPerM);
+      const W = Math.max(30, 5.2 * pxPerM);
       c.fillStyle = color;
       c.strokeStyle = "#09090b";
-      c.lineWidth = 1.2 / scale;
-      const L = 4.2;
-      const W = 1.9;
+      c.lineWidth = Math.max(2, L * 0.07);
+      // Nose points along heading (up in chase cam after rotation).
       c.beginPath();
-      c.moveTo(0, -L * 0.55);
-      c.lineTo(W * 0.5, L * 0.45);
-      c.lineTo(-W * 0.5, L * 0.45);
+      c.moveTo(0, -L * 0.58);
+      c.lineTo(W * 0.52, L * 0.4);
+      c.lineTo(W * 0.2, L * 0.26);
+      c.lineTo(-W * 0.2, L * 0.26);
+      c.lineTo(-W * 0.52, L * 0.4);
       c.closePath();
       c.fill();
       c.stroke();
+      // Cabin + nose stripe so silhouette reads as a car with heading.
+      c.fillStyle = "rgba(9,9,11,0.4)";
+      c.beginPath();
+      c.moveTo(0, -L * 0.18);
+      c.lineTo(W * 0.24, L * 0.02);
+      c.lineTo(-W * 0.24, L * 0.02);
+      c.closePath();
+      c.fill();
+      c.strokeStyle = "#fafafa";
+      c.lineWidth = Math.max(1.5, L * 0.04);
+      c.beginPath();
+      c.moveTo(0, -L * 0.5);
+      c.lineTo(0, -L * 0.15);
+      c.stroke();
+      c.restore();
+    }
+
+    function drawMinimap(
+      c: CanvasRenderingContext2D,
+      viewW: number,
+      viewH: number,
+      carX: number,
+      carY: number,
+      carHeading: number,
+    ) {
+      const size = Math.max(96, Math.min(148, Math.floor(viewW * 0.22)));
+      const pad = 10;
+      const left = viewW - size - pad;
+      const top = viewH - size - pad - (viewW < 640 ? 120 : 8);
+      const bw = maxX - minX + worldPad * 2;
+      const bh = maxY - minY + worldPad * 2;
+      const scale = (size * 0.86) / Math.max(bw, bh);
+      const cx = (minX + maxX) / 2;
+      const cy = (minY + maxY) / 2;
+      const toMini = (px: number, py: number) => ({
+        x: left + size / 2 + (px - cx) * scale,
+        y: top + size / 2 - (py - cy) * scale,
+      });
+
+      c.save();
+      c.fillStyle = "rgba(9,9,11,0.72)";
+      c.strokeStyle = "rgba(250,250,250,0.2)";
+      c.lineWidth = 1;
+      c.beginPath();
+      const rr = 10;
+      c.moveTo(left + rr, top);
+      c.arcTo(left + size, top, left + size, top + size, rr);
+      c.arcTo(left + size, top + size, left, top + size, rr);
+      c.arcTo(left, top + size, left, top, rr);
+      c.arcTo(left, top, left + size, top, rr);
+      c.closePath();
+      c.fill();
+      c.stroke();
+
+      // Full track outline (asphalt edges) so the ribbon shape is verifiable.
+      c.fillStyle = "#2f6b38";
+      c.beginPath();
+      for (let i = 0; i < grass.left.length; i += 1) {
+        const s = toMini(grass.left[i]!.x, grass.left[i]!.y);
+        if (i === 0) c.moveTo(s.x, s.y);
+        else c.lineTo(s.x, s.y);
+      }
+      for (let i = grass.right.length - 1; i >= 0; i -= 1) {
+        const s = toMini(grass.right[i]!.x, grass.right[i]!.y);
+        c.lineTo(s.x, s.y);
+      }
+      c.closePath();
+      c.fill();
+
+      c.fillStyle = "#52525b";
+      c.beginPath();
+      for (let i = 0; i < edges.left.length; i += 1) {
+        const s = toMini(edges.left[i]!.x, edges.left[i]!.y);
+        if (i === 0) c.moveTo(s.x, s.y);
+        else c.lineTo(s.x, s.y);
+      }
+      for (let i = edges.right.length - 1; i >= 0; i -= 1) {
+        const s = toMini(edges.right[i]!.x, edges.right[i]!.y);
+        c.lineTo(s.x, s.y);
+      }
+      c.closePath();
+      c.fill();
+
+      c.strokeStyle = "rgba(250,250,250,0.55)";
+      c.lineWidth = 1.25;
+      c.beginPath();
+      for (let i = 0; i < centerline.length; i += 1) {
+        const s = toMini(centerline[i]!.x, centerline[i]!.y);
+        if (i === 0) c.moveTo(s.x, s.y);
+        else c.lineTo(s.x, s.y);
+      }
+      c.stroke();
+
+      // SF tick on minimap
+      const g0 = toMini(
+        gate.mid.x - gate.gateX * gate.halfWidthM,
+        gate.mid.y - gate.gateY * gate.halfWidthM,
+      );
+      const g1 = toMini(
+        gate.mid.x + gate.gateX * gate.halfWidthM,
+        gate.mid.y + gate.gateY * gate.halfWidthM,
+      );
+      c.strokeStyle = "#fafafa";
+      c.lineWidth = 2;
+      c.beginPath();
+      c.moveTo(g0.x, g0.y);
+      c.lineTo(g1.x, g1.y);
+      c.stroke();
+
+      const me = toMini(carX, carY);
+      c.save();
+      c.translate(me.x, me.y);
+      c.rotate(carHeading);
+      c.fillStyle = "#f97316";
+      c.beginPath();
+      c.moveTo(0, -7);
+      c.lineTo(4.5, 5.5);
+      c.lineTo(-4.5, 5.5);
+      c.closePath();
+      c.fill();
+      c.restore();
       c.restore();
     }
 
@@ -416,26 +555,53 @@ export function DriveGame({ trackId }: Props) {
           const inputs = readInputs();
           const stepped = stepCar(car, inputs, FIXED_DT, centerline, halfW);
           car = stepped.car;
+          if (shoveRef.current !== 0) {
+            const lat = shoveRef.current;
+            shoveRef.current = 0;
+            const lx = Math.cos(car.heading);
+            const ly = -Math.sin(car.heading);
+            car = {
+              ...car,
+              x: car.x + lx * lat,
+              y: car.y + ly * lat,
+              onTrack: false,
+              speed: Math.min(car.speed, 8),
+            };
+          }
           const nextPos = { x: car.x, y: car.y };
 
           leaveTimer += FIXED_DT;
+          const alongHit = projectOnRibbon(centerline, car.x, car.y);
+          maxCover = Math.max(
+            maxCover,
+            lapCoverFraction(alongHit.along, lapStartAlong, trackLenM),
+          );
           if (!armed && leaveTimer > 1.2) {
             const dist = Math.hypot(car.x - sfLocal.x, car.y - sfLocal.y);
-            if (dist > 25) armed = true;
+            // Leave the gate area before any finish can arm.
+            if (dist > 35 && maxCover > 0.08) armed = true;
           }
 
           if (
             armed &&
+            maxCover >= LAP_FINISH_COVER_FRAC &&
             crossedStartFinishRobust(gate, prevPos, nextPos)
           ) {
             const timeMs = lapElapsedNow();
-            if (timeMs > 15_000) {
+            // Directional + coverage gate already applied; keep a short
+            // floor so spawn jitter never posts a tiny "lap".
+            if (timeMs > 8_000) {
               onLapComplete(timeMs, recordBuf);
               recordBuf = [];
               lastRecord = 0;
               lapStartPerf = performance.now();
               pausedAccum = 0;
               pausedAt = null;
+              lastHudMs = 0;
+              armed = false;
+              leaveTimer = 0;
+              lapStartAlong = alongHit.along;
+              maxCover = 0;
             }
           }
           prevPos = nextPos;
@@ -561,24 +727,33 @@ export function DriveGame({ trackId }: Props) {
         car.y,
         car.heading,
       );
+      const carScale = me.scale;
+      const carLenPx = Math.max(56, 11 * Math.max(carScale, 0.001));
       drawCar(
         ctx!,
         me.x,
         me.y,
         mode === "chase" ? 0 : car.heading,
         car.onTrack ? "#f97316" : "#a1a1aa",
-        me.scale,
+        carScale,
       );
+
+      drawMinimap(ctx!, viewW, viewH, car.x, car.y, car.heading);
 
       hudTick += dtWall;
       if (hudTick > 0.1) {
         hudTick = 0;
+        // Monotonic within a lap — never jump backwards from pause accounting.
+        const displayMs =
+          lapElapsed + 40 >= lastHudMs ? lapElapsed : lastHudMs;
+        lastHudMs = displayMs;
         setHud((h) => ({
           ...h,
           speedMph: Math.abs(car.speed) * 2.23694,
-          currentMs: lapElapsed,
+          currentMs: displayMs,
           onTrack: car.onTrack,
           sliding: Math.abs(car.slip) > 0.55,
+          carPx: carLenPx,
         }));
       }
     }
@@ -709,7 +884,12 @@ export function DriveGame({ trackId }: Props) {
             data-drive-ui
             className="pointer-events-none absolute inset-x-0 top-0 flex justify-between gap-2 p-2 sm:p-3"
           >
-            <div className="rounded-lg bg-zinc-950/75 px-2.5 py-1.5 font-mono text-xs text-zinc-100 backdrop-blur">
+            <div
+              className="rounded-lg bg-zinc-950/75 px-2.5 py-1.5 font-mono text-xs text-zinc-100 backdrop-blur"
+              data-apex-drive-lap
+              data-apex-drive-lap-ms={Math.round(hud.currentMs)}
+              data-apex-drive-lap-n={Math.max(1, hud.lap + 1)}
+            >
               <div>Lap {Math.max(1, hud.lap + 1)}</div>
               <div className="text-base text-orange-400">
                 {formatLapTime(hud.currentMs)}
@@ -719,7 +899,13 @@ export function DriveGame({ trackId }: Props) {
                 {hud.bestMs != null ? formatLapTime(hud.bestMs) : "—"}
               </div>
             </div>
-            <div className="rounded-lg bg-zinc-950/75 px-2.5 py-1.5 text-right font-mono text-xs text-zinc-100 backdrop-blur">
+            <div
+              className="rounded-lg bg-zinc-950/75 px-2.5 py-1.5 text-right font-mono text-xs text-zinc-100 backdrop-blur"
+              data-apex-drive-speed
+              data-apex-drive-mph={hud.speedMph.toFixed(1)}
+              data-apex-drive-on-track={hud.onTrack ? "1" : "0"}
+              data-apex-drive-car-px={hud.carPx.toFixed(0)}
+            >
               <div className="text-base">{hud.speedMph.toFixed(0)} mph</div>
               <div
                 className={`text-[10px] ${

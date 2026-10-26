@@ -8,11 +8,15 @@ import type { DriveCarState, DriveInputs, DrivePoint } from "@/lib/drive/types";
 /** Arcade tuning — fun on phone, not a sim. */
 export const DRIVE_PHYSICS = {
   maxSpeedOn: 52, // m/s ≈ 116 mph
-  maxSpeedOff: 14,
+  /** Grass hard-cap (~9 mph) — cutting is punishing. */
+  maxSpeedOff: 4,
   accel: 14,
   brake: 22,
   coastDrag: 1.8,
-  offDrag: 9,
+  /** Strong grass drag so throttle-off dumps speed immediately. */
+  offDrag: 36,
+  /** Extra continuous grass decay while coasting (not while throttling). */
+  offCoastDecay: 2.4,
   /** Steer rate at low speed (rad/s at full lock). */
   steerRateLow: 2.8,
   /** Steer rate at high speed. */
@@ -24,6 +28,8 @@ export const DRIVE_PHYSICS = {
   /** Slip bleed when grip exceeded. */
   slipGain: 0.55,
   slipDecay: 3.2,
+  /** Minimum forward crawl when throttling off-track so the car never sticks. */
+  offThrottleCrawl: 2.2,
 } as const;
 
 export function stepCar(
@@ -56,7 +62,13 @@ export function stepCar(
     speed -= p.brake * brake * dt;
   } else if (throttle > 0.05) {
     const headroom = Math.max(0, maxSpeed - Math.max(0, speed));
-    speed += p.accel * throttle * (0.35 + 0.65 * (headroom / maxSpeed)) * dt;
+    const pull =
+      p.accel * throttle * (0.35 + 0.65 * (headroom / Math.max(0.001, maxSpeed)));
+    speed += pull * dt;
+    // Guarantee a crawl off-track so releasing then re-throttling always moves.
+    if (!onTrack && speed >= 0 && speed < p.offThrottleCrawl * throttle) {
+      speed = p.offThrottleCrawl * throttle;
+    }
   } else {
     const drag = onTrack ? p.coastDrag : p.offDrag;
     if (speed > 0) speed = Math.max(0, speed - drag * dt);
@@ -80,8 +92,9 @@ export function stepCar(
   if (Math.abs(slip) > 0.4) {
     speed *= Math.exp(-0.35 * Math.abs(slip) * dt);
   }
-  if (!onTrack) {
-    speed *= Math.exp(-0.55 * dt);
+  // Grass decay only while coasting — never pin a throttling car at 0.
+  if (!onTrack && throttle < 0.05) {
+    speed *= Math.exp(-p.offCoastDecay * dt);
   }
 
   // Forward in east/north: heading 0 = +y (north), clockwise positive → +x east

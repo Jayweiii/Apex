@@ -797,30 +797,43 @@ export function LapCompare({
   );
 
   function removeSlot(key: string) {
-    if (slots.length <= 2) return;
     userTouchedSlotsRef.current = true;
-    const index = slots.findIndex((slot) => slot.key === key);
-    setSlots((prev) => prev.filter((slot) => slot.key !== key));
-    if (index >= 0 && index === refIndex) setRefIndex(0);
-    else if (index >= 0 && index < refIndex) setRefIndex((r) => r - 1);
+    setSlots((prev) => {
+      if (prev.length <= 2) return prev;
+      const index = prev.findIndex((slot) => slot.key === key);
+      if (index < 0) return prev;
+      const next = prev.filter((slot) => slot.key !== key);
+      setRefIndex((r) => {
+        if (index === r) return 0;
+        if (index < r) return Math.max(0, r - 1);
+        return r;
+      });
+      return next;
+    });
   }
 
   /** Tap a lap in the browse list to add/remove it from the comparison set. */
   function toggleComparedLap(sessionId: string, lapId: string) {
     if (readOnly) return;
     userTouchedSlotsRef.current = true;
-    const existing = slots.findIndex(
-      (slot) => slot.sessionId === sessionId && slot.lapId === lapId,
-    );
-    if (existing >= 0) {
-      removeSlot(slots[existing]!.key);
-      return;
-    }
-    if (slots.length >= MAX_COMPARE_LAPS) return;
-    setSlots((prev) => [
-      ...prev,
-      { key: newSlotKey(), sessionId, lapId },
-    ]);
+    setSlots((prev) => {
+      const existing = prev.findIndex(
+        (slot) => slot.sessionId === sessionId && slot.lapId === lapId,
+      );
+      if (existing >= 0) {
+        // Toggle off — keep at least two compare slots.
+        if (prev.length <= 2) return prev;
+        const next = prev.filter((_, i) => i !== existing);
+        setRefIndex((r) => {
+          if (existing === r) return 0;
+          if (existing < r) return Math.max(0, r - 1);
+          return r;
+        });
+        return next;
+      }
+      if (prev.length >= MAX_COMPARE_LAPS) return prev;
+      return [...prev, { key: newSlotKey(), sessionId, lapId }];
+    });
   }
 
   const browseSession =
@@ -933,6 +946,7 @@ export function LapCompare({
                     {slots.length > 2 ? (
                       <button
                         type="button"
+                        data-apex-compare-remove={`${slot.sessionId}:${slot.lapId}`}
                         onClick={() => removeSlot(slot.key)}
                         className="apex-pressable apex-pressable--muted rounded px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-zinc-500"
                       >

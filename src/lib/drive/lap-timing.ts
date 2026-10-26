@@ -111,10 +111,30 @@ export function crossedStartFinishRobust(
   const travelY = Math.cos(gate.travelHeading);
   const dispX = next.x - prev.x;
   const dispY = next.y - prev.y;
-  if (dispX * travelX + dispY * travelY < 0.15) return false;
+  // Require clear forward motion through the gate (rejects reverse / re-cross).
+  if (dispX * travelX + dispY * travelY < 0.35) return false;
 
   const t = s0 / (s0 - s1);
   const cx = prev.x + dispX * t;
   const cy = prev.y + dispY * t;
   return Math.abs(alongGate(gate, cx, cy)) <= gate.halfWidthM;
 }
+
+/**
+ * Fraction of the lap covered along the ribbon since `startAlong`, wrapping
+ * at `trackLengthM`. Used to arm SF finish only after most of a lap.
+ */
+export function lapCoverFraction(
+  alongM: number,
+  startAlongM: number,
+  trackLengthM: number,
+): number {
+  const len = Math.max(1, trackLengthM);
+  let delta = alongM - startAlongM;
+  while (delta < 0) delta += len;
+  while (delta >= len) delta -= len;
+  return Math.max(0, Math.min(1, delta / len));
+}
+
+/** Minimum ribbon coverage before an SF crossing can count as a lap finish. */
+export const LAP_FINISH_COVER_FRAC = 0.72;

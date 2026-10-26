@@ -101,6 +101,15 @@ assert(synced.includes("PlaybackControls"), "session lap uses PlaybackControls")
 assert(synced.includes("usePlaybackClock"), "session lap owns clock");
 assert(synced.includes("LapVideoSyncGuide"), "point-match guide");
 assert(synced.includes("isVideoSynced"), "gates two-way on synced");
+assert(
+  synced.includes('authorityRef.current === "clock" && playingRef.current'),
+  "session clock keeps authority while playing",
+);
+assert(
+  synced.includes("actual < t - 0.15") ||
+    synced.includes("lapStartVideo"),
+  "Play seeks video to lap-synced time when behind",
+);
 
 const controls = readFileSync(
   resolve(import.meta.dirname, "../src/components/PlaybackControls.tsx"),
@@ -108,6 +117,9 @@ const controls = readFileSync(
 );
 assert(controls.includes("PLAYBACK_SPEEDS"), "uses PLAYBACK_SPEEDS");
 assert(controls.includes("type=\"range\""), "scrub bar");
-assert(controls.includes("min-w-["), "fixed play/pause width");
+assert(
+  controls.includes("min-w-[") || controls.includes("width: 96"),
+  "fixed play/pause width",
+);
 
 console.log("verify-playback ok");
