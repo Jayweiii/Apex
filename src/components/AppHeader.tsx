@@ -42,6 +42,7 @@ const NAV = [
   { href: "/upload", label: "Upload" },
   { href: "/lap-comparisons", label: "Lap Comparisons" },
   { href: "/tracks", label: "Tracks" },
+  { href: "/drive", label: "Drive" },
 ] as const;
 
 function navActive(pathname: string, href: string) {

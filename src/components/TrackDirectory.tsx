@@ -422,7 +422,7 @@ export function TrackDetail({ id }: { id: string }) {
     <>
       <AppHeader />
       <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-5 px-4 py-5 sm:px-6 sm:py-7">
-        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <Link
               href="/tracks"
@@ -434,6 +434,13 @@ export function TrackDetail({ id }: { id: string }) {
               {track.name}
             </h1>
             <p className="mt-1 text-sm text-zinc-500">{track.location}</p>
+            <Link
+              href={`/drive/${track.id}`}
+              className="apex-btn apex-btn--accent mt-3 inline-flex min-h-10"
+              data-testid="drive-this-track"
+            >
+              Drive this track
+            </Link>
           </div>
           <div
             role="tablist"

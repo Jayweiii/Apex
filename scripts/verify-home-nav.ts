@@ -38,6 +38,7 @@ const header = read("src/components/AppHeader.tsx");
 assert(header.includes('href: "/upload"'), "nav upload");
 assert(header.includes('href: "/lap-comparisons"'), "nav comparisons");
 assert(header.includes('href: "/tracks"'), "nav tracks");
+assert(header.includes('href: "/drive"'), "nav drive");
 assert(!header.includes(">Discover<"), "Discover removed from nav");
 assert(!header.includes('href: "/friends"'), "Friends removed from nav");
 assert(!header.includes('href: "/youtube"'), "YouTube removed from nav");
