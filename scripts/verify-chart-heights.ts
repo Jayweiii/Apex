@@ -20,7 +20,7 @@ const root = path.resolve(__dirname, "..");
 const read = (rel: string) => fs.readFileSync(path.join(root, rel), "utf8");
 
 assert(MIN_PLOT_AREA_PX >= 200, "plot area floor ≥200");
-assert(STACKED_SPEED_MIN_HEIGHT >= 240, "stacked speed container ≥240");
+assert(STACKED_SPEED_MIN_HEIGHT >= 260, "stacked speed container ≥260");
 assert(CHANNEL_CHART_MIN_HEIGHT >= 240, "channel container ≥240");
 assert(G_CHART_ROW_MIN_HEIGHT >= 240, "G row container ≥240");
 assert(COMPARE_CHART_MIN_HEIGHT >= 300, "compare container ≥300");
@@ -44,8 +44,8 @@ assert(
 
 const stacked = read("src/components/StackedTelemetry.tsx");
 assert(
-  stacked.includes("min-h-[260px]") || stacked.includes("h-[260px]"),
-  "stacked speed keeps real min height ≥260",
+  stacked.includes("min-h-[280px]") || stacked.includes("h-[280px]"),
+  "stacked speed keeps real min height ≥280",
 );
 assert(
   !stacked.includes("overflow-y-auto"),
@@ -58,8 +58,8 @@ assert(
 
 const speed = read("src/components/SpeedChart.tsx");
 assert(
-  speed.includes("h-[260px]") || speed.includes("min-h-[260px]"),
-  "speed fill shell ≥260px",
+  speed.includes("h-[280px]") || speed.includes("min-h-[280px]"),
+  "speed fill shell ≥280px",
 );
 
 const compare = read("src/components/LapCompare.tsx");

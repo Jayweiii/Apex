@@ -151,7 +151,7 @@ export function SpeedChart({
   // Class strings must be static so Tailwind JIT keeps them.
   // Body floors leave ≥200px cartesian plot after axis chrome.
   const bodyHeight = fill
-    ? "h-[220px] min-h-[220px] sm:h-[240px] sm:min-h-[240px]"
+    ? "h-[240px] min-h-[240px] sm:h-[260px] sm:min-h-[260px]"
     : compact
       ? "h-[240px] min-h-[240px] sm:h-[260px] sm:min-h-[260px]"
       : "h-[260px] min-h-[260px] sm:h-[300px] sm:min-h-[300px]";
@@ -198,17 +198,17 @@ export function SpeedChart({
   // Keep literal classes in sync with chart-height-contract floors.
   if (
     process.env.NODE_ENV !== "production" &&
-    (STACKED_SPEED_MIN_HEIGHT !== 260 ||
-      STACKED_SPEED_MIN_HEIGHT_SM !== 280 ||
-      STACKED_SPEED_BODY_HEIGHT !== 220 ||
-      STACKED_SPEED_BODY_HEIGHT_SM !== 240 ||
+    (STACKED_SPEED_MIN_HEIGHT !== 280 ||
+      STACKED_SPEED_MIN_HEIGHT_SM !== 300 ||
+      STACKED_SPEED_BODY_HEIGHT !== 240 ||
+      STACKED_SPEED_BODY_HEIGHT_SM !== 260 ||
       SPEED_CHART_COMPACT_MIN_HEIGHT !== 240 ||
       SPEED_CHART_COMPACT_MIN_HEIGHT_SM !== 260)
   ) {
     throw new Error("SpeedChart fill heights drifted from chart-height-contract");
   }
   const fillShell = fill
-    ? "h-[260px] min-h-[260px] sm:h-[280px] sm:min-h-[280px]"
+    ? "h-[280px] min-h-[280px] sm:h-[300px] sm:min-h-[300px]"
     : "";
 
   return (

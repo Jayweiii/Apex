@@ -119,10 +119,10 @@ assert(
   "StackedCompareTelemetry must be exported",
 );
 assert(
-  stackedSrc.includes("min-h-[260px]") ||
-    stackedSrc.includes("h-[260px]") ||
-    stackedSrc.includes("sm:min-h-[280px]"),
-  "speed channel should keep a solid min height ≥260 (plot ≥200)",
+  stackedSrc.includes("min-h-[280px]") ||
+    stackedSrc.includes("h-[280px]") ||
+    stackedSrc.includes("sm:min-h-[300px]"),
+  "speed channel should keep a solid min height ≥280 (plot ≥200)",
 );
 assert(
   !stackedSrc.includes("overflow-y-auto"),
