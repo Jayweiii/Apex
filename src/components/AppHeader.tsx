@@ -25,7 +25,7 @@ export function SignOutButton() {
       onClick={signOut}
       disabled={busy}
       aria-busy={busy}
-      className="rounded-full border border-zinc-800 px-3 py-1.5 text-xs font-medium tracking-wide text-zinc-400 transition hover:border-zinc-600 hover:text-zinc-200 disabled:opacity-50"
+      className="apex-btn"
     >
       {busy ? "Signing out…" : "Sign out"}
     </button>
@@ -87,7 +87,8 @@ export function AppHeader({ email }: { email?: string }) {
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`inline-flex min-h-10 items-center rounded-lg px-2.5 text-xs uppercase tracking-[0.16em] transition ${
+                  aria-current={active ? "page" : undefined}
+                  className={`apex-pressable inline-flex min-h-10 items-center rounded-lg px-2.5 text-xs uppercase tracking-[0.16em] ${
                     active
                       ? "text-orange-300"
                       : "text-zinc-500 hover:text-zinc-300"
@@ -105,18 +106,22 @@ export function AppHeader({ email }: { email?: string }) {
             <>
               <Link
                 href="/account"
-                className="inline-flex min-h-10 items-center text-xs uppercase tracking-[0.16em] text-zinc-400 hover:text-zinc-200"
+                className="apex-btn apex-btn--ghost hidden min-h-10 sm:inline-flex"
               >
                 My Sessions
+              </Link>
+              <Link
+                href="/account"
+                className="apex-btn apex-btn--ghost sm:hidden"
+                aria-label="My Sessions"
+              >
+                Sessions
               </Link>
               <span className="hidden max-w-[180px] truncate text-xs text-zinc-500 lg:block">
                 {sessionEmail ?? (guest ? "Guest" : "")}
               </span>
               {guest ? (
-                <Link
-                  href="/login"
-                  className="inline-flex min-h-10 items-center rounded-full border border-zinc-800 px-3 py-1.5 text-xs font-medium tracking-wide text-orange-300 transition hover:border-orange-500/50"
-                >
+                <Link href="/login" className="apex-btn apex-btn--accent">
                   Keep sessions
                 </Link>
               ) : (
@@ -124,10 +129,7 @@ export function AppHeader({ email }: { email?: string }) {
               )}
             </>
           ) : (
-            <Link
-              href="/login"
-              className="inline-flex min-h-10 items-center rounded-full border border-zinc-800 px-3 py-1.5 text-xs font-medium tracking-wide text-zinc-300 transition hover:border-zinc-600 hover:text-zinc-100"
-            >
+            <Link href="/login" className="apex-btn">
               Sign in
             </Link>
           )}
@@ -143,8 +145,11 @@ export function AppHeader({ email }: { email?: string }) {
             <Link
               key={item.href}
               href={item.href}
-              className={`inline-flex min-h-9 shrink-0 items-center rounded-md px-2.5 text-[11px] uppercase tracking-[0.14em] ${
-                active ? "text-orange-300" : "text-zinc-500"
+              aria-current={active ? "page" : undefined}
+              className={`apex-pressable inline-flex min-h-9 shrink-0 items-center rounded-md px-2.5 text-[11px] uppercase tracking-[0.14em] ${
+                active
+                  ? "bg-orange-500/15 text-orange-300"
+                  : "text-zinc-500 active:bg-zinc-900"
               }`}
             >
               {item.label}

@@ -337,7 +337,11 @@ export function TrackDetail({ id }: { id: string }) {
             </h1>
             <p className="mt-1 text-sm text-zinc-500">{track.location}</p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div
+            role="tablist"
+            aria-label="Track sections"
+            className="flex flex-wrap gap-2"
+          >
             {(
               [
                 { id: "sessions" as const, label: "Sessions" },
@@ -348,12 +352,10 @@ export function TrackDetail({ id }: { id: string }) {
               <button
                 key={item.id}
                 type="button"
+                role="tab"
+                aria-selected={tab === item.id}
                 onClick={() => setTab(item.id)}
-                className={`min-h-10 rounded-lg px-3 text-xs uppercase tracking-[0.16em] ${
-                  tab === item.id
-                    ? "bg-zinc-100 text-zinc-900"
-                    : "border border-zinc-800 text-zinc-400 hover:text-zinc-200"
-                }`}
+                className={`apex-btn ${tab === item.id ? "apex-btn--pressed" : ""}`}
               >
                 {item.label}
               </button>
@@ -366,7 +368,7 @@ export function TrackDetail({ id }: { id: string }) {
             <div className="lg:sticky lg:top-20">
               <TrackOverviewMap track={track} local={local} />
             </div>
-            <div className="flex max-h-[min(70vh,760px)] flex-col gap-4 overflow-y-auto">
+            <div className="flex flex-col gap-4">
               <PublicCloudSessions trackId={track.id} />
               {loading ? (
                 <p className="text-sm text-zinc-500">Loading sessions…</p>

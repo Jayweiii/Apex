@@ -14,7 +14,11 @@ export function AccountWorkbench() {
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap gap-2">
+      <div
+        role="tablist"
+        aria-label="Account sections"
+        className="flex flex-wrap gap-2"
+      >
         {(
           [
             { id: "sessions" as const, label: "My Sessions" },
@@ -25,12 +29,10 @@ export function AccountWorkbench() {
           <button
             key={item.id}
             type="button"
+            role="tab"
+            aria-selected={tab === item.id}
             onClick={() => setTab(item.id)}
-            className={`min-h-10 rounded-lg px-3 text-xs uppercase tracking-[0.16em] ${
-              tab === item.id
-                ? "bg-zinc-100 text-zinc-900"
-                : "border border-zinc-800 text-zinc-400 hover:text-zinc-200"
-            }`}
+            className={`apex-btn ${tab === item.id ? "apex-btn--pressed" : ""}`}
           >
             {item.label}
           </button>
@@ -40,9 +42,7 @@ export function AccountWorkbench() {
       {tab === "sessions" ? (
         <div className="grid gap-5 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-start">
           <ImportLocalSessions />
-          <div className="max-h-[min(70vh,760px)] overflow-y-auto">
-            <AccountSessions />
-          </div>
+          <AccountSessions />
         </div>
       ) : null}
 

@@ -20,12 +20,9 @@ export default async function AccountPage() {
   return (
     <>
       <AppHeader email={user.email} />
-      <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-5 px-4 py-6 sm:px-6 sm:py-8">
+      <main className="apex-page apex-page--medium">
         <div>
-          <Link
-            href="/"
-            className="text-xs uppercase tracking-[0.2em] text-zinc-500 hover:text-zinc-300"
-          >
+          <Link href="/" className="apex-eyebrow">
             Home
           </Link>
           <h1 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-50">

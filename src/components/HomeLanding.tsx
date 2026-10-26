@@ -43,14 +43,11 @@ export function HomeLanding() {
             <div className="flex flex-wrap gap-3">
               <Link
                 href="/upload"
-                className="inline-flex min-h-11 items-center justify-center rounded-lg bg-orange-500 px-5 text-sm font-semibold text-black transition hover:bg-orange-400"
+                className="apex-btn apex-btn--primary apex-btn--cta"
               >
                 Upload a session
               </Link>
-              <Link
-                href="/lap-comparisons"
-                className="inline-flex min-h-11 items-center justify-center rounded-lg border border-zinc-700 px-5 text-sm font-medium text-zinc-200 transition hover:border-zinc-500 hover:text-zinc-50"
-              >
+              <Link href="/lap-comparisons" className="apex-btn apex-btn--cta">
                 Browse lap comparisons
               </Link>
             </div>

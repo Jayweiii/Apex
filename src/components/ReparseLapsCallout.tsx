@@ -22,8 +22,8 @@ export function ReparseLapsButton({
       className={
         className ??
         (emphasize
-          ? "inline-flex min-h-9 shrink-0 items-center justify-center rounded-lg bg-orange-500 px-2.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-black hover:bg-orange-400"
-          : "inline-flex min-h-9 shrink-0 items-center justify-center rounded-lg border border-orange-500/50 bg-orange-500/10 px-2.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-orange-200 hover:border-orange-400 hover:bg-orange-500/20")
+          ? "apex-btn apex-btn--primary shrink-0"
+          : "apex-btn apex-btn--accent shrink-0")
       }
     >
       Re-parse laps

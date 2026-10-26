@@ -63,7 +63,7 @@ function FriendsSessionsFeed() {
 
   if (!rows.length) {
     return (
-      <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-6 text-sm text-zinc-500">
+      <p className="apex-empty">
         {signedIn
           ? "No friends or public sessions yet."
           : "No public sessions yet. Sign in to also see friends-visible uploads."}
@@ -119,26 +119,26 @@ export function LapComparisonsPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap gap-2">
+      <div
+        role="tablist"
+        aria-label="Lap comparison feeds"
+        className="flex flex-wrap gap-2"
+      >
         <button
           type="button"
+          role="tab"
+          aria-selected={tab === "comparisons"}
           onClick={() => setTab("comparisons")}
-          className={`min-h-10 rounded-lg px-3 text-xs uppercase tracking-[0.16em] ${
-            tab === "comparisons"
-              ? "bg-zinc-100 text-zinc-900"
-              : "border border-zinc-800 text-zinc-400 hover:text-zinc-200"
-          }`}
+          className={`apex-btn ${tab === "comparisons" ? "apex-btn--pressed" : ""}`}
         >
           Comparisons
         </button>
         <button
           type="button"
+          role="tab"
+          aria-selected={tab === "sessions"}
           onClick={() => setTab("sessions")}
-          className={`min-h-10 rounded-lg px-3 text-xs uppercase tracking-[0.16em] ${
-            tab === "sessions"
-              ? "bg-zinc-100 text-zinc-900"
-              : "border border-zinc-800 text-zinc-400 hover:text-zinc-200"
-          }`}
+          className={`apex-btn ${tab === "sessions" ? "apex-btn--pressed" : ""}`}
         >
           Friends & public
         </button>

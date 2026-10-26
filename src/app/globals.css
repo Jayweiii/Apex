@@ -317,6 +317,99 @@ button[aria-busy="true"],
   color: rgb(254 215 170);
 }
 
+/* Sentence-case CTAs (home, login, upload) — same press/hover contract. */
+.apex-btn--cta {
+  min-height: 2.75rem;
+  padding: 0.625rem 1.25rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  text-decoration: none;
+}
+
+a.apex-btn {
+  text-decoration: none;
+}
+
+/* Form fields — shared focus ring with apex-btn. */
+.apex-field {
+  width: 100%;
+  min-height: 2.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgb(39 39 42);
+  background: rgb(9 9 11);
+  color: rgb(244 244 245);
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  outline: none;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.apex-field:focus {
+  border-color: rgb(249 115 22 / 0.7);
+  box-shadow: 0 0 0 2px rgb(249 115 22 / 0.35);
+}
+
+.apex-field::placeholder {
+  color: rgb(113 113 122);
+}
+
+textarea.apex-field {
+  min-height: 5.5rem;
+  resize: vertical;
+}
+
+/* Page shell + hierarchy helpers (login / account / upload / tracks). */
+.apex-page {
+  margin-inline: auto;
+  width: 100%;
+  max-width: 72rem;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  padding: 1.5rem 1rem;
+}
+
+@media (min-width: 640px) {
+  .apex-page {
+    gap: 1.75rem;
+    padding: 2rem 1.5rem;
+  }
+}
+
+.apex-page--narrow {
+  max-width: 48rem;
+}
+
+.apex-page--medium {
+  max-width: 56rem;
+}
+
+.apex-eyebrow {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgb(113 113 122);
+}
+
+a.apex-eyebrow:hover {
+  color: rgb(212 212 216);
+}
+
+.apex-empty {
+  border-radius: 0.75rem;
+  border: 1px dashed rgb(39 39 42);
+  padding: 1.5rem 1rem;
+  text-align: center;
+  font-size: 0.875rem;
+  color: rgb(113 113 122);
+}
+
 img,
 svg,
 canvas,

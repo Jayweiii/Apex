@@ -27,15 +27,12 @@ export default async function LapComparisonsRoute() {
   return (
     <>
       <AppHeader email={email} />
-      <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-8 px-6 py-8">
+      <main className="apex-page apex-page--medium">
         <div>
-          <Link
-            href="/"
-            className="text-xs uppercase tracking-[0.2em] text-zinc-500 hover:text-zinc-300"
-          >
+          <Link href="/" className="apex-eyebrow">
             Home
           </Link>
-          <h1 className="mt-3 text-2xl font-semibold tracking-tight text-zinc-50">
+          <h1 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-50">
             Lap Comparisons
           </h1>
           <p className="mt-1 text-sm text-zinc-500">

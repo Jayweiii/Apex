@@ -58,7 +58,7 @@ export function ImportLocalSessions() {
         type="button"
         disabled={busy || count === 0}
         onClick={migrate}
-        className="mt-4 min-h-11 rounded-lg bg-orange-500 px-4 text-sm font-semibold text-black hover:bg-orange-400 disabled:opacity-50"
+        className="apex-btn apex-btn--primary apex-btn--cta mt-4"
       >
         {busy ? "Importing…" : "Import my local sessions"}
       </button>

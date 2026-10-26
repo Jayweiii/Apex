@@ -153,16 +153,16 @@ export function LeaderboardPanel({
         </div>
       </div>
       {filtered.length === 0 ? (
-        <p className="mt-4 rounded-xl border border-dashed border-zinc-800 px-4 py-6 text-center text-sm text-zinc-500">
+        <p className="apex-empty mt-4">
           No sessions yet, upload one.
         </p>
       ) : (
-        <ol className="mt-4 max-h-[min(40vh,360px)] divide-y divide-zinc-900 overflow-y-auto rounded-xl border border-zinc-800/80">
+        <ol className="mt-4 divide-y divide-zinc-900 rounded-xl border border-zinc-800/80">
           {filtered.slice(0, 20).map((row, index) => (
             <li key={`${row.sessionId}-${row.driver}-${row.car}`}>
               <Link
                 href={`/sessions/${row.sessionId}`}
-                className="flex min-h-14 items-center justify-between gap-3 px-4 py-3 hover:bg-zinc-900/60"
+                className="apex-pressable flex min-h-14 items-center justify-between gap-3 px-4 py-3 hover:bg-zinc-900/60"
               >
                 <div className="min-w-0">
                   <p className="font-medium text-zinc-100">

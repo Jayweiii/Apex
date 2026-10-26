@@ -203,7 +203,7 @@ export function SaveComparisonControls({
             type="button"
             disabled={busy || !canSave}
             onClick={() => void saveExisting()}
-            className="min-h-10 rounded-lg bg-orange-500 px-3 text-sm font-semibold text-black hover:bg-orange-400 disabled:opacity-40"
+            className="apex-btn apex-btn--primary apex-btn--cta"
           >
             {busy ? "Saving…" : "Update"}
           </button>
@@ -213,7 +213,7 @@ export function SaveComparisonControls({
             type="button"
             disabled={busy || !canSave}
             onClick={() => void (existing ? fork() : saveNew())}
-            className="min-h-10 rounded-lg bg-orange-500 px-3 text-sm font-semibold text-black hover:bg-orange-400 disabled:opacity-40"
+            className="apex-btn apex-btn--primary apex-btn--cta"
           >
             {busy
               ? "Working…"
@@ -226,7 +226,7 @@ export function SaveComparisonControls({
             type="button"
             disabled={busy}
             onClick={() => void fork()}
-            className="min-h-10 rounded-lg border border-zinc-800 px-3 text-sm text-zinc-300 hover:border-zinc-600 disabled:opacity-40"
+            className="apex-btn apex-btn--cta"
           >
             Duplicate / Fork
           </button>

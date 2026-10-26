@@ -338,7 +338,7 @@ export function SessionReparsePanel({
           type="button"
           disabled={busy || !density.ok}
           onClick={() => void runReparse()}
-          className="min-h-10 rounded-lg bg-orange-500 px-3 text-xs font-semibold uppercase tracking-[0.14em] text-black hover:bg-orange-400 disabled:opacity-40"
+          className="apex-btn apex-btn--primary"
         >
           Re-parse laps
         </button>

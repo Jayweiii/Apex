@@ -69,7 +69,7 @@ export function ConfirmDialog({
             type="button"
             disabled={busy}
             onClick={onCancel}
-            className="inline-flex min-h-10 items-center rounded-lg border border-zinc-700 px-3 text-xs uppercase tracking-[0.14em] text-zinc-300 hover:border-zinc-500 disabled:opacity-40"
+            className="apex-btn"
           >
             {cancelLabel}
           </button>
@@ -79,11 +79,7 @@ export function ConfirmDialog({
             disabled={busy}
             data-testid="confirm-delete"
             onClick={onConfirm}
-            className={`inline-flex min-h-10 items-center rounded-lg px-3 text-xs font-semibold uppercase tracking-[0.14em] disabled:opacity-40 ${
-              danger
-                ? "bg-red-600 text-white hover:bg-red-500"
-                : "bg-orange-500 text-black hover:bg-orange-400"
-            }`}
+            className={`apex-btn ${danger ? "apex-btn--danger" : "apex-btn--primary"}`}
           >
             {busy ? "Working…" : confirmLabel}
           </button>

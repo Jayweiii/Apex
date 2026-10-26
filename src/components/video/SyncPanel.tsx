@@ -314,7 +314,7 @@ export function SyncPanel({
               <button
                 type="button"
                 onClick={() => applyEventPair(kind)}
-                className="min-h-10 rounded-r-lg bg-orange-500 px-3 text-sm font-semibold text-black hover:bg-orange-400"
+                className="apex-btn apex-btn--primary min-h-10 rounded-l-none"
               >
                 Set {SYNC_EVENT_LABELS[kind]}
               </button>

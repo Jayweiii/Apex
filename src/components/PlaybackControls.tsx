@@ -72,10 +72,8 @@ export function PlaybackControls({
             type="button"
             disabled={disabled}
             onClick={onTogglePlay}
-            className={`rounded-lg bg-orange-500 font-semibold text-black hover:bg-orange-400 disabled:opacity-40 ${
-              compact
-                ? "min-h-8 px-2.5 py-1 text-xs"
-                : "min-h-10 px-3 py-2 text-sm"
+            className={`apex-btn apex-btn--primary ${
+              compact ? "min-h-8 px-2.5 py-1 text-xs" : "apex-btn--cta"
             }`}
             aria-label={playing ? "Pause" : "Play"}
           >
@@ -93,13 +91,9 @@ export function PlaybackControls({
                 disabled={disabled}
                 onClick={() => onSpeed(value)}
                 aria-pressed={speed === value}
-                className={`rounded-md px-1.5 font-mono transition ${
-                  compact ? "min-h-7 text-[11px]" : "min-h-9 px-2 text-xs"
-                } ${
-                  speed === value
-                    ? "bg-zinc-100 text-zinc-950"
-                    : "border border-zinc-800 text-zinc-400 hover:border-zinc-600 hover:text-zinc-200"
-                } disabled:opacity-40`}
+                className={`apex-btn font-mono normal-case tracking-normal ${
+                  compact ? "min-h-7 px-1.5 text-[11px]" : "min-h-9 px-2 text-xs"
+                } ${speed === value ? "apex-btn--pressed" : ""}`}
               >
                 {value === 1 ? "1x" : `${value}x`}
               </button>

@@ -296,7 +296,7 @@ export function SessionVideosCard({
                 onClick={() =>
                   attachSuggestion(item.entry.youtubeId, item.lapId)
                 }
-                className="min-h-10 rounded-lg bg-orange-500 px-3 text-sm font-semibold text-black hover:bg-orange-400"
+                className="apex-btn apex-btn--primary"
               >
                 Attach
               </button>
@@ -320,7 +320,7 @@ export function SessionVideosCard({
             type="button"
             disabled={busy}
             onClick={() => void attachBulk()}
-            className="min-h-11 rounded-lg bg-orange-500 px-4 text-sm font-semibold text-black hover:bg-orange-400 disabled:opacity-50"
+            className="apex-btn apex-btn--primary apex-btn--cta"
           >
             {busy ? "Assigning…" : "Assign to laps in order"}
           </button>
@@ -352,7 +352,7 @@ export function SessionVideosCard({
             type="button"
             disabled={busy}
             onClick={() => void attachFromUrl()}
-            className="min-h-11 rounded-lg bg-orange-500 px-4 text-sm font-semibold text-black hover:bg-orange-400 disabled:opacity-50"
+            className="apex-btn apex-btn--primary apex-btn--cta"
           >
             {busy ? "…" : "Add YouTube"}
           </button>

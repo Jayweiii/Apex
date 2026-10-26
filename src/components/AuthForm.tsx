@@ -112,7 +112,7 @@ export function AuthForm() {
           autoComplete="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          className="rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2"
+          className="apex-field"
         />
       </label>
       <label className="flex flex-col gap-1.5 text-sm">
@@ -124,15 +124,24 @@ export function AuthForm() {
           autoComplete={mode === "login" ? "current-password" : "new-password"}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2"
+          className="apex-field"
         />
       </label>
-      {error ? <p className="text-sm text-red-400">{error}</p> : null}
-      {message ? <p className="text-sm text-emerald-400">{message}</p> : null}
+      {error ? (
+        <p role="alert" className="text-sm text-red-400">
+          {error}
+        </p>
+      ) : null}
+      {message ? (
+        <p role="status" className="text-sm text-emerald-400">
+          {message}
+        </p>
+      ) : null}
       <button
         type="submit"
         disabled={busy}
-        className="mt-1 rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-black transition hover:bg-orange-400 disabled:opacity-50"
+        aria-busy={busy}
+        className="apex-btn apex-btn--primary apex-btn--cta mt-1 w-full"
       >
         {busy
           ? "Working…"
@@ -155,7 +164,7 @@ export function AuthForm() {
           setError(null);
           setMessage(null);
         }}
-        className="text-sm text-zinc-400 hover:text-zinc-200"
+        className="apex-btn apex-btn--ghost w-full"
       >
         {mode === "claim"
           ? "Already have an account? Sign in"

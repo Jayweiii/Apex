@@ -379,7 +379,7 @@ export function LapVideoSyncGuide({
               type="button"
               disabled={busy}
               onClick={() => void attach()}
-              className="min-h-11 rounded-lg bg-orange-500 px-4 text-sm font-semibold text-black hover:bg-orange-400 disabled:opacity-50"
+              className="apex-btn apex-btn--primary apex-btn--cta"
             >
               {busy ? "…" : hasClip ? "Replace" : "Add video"}
             </button>
@@ -475,7 +475,7 @@ export function LapVideoSyncGuide({
                 type="button"
                 onClick={syncHere}
                 disabled={pinSessionTime == null}
-                className="min-h-12 rounded-lg bg-orange-500 px-5 text-sm font-semibold text-black hover:bg-orange-400 disabled:opacity-40"
+                className="apex-btn apex-btn--primary apex-btn--cta"
                 title="offset = videoTime − telemetryTime"
               >
                 Sync here

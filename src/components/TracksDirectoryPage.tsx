@@ -70,7 +70,7 @@ export function TracksDirectoryPage() {
   return (
     <>
       <AppHeader />
-      <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-5 px-4 py-6 sm:px-6 sm:py-8">
+      <main className="apex-page apex-page--medium">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-zinc-50">
@@ -80,37 +80,30 @@ export function TracksDirectoryPage() {
               Open a track to upload or browse sessions.
             </p>
           </div>
-          <Link
-            href="/upload"
-            className="inline-flex min-h-10 items-center rounded-lg border border-dashed border-zinc-700 px-4 text-xs uppercase tracking-[0.16em] text-zinc-400 hover:border-orange-500/50 hover:text-orange-300"
-          >
+          <Link href="/upload" className="apex-btn apex-btn--accent">
             Add your track
           </Link>
         </div>
 
         <label className="flex max-w-md flex-col gap-1.5">
-          <span className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
-            Search
-          </span>
+          <span className="apex-eyebrow">Search</span>
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Thunderhill, Buttonwillow…"
-            className="min-h-11 rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-2.5 text-sm text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2"
+            className="apex-field"
           />
         </label>
 
         {tracks.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-8 text-center text-sm text-zinc-500">
-            No tracks match that search.
-          </p>
+          <p className="apex-empty">No tracks match that search.</p>
         ) : (
-          <ul className="grid max-h-[min(70vh,720px)] gap-2 overflow-y-auto sm:grid-cols-2 lg:grid-cols-3">
+          <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {tracks.map((track) => (
               <li key={track.id}>
                 <Link
                   href={`/tracks/${track.id}`}
-                  className="flex min-h-14 flex-col justify-center rounded-xl border border-zinc-800/80 bg-zinc-950/50 px-4 py-3 transition hover:border-zinc-700 hover:bg-zinc-900/60"
+                  className="apex-pressable flex min-h-14 flex-col justify-center rounded-xl border border-zinc-800/80 bg-zinc-950/50 px-4 py-3 hover:border-zinc-700 hover:bg-zinc-900/60"
                 >
                   <p className="font-medium text-zinc-100">
                     {track.name}

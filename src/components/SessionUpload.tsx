@@ -1051,7 +1051,7 @@ export function SessionUpload({
         <button
           type="submit"
           disabled={busy || destination === "checking" || destination === "unavailable"}
-          className="min-h-11 rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-black hover:bg-orange-400 disabled:opacity-50"
+          className="apex-btn apex-btn--primary apex-btn--cta"
         >
           {busy
             ? useCloud
