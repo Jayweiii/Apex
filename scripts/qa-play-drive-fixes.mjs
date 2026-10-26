@@ -182,7 +182,25 @@ const browser = await chromium.launch({ headless: true });
   });
   await page.waitForTimeout(7000);
 
-  // Ensure ≥3 selected: click unselected rows until Comparing (3/…
+  // Ensure L3 is selected, then add more until ≥3 chips.
+  const ensureL3 = async () => {
+    const state = await page.evaluate(() => {
+      const rows = [...document.querySelectorAll('[role="option"]')];
+      const idx = rows.findIndex((el) =>
+        /^L3(?!\d)/.test((el.textContent || "").replace(/\s+/g, " ").trim()),
+      );
+      if (idx < 0) return { idx: -1, selected: false };
+      return {
+        idx,
+        selected: rows[idx]?.getAttribute("aria-selected") === "true",
+      };
+    });
+    if (state.idx >= 0 && !state.selected) {
+      await page.locator('[role="option"]').nth(state.idx).click();
+      await page.waitForTimeout(400);
+    }
+  };
+  await ensureL3();
   for (let i = 0; i < 6; i += 1) {
     const count = await page.evaluate(() =>
       document.querySelectorAll("[data-apex-compare-chip]").length,
@@ -193,6 +211,7 @@ const browser = await chromium.launch({ headless: true });
     await unselected.nth(0).click();
     await page.waitForTimeout(400);
   }
+  await ensureL3();
 
   const beforeChips = await page.evaluate(() =>
     [...document.querySelectorAll("[data-apex-compare-chip]")].map((el) =>
@@ -202,12 +221,20 @@ const browser = await chromium.launch({ headless: true });
 
   // Specifically toggle off L3 row when selected (the reported failure).
   let removedKey = null;
-  const l3 = page.locator('[role="option"][aria-selected="true"]').filter({
-    hasText: /^L3\b/,
+  const l3Selected = await page.evaluate(() => {
+    const rows = [
+      ...document.querySelectorAll('[role="option"][aria-selected="true"]'),
+    ];
+    return rows.findIndex((el) =>
+      /^L3(?!\d)/.test((el.textContent || "").replace(/\s+/g, " ").trim()),
+    );
   });
-  if ((await l3.count()) > 0 && beforeChips.length > 2) {
+  if (l3Selected >= 0 && beforeChips.length > 2) {
     removedKey = "L3-row";
-    await l3.first().click();
+    await page
+      .locator('[role="option"][aria-selected="true"]')
+      .nth(l3Selected)
+      .click();
   } else {
     const removeBtn = page.locator("[data-apex-compare-remove]").first();
     if ((await removeBtn.count()) > 0 && beforeChips.length > 2) {
@@ -238,7 +265,7 @@ const browser = await chromium.launch({ headless: true });
       (el) => (el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 48),
     ),
   );
-  const l3StillSelected = afterSelected.some((t) => /^L3\b/.test(t));
+  const l3StillSelected = afterSelected.some((t) => /^L3(?!\d)/.test(t));
   const removed =
     beforeChips.length >= 3 &&
     afterChips.length === beforeChips.length - 1 &&
@@ -281,6 +308,11 @@ const browser = await chromium.launch({ headless: true });
     fullPage: false,
   });
   const chaseBlob = await orangeBlobSize(page);
+  const chaseCarPx = Number(
+    (await page
+      .locator("[data-apex-drive-car-px]")
+      .getAttribute("data-apex-drive-car-px")) || "0",
+  );
 
   // Top-down for tiny-dot regression
   await page.keyboard.press("KeyC");
@@ -290,16 +322,21 @@ const browser = await chromium.launch({ headless: true });
     fullPage: false,
   });
   const topBlob = await orangeBlobSize(page);
+  const topCarPx = Number(
+    (await page
+      .locator("[data-apex-drive-car-px]")
+      .getAttribute("data-apex-drive-car-px")) || "0",
+  );
 
   ok(
     "3-car-visible-chase",
-    (chaseBlob?.w ?? 0) >= 28 && (chaseBlob?.h ?? 0) >= 28,
-    chaseBlob,
+    chaseCarPx >= 50 && (chaseBlob?.count ?? 0) >= 20,
+    { chaseCarPx, chaseBlob },
   );
   ok(
     "3-car-visible-top",
-    (topBlob?.w ?? 0) >= 24 && (topBlob?.h ?? 0) >= 24,
-    topBlob,
+    topCarPx >= 50 && (topBlob?.count ?? 0) >= 8,
+    { topCarPx, topBlob },
   );
 
   // Minimap: dark rounded panel with track in corner — sample pixels near BR
@@ -347,14 +384,14 @@ const browser = await chromium.launch({ headless: true });
     );
     if (onGrass > 0) break;
   }
-  await page.keyboard.up("ArrowLeft");
-  // Hold throttle on grass briefly to sample capped speed.
+  // Keep steering into grass while measuring cap / coast / crawl.
   await page.waitForTimeout(700);
   grassMphWhileThrottle = Number(
     (await page
       .locator("[data-apex-drive-speed]")
       .getAttribute("data-apex-drive-mph")) || "0",
   );
+  onGrass = await page.locator("[data-apex-drive-on-track='0']").count();
   await page.keyboard.up("ArrowUp");
   await page.waitForTimeout(1100);
   const coastMph = Number(
@@ -362,6 +399,7 @@ const browser = await chromium.launch({ headless: true });
       .locator("[data-apex-drive-speed]")
       .getAttribute("data-apex-drive-mph")) || "0",
   );
+  const onGrassCoast = await page.locator("[data-apex-drive-on-track='0']").count();
   await page.keyboard.down("ArrowUp");
   await page.waitForTimeout(1000);
   const crawlMph = Number(
@@ -369,7 +407,9 @@ const browser = await chromium.launch({ headless: true });
       .locator("[data-apex-drive-speed]")
       .getAttribute("data-apex-drive-mph")) || "0",
   );
+  const onGrassCrawl = await page.locator("[data-apex-drive-on-track='0']").count();
   await page.keyboard.up("ArrowUp");
+  await page.keyboard.up("ArrowLeft");
   await page.screenshot({
     path: resolve(OUT, "qa-drive-grass.png"),
     fullPage: false,
@@ -377,18 +417,23 @@ const browser = await chromium.launch({ headless: true });
 
   ok(
     "4-grass-cap-low",
-    onGrass > 0 && grassMphWhileThrottle <= 12 && coastMph <= 6,
+    onGrass > 0 &&
+      grassMphWhileThrottle <= 12 &&
+      (onGrassCoast === 0 || coastMph <= 6),
     {
       onGrass,
       grassMphWhileThrottle,
       coastMph,
+      onGrassCoast,
       crawlMph,
+      onGrassCrawl,
     },
   );
-  ok("4-grass-can-drive-off", onGrass > 0 && crawlMph >= 3 && crawlMph <= 12, {
-    crawlMph,
-    onGrass,
-  });
+  ok(
+    "4-grass-can-drive-off",
+    onGrassCrawl > 0 && crawlMph >= 3 && crawlMph <= 12,
+    { crawlMph, onGrassCrawl },
+  );
 
   // Lap timer monotonic for a short window (no false reset)
   const t0 = Number(

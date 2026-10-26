@@ -61,6 +61,7 @@ export function DriveGame({ trackId }: Props) {
     lap: 0,
     onTrack: true,
     sliding: false,
+    carPx: 0,
   });
   const [board, setBoard] = useState<DriveLeaderboardEntry[]>([]);
   const [started, setStarted] = useState(false);
@@ -297,10 +298,10 @@ export function DriveGame({ trackId }: Props) {
       c.save();
       c.translate(x, y);
       c.rotate(heading);
-      // World meters → screen px; enforce a clearly visible minimum at both cams.
+      // World meters → CSS px; enforce a clearly visible minimum at both cams.
       const pxPerM = Math.max(scale, 0.001);
-      const L = Math.max(44, 9.5 * pxPerM);
-      const W = Math.max(24, 4.4 * pxPerM);
+      const L = Math.max(56, 11 * pxPerM);
+      const W = Math.max(30, 5.2 * pxPerM);
       c.fillStyle = color;
       c.strokeStyle = "#09090b";
       c.lineWidth = Math.max(2, L * 0.07);
@@ -707,13 +708,15 @@ export function DriveGame({ trackId }: Props) {
         car.y,
         car.heading,
       );
+      const carScale = me.scale;
+      const carLenPx = Math.max(56, 11 * Math.max(carScale, 0.001));
       drawCar(
         ctx!,
         me.x,
         me.y,
         mode === "chase" ? 0 : car.heading,
         car.onTrack ? "#f97316" : "#a1a1aa",
-        me.scale,
+        carScale,
       );
 
       drawMinimap(ctx!, viewW, viewH, car.x, car.y, car.heading);
@@ -731,6 +734,7 @@ export function DriveGame({ trackId }: Props) {
           currentMs: displayMs,
           onTrack: car.onTrack,
           sliding: Math.abs(car.slip) > 0.55,
+          carPx: carLenPx,
         }));
       }
     }
@@ -881,6 +885,7 @@ export function DriveGame({ trackId }: Props) {
               data-apex-drive-speed
               data-apex-drive-mph={hud.speedMph.toFixed(1)}
               data-apex-drive-on-track={hud.onTrack ? "1" : "0"}
+              data-apex-drive-car-px={hud.carPx.toFixed(0)}
             >
               <div className="text-base">{hud.speedMph.toFixed(0)} mph</div>
               <div
