@@ -20,9 +20,17 @@ const outDir = "/opt/cursor/artifacts";
 fs.mkdirSync(outDir, { recursive: true });
 
 const browser = await chromium.launch({ headless: true });
-const page = await browser.newPage({
+const context = await browser.newContext({
   viewport: { width: 1440, height: 900 },
 });
+const share = process.env.VERCEL_SHARE || "";
+if (share) {
+  const host = new URL(BASE).hostname;
+  await context.addCookies([
+    { name: "_vercel_share", value: share, domain: host, path: "/" },
+  ]);
+}
+const page = await context.newPage();
 
 const proof = {
   base: BASE,
