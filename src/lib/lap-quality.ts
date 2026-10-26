@@ -130,7 +130,8 @@ export function bestLapTimeMs(
 
 /**
  * Prefer non-excluded / valid full laps for default compare refs.
- * Falls back to all laps only when every lap is filtered out (still viewable).
+ * Duration-plausible laps beat junk out/in even when GPS flags wipe eligibility.
+ * Falls back to all laps only when nothing plausible remains.
  */
 export function lapsForDefaultCompare<
   T extends {
@@ -142,7 +143,16 @@ export function lapsForDefaultCompare<
   },
 >(laps: T[]): T[] {
   const eligible = lapsEligibleForBest(laps);
-  return eligible.length ? eligible : laps;
+  if (eligible.length) return eligible;
+  const med = sessionMedianLapMs(laps.filter((lap) => !isLapExcluded(lap)));
+  const byDuration = laps.filter(
+    (lap) => !isLapExcluded(lap) && isPlausibleFullLapMs(lap.lap_time_ms, med),
+  );
+  if (byDuration.length) return byDuration;
+  const longEnough = laps.filter(
+    (lap) => !isLapExcluded(lap) && lap.lap_time_ms >= MIN_FULL_LAP_MS,
+  );
+  return longEnough.length ? longEnough : laps;
 }
 
 function median(values: number[]): number | null {

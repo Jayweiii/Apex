@@ -288,12 +288,12 @@ function TrackOverviewMap({
       try {
         const supabase = createClient();
         const aliases = trackEquivalentIds(track.id);
+        // Prefer accessible sessions (public + friends via RLS), not only public.
         let sessionsQuery = supabase
           .from("sessions")
           .select("id")
-          .eq("visibility", "public")
           .order("created_at", { ascending: false })
-          .limit(8);
+          .limit(12);
         sessionsQuery =
           aliases.length > 1
             ? sessionsQuery.in("track_id", aliases)
@@ -301,20 +301,27 @@ function TrackOverviewMap({
         const { data: sessions } = await sessionsQuery;
         const ids = (sessions ?? []).map((row) => row.id as string);
         if (!ids.length || cancelled) return;
-        const { data: laps } = await supabase
-          .from("laps")
-          .select("telemetry, lap_time_ms, session_id")
-          .in("session_id", ids)
-          .order("lap_number", { ascending: true })
-          .limit(40);
-        if (cancelled) return;
-        const pts = pickGpsLap(
-          (laps ?? []).map((lap) => ({
-            telemetry: (lap.telemetry ?? null) as TelemetryPoint[] | null,
-            lap_time_ms: lap.lap_time_ms as number,
-          })),
-        );
-        if (pts) setCloudGps(pts);
+
+        // Pull telemetry one session at a time — bulk select can truncate/omit jsonb.
+        for (const sessionId of ids) {
+          if (cancelled) return;
+          const { data: laps } = await supabase
+            .from("laps")
+            .select("telemetry, lap_time_ms")
+            .eq("session_id", sessionId)
+            .order("lap_number", { ascending: true })
+            .limit(20);
+          const pts = pickGpsLap(
+            (laps ?? []).map((lap) => ({
+              telemetry: (lap.telemetry ?? null) as TelemetryPoint[] | null,
+              lap_time_ms: lap.lap_time_ms as number,
+            })),
+          );
+          if (pts && pts.length >= 40) {
+            setCloudGps(pts);
+            return;
+          }
+        }
       } catch {
         // keep ellipse / local fallback
       }

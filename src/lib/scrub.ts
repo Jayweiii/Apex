@@ -240,6 +240,22 @@ export function timeAtDistance(
   return timeAtPathDistance(points, dist);
 }
 
+/** True when trackDist spans real meters (not all-null / all-zero junk). */
+export function hasUsableTrackDist(points: GpsPoint[]): boolean {
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+  let count = 0;
+  for (const point of points) {
+    const d = point.trackDist;
+    if (d == null || !Number.isFinite(d)) continue;
+    count += 1;
+    if (d < min) min = d;
+    if (d > max) max = d;
+  }
+  // Need a real along-track span — all zeros previously made gap = −elapsed.
+  return count >= 2 && max - min > 10;
+}
+
 /**
  * Time gap at shared elapsed time t (progress × duration).
  *
@@ -263,19 +279,18 @@ export function timeGapAtProgress(
   const t = otherPt.t;
   if (!Number.isFinite(t)) return null;
 
-  const bothTrack =
-    ref.some((p) => p.trackDist != null) &&
-    other.some((p) => p.trackDist != null);
+  const useTrack =
+    hasUsableTrackDist(ref) &&
+    hasUsableTrackDist(other) &&
+    otherPt.trackDist != null &&
+    Number.isFinite(otherPt.trackDist);
 
-  let dist: number | null = null;
-  if (bothTrack && otherPt.trackDist != null && Number.isFinite(otherPt.trackDist)) {
-    dist = otherPt.trackDist;
-  } else {
-    dist = pathDistanceAtTime(other, t);
-  }
+  const dist = useTrack
+    ? otherPt.trackDist!
+    : pathDistanceAtTime(other, t);
   if (dist == null || !Number.isFinite(dist)) return null;
 
-  const refT = bothTrack
+  const refT = useTrack
     ? timeAtDistance(ref, dist)
     : timeAtPathDistance(ref, dist);
   if (refT == null || !Number.isFinite(refT)) return null;

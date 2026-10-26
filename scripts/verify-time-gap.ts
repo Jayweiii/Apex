@@ -78,6 +78,15 @@ assert(
   "path distance at mid is real meters",
 );
 
+// All trackDist=0 must NOT be treated as usable (prod −elapsed bug).
+const refZero: GpsPoint[] = refRaw.map((p) => ({ ...p, trackDist: 0 }));
+const otherZero: GpsPoint[] = otherRaw.map((p) => ({ ...p, trackDist: 0 }));
+const zeroGap = timeGapAtProgress(refZero, otherZero, 0.5, {
+  basis: "time",
+  durationSec,
+});
+assert(zeroGap != null && Math.abs(zeroGap + 20) > 1, `zero-trackDist gap not −elapsed, got ${zeroGap}`);
+
 const root = resolve(import.meta.dirname, "..");
 const chase = readFileSync(
   resolve(root, "src/components/ChaseTrackMap.tsx"),
