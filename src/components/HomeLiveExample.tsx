@@ -9,6 +9,7 @@ import {
 import { listPublicComparisons } from "@/lib/comparisons-cloud";
 import { formatGap, formatLapTime } from "@/lib/format";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
+import { downsampleSeriesAsync } from "@/lib/telemetry-worker";
 import { getTrack } from "@/lib/tracks";
 import type { LapRow, TelemetryPoint } from "@/lib/types";
 import Link from "next/link";
@@ -35,6 +36,7 @@ export function HomeLiveExample() {
   const [row, setRow] = useState<ComparisonRow | null | undefined>(undefined);
   const [laps, setLaps] = useState<LiveLap[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [series, setSeries] = useState<ReturnType<typeof compareMany>>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -54,26 +56,28 @@ export function HomeLiveExample() {
 
         for (const candidate of list) {
           const lapIds = candidate.items.map((item) => item.lap_id);
-          const { data: lapRows, error: lapError } = await supabase
-            .from("laps")
-            .select("id, session_id, lap_number, lap_time_ms, telemetry")
-            .in("id", lapIds);
+          const sessionIds = [
+            ...new Set(candidate.items.map((item) => item.session_id)),
+          ];
+          const [lapsResult, sessionsResult] = await Promise.all([
+            supabase
+              .from("laps")
+              .select("id, session_id, lap_number, lap_time_ms, telemetry")
+              .in("id", lapIds),
+            supabase
+              .from("sessions")
+              .select("id, name, track_id")
+              .in("id", sessionIds),
+          ]);
           if (cancelled) return;
-          if (lapError || !lapRows?.length) continue;
+          const lapRows = lapsResult.data;
+          if (lapsResult.error || !lapRows?.length) continue;
 
           const byId = new Map(
             (lapRows as LapRow[]).map((lap) => [lap.id, lap]),
           );
-          const sessionIds = [
-            ...new Set(candidate.items.map((item) => item.session_id)),
-          ];
-          const { data: sessions } = await supabase
-            .from("sessions")
-            .select("id, name, track_id")
-            .in("id", sessionIds);
-          if (cancelled) return;
           const sessionById = new Map(
-            (sessions ?? []).map((s) => [s.id as string, s]),
+            (sessionsResult.data ?? []).map((s) => [s.id as string, s]),
           );
 
           const ordered: LiveLap[] = [];
@@ -115,12 +119,23 @@ export function HomeLiveExample() {
     };
   }, []);
 
-  const series = useMemo(() => {
-    if (laps.length < 2) return [];
-    return compareMany(
+  useEffect(() => {
+    let cancelled = false;
+    if (laps.length < 2) {
+      setSeries([]);
+      return;
+    }
+    const full = compareMany(
       laps[0].telemetry,
       laps.slice(1).map((lap) => lap.telemetry),
     );
+    // Hero delta is decorative — cap points off-main-thread when possible.
+    void downsampleSeriesAsync(full, 160).then((next) => {
+      if (!cancelled) setSeries(next);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [laps]);
 
   if (row === undefined) {

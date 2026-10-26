@@ -3,7 +3,7 @@
 import { LeaderboardPanel } from "@/components/LeaderboardPanel";
 import { DataKindBadge } from "@/components/Attribution";
 import { AppHeader } from "@/components/AppHeader";
-import { SessionUpload } from "@/components/SessionUpload";
+import { SessionUploadLazy } from "@/components/SessionUploadLazy";
 import { PublicCloudSessions } from "@/components/PublicCloudSessions";
 import { TrackMap } from "@/components/TrackMap";
 import { YourSessions } from "@/components/YourSessions";
@@ -145,7 +145,7 @@ export function TrackHome() {
           </p>
         </section>
 
-        <SessionUpload />
+        <SessionUploadLazy />
 
         <YourSessions />
 
@@ -517,7 +517,7 @@ export function TrackDetail({ id }: { id: string }) {
           <LeaderboardPanel trackId={track.id} />
         ) : null}
 
-        {tab === "upload" ? <SessionUpload trackId={track.id} /> : null}
+        {tab === "upload" ? <SessionUploadLazy trackId={track.id} /> : null}
       </main>
     </>
   );

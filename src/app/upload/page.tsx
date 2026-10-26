@@ -1,5 +1,5 @@
 import { AppHeader } from "@/components/AppHeader";
-import { SessionUpload } from "@/components/SessionUpload";
+import { SessionUploadLazy } from "@/components/SessionUploadLazy";
 import { SiteFooter } from "@/components/SiteFooter";
 import { hasSupabaseConfig } from "@/lib/supabase/env";
 import { createClient } from "@/lib/supabase/server";
@@ -41,7 +41,7 @@ export default async function UploadPage() {
             keep sessions across devices.
           </p>
         </div>
-        <SessionUpload />
+        <SessionUploadLazy />
       </main>
       <SiteFooter signedIn={Boolean(email)} />
     </>

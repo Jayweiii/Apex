@@ -230,6 +230,7 @@ export function LapCompare({
   readOnly,
   onDraftChange,
   extraToolTabs,
+  onRequestLapTelemetry,
 }: {
   laps: LapRow[];
   /** Sessions available for cross-session compare (own / friends / public / local). */
@@ -251,6 +252,8 @@ export function LapCompare({
   onDraftChange?: (draft: ComparisonDraftSnapshot) => void;
   /** Secondary panels (notes, corners) for the tools drawer. */
   extraToolTabs?: SessionToolTab[];
+  /** Parent loads full telemetry on demand (meta-only compare lists). */
+  onRequestLapTelemetry?: (lapIds: string[]) => void;
 }) {
   const allSessions = useMemo<CompareSessionOption[]>(() => {
     const list = sessions?.length
@@ -503,10 +506,26 @@ export function LapCompare({
   const uniqueLapIds = new Set(ordered.map((item) => item.lap.id));
   const sameLap = ordered.length >= 2 && uniqueLapIds.size < 2;
 
+  // Ask parent for telemetry when a selected lap is meta-only (empty points).
+  useEffect(() => {
+    if (!onRequestLapTelemetry) return;
+    const missing = ordered
+      .filter((item) => !item.lap.telemetry?.length)
+      .map((item) => item.lap.id);
+    if (missing.length) onRequestLapTelemetry(missing);
+  }, [ordered, onRequestLapTelemetry]);
+
   const centerline = useMemo(() => {
-    const sampleLaps = ordered.map((item) => item.lap.telemetry);
-    for (const session of filteredSessions) {
-      for (const lap of session.laps) sampleLaps.push(lap.telemetry);
+    // Prefer selected laps; fall back to any peer lap that already has GPS.
+    const sampleLaps = ordered
+      .map((item) => item.lap.telemetry)
+      .filter((tel) => tel?.length);
+    if (sampleLaps.length < 2) {
+      for (const session of filteredSessions) {
+        for (const lap of session.laps) {
+          if (lap.telemetry?.length) sampleLaps.push(lap.telemetry);
+        }
+      }
     }
     return resolveTrackCenterline(trackFilter || undefined, null, sampleLaps);
   }, [trackFilter, ordered, filteredSessions]);

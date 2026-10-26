@@ -1,7 +1,7 @@
 "use client";
 
 import { AppHeader } from "@/components/AppHeader";
-import { LapCompare } from "@/components/LapCompare";
+import { ComparePageSkeleton } from "@/components/PageSkeleton";
 import { SaveComparisonControls } from "@/components/SaveComparisonControls";
 import { ShareLinkButton } from "@/components/ShareLinkButton";
 import {
@@ -16,10 +16,26 @@ import {
   type ComparisonRow,
 } from "@/lib/comparisons";
 import { fetchComparison } from "@/lib/comparisons-cloud";
+import {
+  LAP_META_COLUMNS,
+  LAP_TELEMETRY_COLUMNS,
+  SESSION_LIST_COLUMNS,
+  lapsMissingTelemetry,
+  mergeLapTelemetry,
+} from "@/lib/lap-query";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
 import type { LapRow } from "@/lib/types";
+import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+const LapCompare = dynamic(
+  () =>
+    import("@/components/LapCompare").then((mod) => ({
+      default: mod.LapCompare,
+    })),
+  { ssr: false, loading: () => <ComparePageSkeleton /> },
+);
 
 /**
  * Load a saved comparison by id and render LapCompare + save/fork controls.
@@ -36,10 +52,45 @@ export function SavedComparisonView({ id }: { id: string }) {
   const [inaccessible, setInaccessible] = useState<ComparisonItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<ComparisonDraftSnapshot | null>(null);
+  const inflightTelemetry = useRef<Set<string>>(new Set());
 
   const onDraftChange = useCallback((next: ComparisonDraftSnapshot) => {
     setDraft(next);
   }, []);
+
+  const fetchLapTelemetry = useCallback(async (lapIds: string[]) => {
+    const unique = [...new Set(lapIds)].filter(
+      (lapId) => lapId && !inflightTelemetry.current.has(lapId),
+    );
+    if (!unique.length || !hasSupabaseConfig()) return;
+    for (const lapId of unique) inflightTelemetry.current.add(lapId);
+    try {
+      const supabase = createClient();
+      const { data } = await supabase
+        .from("laps")
+        .select(LAP_TELEMETRY_COLUMNS)
+        .in("id", unique);
+      const rows = (data ?? []) as LapRow[];
+      if (!rows.length) return;
+      setSessions((prev) =>
+        prev.map((option) => ({
+          ...option,
+          laps: mergeLapTelemetry(option.laps, rows),
+        })),
+      );
+    } finally {
+      for (const lapId of unique) inflightTelemetry.current.delete(lapId);
+    }
+  }, []);
+
+  const onRequestLapTelemetry = useCallback(
+    (lapIds: string[]) => {
+      const allLaps = sessions.flatMap((option) => option.laps);
+      const missing = lapsMissingTelemetry(allLaps, lapIds);
+      if (missing.length) void fetchLapTelemetry(missing);
+    },
+    [sessions, fetchLapTelemetry],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -51,15 +102,15 @@ export function SavedComparisonView({ id }: { id: string }) {
       }
       try {
         const supabase = createClient();
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
+        const [{ data: authData }, row] = await Promise.all([
+          supabase.auth.getUser(),
+          fetchComparison(supabase, id),
+        ]);
         if (cancelled) return;
+        const user = authData.user;
         setEmail(user?.email ?? undefined);
         setUserId(user?.id ?? null);
 
-        const row = await fetchComparison(supabase, id);
-        if (cancelled) return;
         if (!row) {
           setComparison(null);
           setError("not-found");
@@ -70,56 +121,58 @@ export function SavedComparisonView({ id }: { id: string }) {
         const sessionIds = [
           ...new Set(row.items.map((item) => item.session_id)),
         ];
-        const { data: sessionRows, error: sessionError } = await supabase
-          .from("sessions")
-          .select(
-            "id, name, track_id, car, driver_name, user_id, visibility, source_kind, gps_quality",
-          )
-          .in("id", sessionIds);
-        if (cancelled) return;
-        if (sessionError) {
-          setError(sessionError.message);
-        }
+        const itemLapIds = [
+          ...new Set(row.items.map((item) => item.lap_id).filter(Boolean)),
+        ];
 
-        const { data: lapRows, error: lapError } = await supabase
-          .from("laps")
-          .select("*")
-          .in("session_id", sessionIds);
+        const [sessionsResult, lapsResult, videosResult] = await Promise.all([
+          supabase
+            .from("sessions")
+            .select(SESSION_LIST_COLUMNS)
+            .in("id", sessionIds),
+          supabase
+            .from("laps")
+            .select(LAP_META_COLUMNS)
+            .in("session_id", sessionIds),
+          supabase
+            .from("session_videos")
+            .select(
+              "id, session_id, provider, youtube_id, youtube_url, offset_sec, rate, sync_source, lap_id",
+            )
+            .in("session_id", sessionIds),
+        ]);
         if (cancelled) return;
-        if (lapError) {
-          setError(lapError.message);
-        }
+        if (sessionsResult.error) setError(sessionsResult.error.message);
+        if (lapsResult.error) setError(lapsResult.error.message);
 
-        const metas = sessionRows ?? [];
-        const allLaps = (lapRows ?? []) as LapRow[];
+        const metas = sessionsResult.data ?? [];
+        const allLaps = ((lapsResult.data ?? []) as LapRow[]).map((lap) => ({
+          ...lap,
+          telemetry: [] as LapRow["telemetry"],
+        }));
         const options = groupLapsBySession(metas, allLaps, user?.id ?? null);
 
-        // Attach videos when available.
-        try {
-          const { data: videos } = await supabase
-            .from("session_videos")
-            .select("*")
-            .in("session_id", sessionIds);
-          if (videos?.length) {
-            for (const option of options) {
-              option.videos = (videos as Array<Record<string, unknown>>)
-                .filter((v) => v.session_id === option.id)
-                .map((v) => ({
-                  id: String(v.id),
-                  provider: (v.provider as "youtube" | "mp4") ?? "youtube",
-                  youtubeId: (v.youtube_id as string) ?? undefined,
-                  youtubeUrl: (v.youtube_url as string) ?? undefined,
-                  offsetSec: Number(v.offset_sec ?? 0),
-                  rate: Number(v.rate ?? 1),
-                  syncSource:
-                    (v.sync_source as "auto" | "manual" | "unsynced" | "time_of_day") ??
-                    "unsynced",
-                  lapId: (v.lap_id as string) ?? undefined,
-                }));
-            }
+        const videos = videosResult.data;
+        if (videos?.length) {
+          for (const option of options) {
+            option.videos = (videos as Array<Record<string, unknown>>)
+              .filter((v) => v.session_id === option.id)
+              .map((v) => ({
+                id: String(v.id),
+                provider: (v.provider as "youtube" | "mp4") ?? "youtube",
+                youtubeId: (v.youtube_id as string) ?? undefined,
+                youtubeUrl: (v.youtube_url as string) ?? undefined,
+                offsetSec: Number(v.offset_sec ?? 0),
+                rate: Number(v.rate ?? 1),
+                syncSource:
+                  (v.sync_source as
+                    | "auto"
+                    | "manual"
+                    | "unsynced"
+                    | "time_of_day") ?? "unsynced",
+                lapId: (v.lap_id as string) ?? undefined,
+              }));
           }
-        } catch {
-          // videos optional
         }
 
         // Re-parse recreates lap UUIDs; resolve via lap_number when lap_id is stale.
@@ -136,6 +189,11 @@ export function SavedComparisonView({ id }: { id: string }) {
           setSessions(options);
           setResolvedItems(resolved);
           setInaccessible(missing);
+          const prefetch = [
+            ...itemLapIds,
+            ...resolved.map((item) => item.lap_id),
+          ];
+          if (prefetch.length) void fetchLapTelemetry(prefetch);
         }
       } catch (err) {
         if (!cancelled) {
@@ -148,7 +206,7 @@ export function SavedComparisonView({ id }: { id: string }) {
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, fetchLapTelemetry]);
 
   const mine = Boolean(userId && comparison && comparison.user_id === userId);
 
@@ -165,9 +223,7 @@ export function SavedComparisonView({ id }: { id: string }) {
     return (
       <>
         <AppHeader email={email} />
-        <main className="mx-auto w-full max-w-5xl px-6 py-8">
-          <p className="text-sm text-zinc-500">Loading comparison…</p>
-        </main>
+        <ComparePageSkeleton />
       </>
     );
   }
@@ -281,6 +337,7 @@ export function SavedComparisonView({ id }: { id: string }) {
             initialTrackId={sessions[0]?.trackId}
             readOnly={!mine}
             onDraftChange={onDraftChange}
+            onRequestLapTelemetry={onRequestLapTelemetry}
           />
         ) : (
           <p className="text-sm text-zinc-500">

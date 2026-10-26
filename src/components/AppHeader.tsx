@@ -1,33 +1,38 @@
 "use client";
 
+import { PendingNavHint } from "@/components/PendingNavHint";
 import { SpeedUnitToggle } from "@/components/SpeedUnitToggle";
 import { isAnonymousUser } from "@/lib/guest-auth";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useState, useTransition } from "react";
 
 export function SignOutButton() {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
+  const [pending, startTransition] = useTransition();
 
   async function signOut() {
     setBusy(true);
     const supabase = createClient();
     await supabase.auth.signOut();
-    router.replace("/");
-    router.refresh();
+    startTransition(() => {
+      router.replace("/");
+      router.refresh();
+    });
   }
 
+  const waiting = busy || pending;
   return (
     <button
       type="button"
       onClick={signOut}
-      disabled={busy}
-      aria-busy={busy}
+      disabled={waiting}
+      aria-busy={waiting}
       className="apex-btn"
     >
-      {busy ? "Signing out…" : "Sign out"}
+      {waiting ? "Signing out…" : "Sign out"}
     </button>
   );
 }
@@ -93,12 +98,13 @@ export function AppHeader({ email }: { email?: string }) {
                 <Link
                   key={item.href}
                   href={item.href}
+                  prefetch
                   aria-current={active ? "page" : undefined}
                   className={`apex-nav-link inline-flex min-h-10 items-center rounded-lg px-2.5 text-xs uppercase tracking-[0.16em] ${
                     active ? "apex-nav-link--active" : ""
                   }`}
                 >
-                  {item.label}
+                  <PendingNavHint label={item.label} />
                 </Link>
               );
             })}
@@ -158,12 +164,13 @@ export function AppHeader({ email }: { email?: string }) {
               <Link
                 key={item.href}
                 href={item.href}
+                prefetch
                 aria-current={active ? "page" : undefined}
                 className={`apex-nav-link inline-flex min-h-10 items-center rounded-md px-3 text-xs uppercase tracking-[0.14em] ${
                   active ? "apex-nav-link--active" : ""
                 }`}
               >
-                {item.label}
+                <PendingNavHint label={item.label} />
               </Link>
             );
           })}

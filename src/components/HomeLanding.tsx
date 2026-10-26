@@ -2,14 +2,29 @@
 
 import { AppHeader } from "@/components/AppHeader";
 import { HomeComparisonsGrid } from "@/components/HomeComparisonsGrid";
-import { HomeLiveExample } from "@/components/HomeLiveExample";
 import { HomeTracksColumn } from "@/components/HomeTracksColumn";
 import { SiteFooter } from "@/components/SiteFooter";
 import { YourSessions } from "@/components/YourSessions";
 import { isAnonymousUser } from "@/lib/guest-auth";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+
+const HomeLiveExample = dynamic(
+  () =>
+    import("@/components/HomeLiveExample").then((mod) => ({
+      default: mod.HomeLiveExample,
+    })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-full min-h-[280px] items-center justify-center rounded-2xl border border-dashed border-zinc-800 bg-zinc-950/40 px-4 text-sm text-zinc-500">
+        Loading live example…
+      </div>
+    ),
+  },
+);
 
 export function HomeLanding() {
   const [signedIn, setSignedIn] = useState(false);

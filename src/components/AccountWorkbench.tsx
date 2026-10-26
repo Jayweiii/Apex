@@ -2,15 +2,25 @@
 
 import { AccountSessions } from "@/components/AccountSessions";
 import { ImportLocalSessions } from "@/components/ImportLocalSessions";
+import { PageSkeleton } from "@/components/PageSkeleton";
 import { SavedComparisonsList } from "@/components/SavedComparisonsList";
-import { SessionUpload } from "@/components/SessionUpload";
-import { useState } from "react";
+import dynamic from "next/dynamic";
+import { useState, useTransition } from "react";
+
+const SessionUpload = dynamic(
+  () =>
+    import("@/components/SessionUpload").then((mod) => ({
+      default: mod.SessionUpload,
+    })),
+  { ssr: false, loading: () => <PageSkeleton label="Loading upload…" rows={3} /> },
+);
 
 type Tab = "sessions" | "comparisons" | "upload";
 
 /** Tabbed account layout to cut vertical scroll on desktop. */
 export function AccountWorkbench() {
   const [tab, setTab] = useState<Tab>("sessions");
+  const [pending, startTransition] = useTransition();
 
   return (
     <div className="flex flex-col gap-5">
@@ -31,10 +41,12 @@ export function AccountWorkbench() {
             type="button"
             role="tab"
             aria-selected={tab === item.id}
-            onClick={() => setTab(item.id)}
+            aria-busy={pending && tab !== item.id}
+            onClick={() => startTransition(() => setTab(item.id))}
             className={`apex-btn ${tab === item.id ? "apex-btn--pressed" : ""}`}
           >
             {item.label}
+            {pending && tab === item.id ? "…" : ""}
           </button>
         ))}
       </div>

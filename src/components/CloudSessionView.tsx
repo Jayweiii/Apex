@@ -3,9 +3,9 @@
 import { AppHeader } from "@/components/AppHeader";
 import { GpsQualityBadge } from "@/components/GpsQualityBadge";
 import { LapChips, LapList, type LapExcludeChange } from "@/components/LapList";
+import { SessionPageSkeleton } from "@/components/PageSkeleton";
 import { UnsplitLapsBanner } from "@/components/ReparseLapsCallout";
 import { SessionDetailsEditor } from "@/components/SessionDetailsEditor";
-import { SessionLapDetail } from "@/components/SessionLapDetail";
 import {
   SessionReparsePanel,
   type ReparseStagePayload,
@@ -61,8 +61,22 @@ import {
   normalizeVisibility,
   type SessionVisibility,
 } from "@/lib/visibility";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+const SessionLapDetail = dynamic(
+  () =>
+    import("@/components/SessionLapDetail").then((mod) => ({
+      default: mod.SessionLapDetail,
+    })),
+  {
+    ssr: false,
+    loading: () => (
+      <p className="text-sm text-zinc-500">Loading lap charts…</p>
+    ),
+  },
+);
 
 type CloudSession = {
   id: string;
@@ -197,7 +211,9 @@ export function CloudSessionView({ id }: { id: string }) {
 
         const { data: row, error: sessionError } = await supabase
           .from("sessions")
-          .select("*")
+          .select(
+            "id, name, user_id, car, driver_name, track_id, visibility, source_kind, gps_quality, notes, weather, tires, started_at, session_date, created_at, source_gps",
+          )
           .eq("id", id)
           .maybeSingle();
         if (cancelled) return;
@@ -218,61 +234,59 @@ export function CloudSessionView({ id }: { id: string }) {
         setSession(cloud);
         savedSessionRef.current = cloud;
 
-        let resolvedSf: StartFinishLine | null = null;
-        let storedSf: unknown = null;
-        if (cloud.track_id) {
-          const { data: trackRow } = await supabase
-            .from("tracks")
-            .select("id, lat, lon, start_finish")
-            .eq("id", cloud.track_id)
-            .maybeSingle();
-          if (!cancelled) {
-            storedSf = trackRow?.start_finish ?? null;
-            resolvedSf =
-              parseStartFinishLine(storedSf) ??
-              resolveTrackStartFinishLine(cloud.track_id, storedSf);
-            setTrackStartFinish(storedSf);
-            setSfMapLine(resolvedSf);
-          }
-        } else if (!cancelled) {
-          setTrackStartFinish(null);
-          setSfMapLine(null);
-        }
-
-        const { data: lapRows } = await supabase
+        // Track + laps + videos in parallel after the session row lands.
+        const trackPromise = cloud.track_id
+          ? supabase
+              .from("tracks")
+              .select("id, lat, lon, start_finish")
+              .eq("id", cloud.track_id)
+              .maybeSingle()
+          : Promise.resolve({ data: null });
+        const lapsPromise = supabase
           .from("laps")
           .select("*")
           .eq("session_id", id)
           .order("lap_number", { ascending: true });
-        if (!cancelled) {
-          const rawLaps = (lapRows ?? []) as LapRow[];
-          // Slim re-parse Save can leave 2-pt stubs; rebuild from source_gps.
-          const hydrated =
-            (hydrateLapsFromSourceGps(rawLaps, cloud.source_gps, {
-              startFinish: resolvedSf,
-            }) as LapRow[] | null) ?? rawLaps;
-          // Snap SF-facing endpoints onto the gate so in/out starts aren't "weird".
-          const nextLaps = alignLoadedLapsToSf(hydrated, resolvedSf);
-          setLaps(nextLaps);
-          savedLapsRef.current = nextLaps;
+        const videosPromise = fetchSessionVideos(supabase, id).catch(() => []);
+
+        const [trackResult, lapsResult, cloudVideos] = await Promise.all([
+          trackPromise,
+          lapsPromise,
+          videosPromise,
+        ]);
+        if (cancelled) return;
+
+        let resolvedSf: StartFinishLine | null = null;
+        let storedSf: unknown = null;
+        if (cloud.track_id) {
+          storedSf = trackResult.data?.start_finish ?? null;
+          resolvedSf =
+            parseStartFinishLine(storedSf) ??
+            resolveTrackStartFinishLine(cloud.track_id, storedSf);
+          setTrackStartFinish(storedSf);
+          setSfMapLine(resolvedSf);
+        } else {
+          setTrackStartFinish(null);
+          setSfMapLine(null);
         }
 
-        try {
-          const cloudVideos = await fetchSessionVideos(supabase, id);
-          // YouTube-only UI — keep YouTube rows (legacy mp4 rows ignored in card).
-          if (!cancelled) {
-            const nextVideos = cloudVideos.filter(
-              (v) => v.provider === "youtube" && v.youtubeId,
-            );
-            setVideos(nextVideos);
-            savedVideosRef.current = nextVideos;
-          }
-        } catch {
-          if (!cancelled) {
-            setVideos([]);
-            savedVideosRef.current = [];
-          }
-        }
+        const rawLaps = (lapsResult.data ?? []) as LapRow[];
+        // Slim re-parse Save can leave 2-pt stubs; rebuild from source_gps.
+        const hydrated =
+          (hydrateLapsFromSourceGps(rawLaps, cloud.source_gps, {
+            startFinish: resolvedSf,
+          }) as LapRow[] | null) ?? rawLaps;
+        // Snap SF-facing endpoints onto the gate so in/out starts aren't "weird".
+        const nextLaps = alignLoadedLapsToSf(hydrated, resolvedSf);
+        setLaps(nextLaps);
+        savedLapsRef.current = nextLaps;
+
+        // YouTube-only UI — keep YouTube rows (legacy mp4 rows ignored in card).
+        const nextVideos = cloudVideos.filter(
+          (v) => v.provider === "youtube" && v.youtubeId,
+        );
+        setVideos(nextVideos);
+        savedVideosRef.current = nextVideos;
       } catch (err) {
         if (!cancelled) {
           setSession(null);
@@ -736,9 +750,7 @@ export function CloudSessionView({ id }: { id: string }) {
     return (
       <>
         <AppHeader email={email} />
-        <main className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6">
-          <p className="text-sm text-zinc-500">Loading session…</p>
-        </main>
+        <SessionPageSkeleton />
       </>
     );
   }
