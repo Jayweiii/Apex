@@ -3,6 +3,7 @@
 import { ChannelChart } from "@/components/ChannelChart";
 import { GChart } from "@/components/GChart";
 import { HoverCursorScope } from "@/components/HoverCursor";
+import type { HoverCursorController } from "@/components/hover-cursor";
 import { SpeedChart } from "@/components/SpeedChart";
 import {
   channelLabel,
@@ -42,6 +43,7 @@ export function StackedLapTelemetry({
   formatHoverReadout,
   formatPlaybackReadout,
   hoverEnabled = true,
+  hoverController,
 }: {
   points: TelemetryPoint[];
   /** Playback cursor index only — never hover (hover is DOM/rAF). */
@@ -60,6 +62,8 @@ export function StackedLapTelemetry({
   formatPlaybackReadout?: (index: number | null) => string;
   /** False while playback is playing — no hover preview. */
   hoverEnabled?: boolean;
+  /** Parent-owned cursor controller (drives solid playback overlay via rAF). */
+  hoverController?: HoverCursorController;
 }) {
   const channels = detectLapChannels(points);
   if (!channels.length) return fallback ?? null;
@@ -76,12 +80,14 @@ export function StackedLapTelemetry({
   // slivers). Page scrolls — no nested overflow pane.
   // HoverCursorScope: pointer-x SoT, dashed hover lines via rAF, leave only
   // clears when leaving the whole stack (no inter-chart flicker).
+  // Playback solid line is a DOM overlay (no Recharts remount per frame).
   return (
     <HoverCursorScope
       className={`flex flex-col gap-2 ${className ?? ""}`}
       playbackIndex={activeIndex}
       onPreviewIndex={hoverEnabled ? onPreviewIndex : undefined}
       hoverEnabled={hoverEnabled}
+      controller={hoverController}
     >
       {hoverReadoutRef && formatHoverReadout && formatPlaybackReadout ? (
         <HoverReadoutBridge

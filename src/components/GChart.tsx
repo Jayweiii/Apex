@@ -2,7 +2,11 @@
 
 import { hoverIndex, isSeekPointer } from "@/components/chart-hover";
 import { bindChartScrub } from "@/components/chart-scrub";
-import { HoverCursorLine, useHoverCursor } from "@/components/HoverCursor";
+import {
+  HoverCursorLine,
+  PlaybackCursorLine,
+  useHoverCursor,
+} from "@/components/HoverCursor";
 import { type PlotPad } from "@/components/hover-cursor";
 import { formatG } from "@/lib/format";
 import { useCallback, useMemo, useRef } from "react";
@@ -153,13 +157,6 @@ function AxisGChart({
               tickFormatter={(v: number) => v.toFixed(1)}
             />
             <ReferenceLine y={0} stroke="#3f3f46" />
-            {active ? (
-              <ReferenceLine
-                x={active.t}
-                stroke="#e4e4e7"
-                strokeWidth={1.5}
-              />
-            ) : null}
             <Tooltip
               cursor={false}
               contentStyle={tooltipStyle}
@@ -177,6 +174,7 @@ function AxisGChart({
             />
           </LineChart>
         </ResponsiveContainer>
+        <PlaybackCursorLine plotRef={plotRef} pad={G_PLOT_PAD} />
         <HoverCursorLine plotRef={plotRef} pad={G_PLOT_PAD} />
       </div>
     </div>

@@ -231,8 +231,13 @@ function assertArchitecture() {
 
   const speed = read("src/components/SpeedChart.tsx");
   assert(speed.includes("HoverCursorLine"), "speed hover line");
-  assert(speed.includes("Playback cursor"), "playback solid noted");
+  assert(speed.includes("PlaybackCursorLine"), "playback solid DOM overlay");
   assert(speed.includes("isAnimationActive={false}"), "no chart anim on cursor");
+  assert(!speed.includes("x={active.t}"), "no ReferenceLine playback remount");
+
+  const hoverUi = read("src/components/HoverCursor.tsx");
+  assert(hoverUi.includes("data-apex-playback-line"), "playback line marker");
+  assert(hoverUi.includes("transition: \"none\""), "playback line no transition");
 
   const synced = read("src/components/video/SyncedLapView.tsx");
   assert(synced.includes("playbackIndex"), "session playback-only chart index");

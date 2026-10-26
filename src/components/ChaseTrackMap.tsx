@@ -174,6 +174,9 @@ export function ChaseTrackMap({
   compact = false,
   panel = false,
   basemap = DEFAULT_BASEMAP,
+  progressBasis = "track",
+  durationMs,
+  progressSubscribe,
 }: {
   traces: ChaseTrace[];
   activeProgress?: number | null;
@@ -189,6 +192,11 @@ export function ChaseTrackMap({
   panel?: boolean;
   /** Shared Street | Satellite selection (persists across Overview/POV). */
   basemap?: BasemapMode;
+  /** `"time"` = session shared clock; `"track"` = compare distance align. */
+  progressBasis?: "time" | "track";
+  durationMs?: number;
+  /** Full-rate progress while playing (map markers / chase camera). */
+  progressSubscribe?: (listener: (progress: number) => void) => () => void;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -216,6 +224,21 @@ export function ChaseTrackMap({
   );
   const drawableRef = useRef(drawable);
   drawableRef.current = drawable;
+  const sampleOpts = useMemo(
+    () =>
+      progressBasis === "time"
+        ? {
+            basis: "time" as const,
+            durationSec:
+              durationMs != null && durationMs > 0
+                ? durationMs / 1000
+                : undefined,
+          }
+        : undefined,
+    [progressBasis, durationMs],
+  );
+  const sampleOptsRef = useRef(sampleOpts);
+  sampleOptsRef.current = sampleOpts;
 
   // Create map once (initial basemap; later swaps via applyBasemapTiles).
   useEffect(() => {
@@ -281,6 +304,7 @@ export function ChaseTrackMap({
           lngLat.lat,
           lngLat.lng,
           haversine,
+          sampleOptsRef.current,
         );
         if (candidate.distance < best.distance) best = candidate;
       }
@@ -452,116 +476,123 @@ export function ChaseTrackMap({
   }, [drawable, prefs.followId]);
 
   // Camera + markers follow progress (playback, hover preview, click seek).
+  // Prefer progressSubscribe for full-rate updates while playing (no React churn).
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !drawable.length) return;
 
-    const progress =
-      (hoverPreviewEnabled ? previewProgress : null) ??
-      activeProgress ??
-      0;
-    const zoom = clampChaseZoom(prefs.chaseZoom || POV_DEFAULT_ZOOM);
+    const place = (clockProgress: number) => {
+      const progress =
+        (hoverPreviewEnabled ? previewProgress : null) ?? clockProgress;
+      const zoom = clampChaseZoom(prefs.chaseZoom || POV_DEFAULT_ZOOM);
 
-    const samples = drawable.map((trace) => {
-      const point = sampleAtProgress(trace.points, progress);
-      return {
-        trace,
-        point,
-        lat: point.lat,
-        lon: point.lon,
-      };
-    });
-
-    let follow = samples[0];
-    if (prefs.followId === "centroid") {
-      const c = centroidLatLon(samples);
-      if (c) {
-        follow = {
-          ...samples[0],
-          lat: c.lat,
-          lon: c.lon,
+      const samples = drawable.map((trace) => {
+        const point = sampleAtProgress(trace.points, progress, sampleOpts);
+        return {
+          trace,
+          point,
+          lat: point.lat,
+          lon: point.lon,
         };
+      });
+
+      let follow = samples[0];
+      if (prefs.followId === "centroid") {
+        const c = centroidLatLon(samples);
+        if (c) {
+          follow = {
+            ...samples[0],
+            lat: c.lat,
+            lon: c.lon,
+          };
+        }
+      } else if (prefs.followId) {
+        follow =
+          samples.find((s) => s.trace.id === prefs.followId) ?? samples[0];
       }
-    } else if (prefs.followId) {
-      follow =
-        samples.find((s) => s.trace.id === prefs.followId) ?? samples[0];
-    }
 
-    const followTrace =
-      drawable.find((t) => t.id === follow.trace.id) ?? drawable[0];
-    const nextBearing = smoothBearingAtProgress(
-      followTrace.points,
-      progress,
-      bearingRef.current,
-    );
-    bearingRef.current = nextBearing;
-
-    // jumpTo every frame — no animation lag vs playback / hover seek.
-    map.jumpTo({
-      center: [follow.lon, follow.lat],
-      zoom,
-      bearing: nextBearing,
-      pitch,
-    });
-
-    markersRef.current.forEach((marker) => marker.remove());
-    markersRef.current = [];
-
-    const followId = prefs.followId;
-    samples.forEach((sample, index) => {
-      const isFollow =
-        followId === "centroid" ||
-        !followId ||
-        sample.trace.id === followId ||
-        sample.trace.id === follow.trace.id;
-      const el = document.createElement("div");
-      el.innerHTML = markerHtml(
-        sample.trace.color,
-        MARKER_SHAPES[index % MARKER_SHAPES.length] ?? "filled",
-        !isFollow,
+      const followTrace =
+        drawable.find((t) => t.id === follow.trace.id) ?? drawable[0];
+      const nextBearing = smoothBearingAtProgress(
+        followTrace.points,
+        progress,
+        bearingRef.current,
+        { sampleOpts },
       );
-      const marker = new maplibregl.Marker({
-        element: el.firstElementChild as HTMLElement,
-        anchor: "center",
-      })
-        .setLngLat([sample.lon, sample.lat])
-        .addTo(map);
-      markersRef.current.push(marker);
-    });
+      bearingRef.current = nextBearing;
 
-    if (samples.length >= 2 && prefs.followId !== "centroid") {
-      const ref =
-        samples.find((s) => s.trace.id === follow.trace.id) ?? samples[0];
-      for (const other of samples) {
-        if (other.trace.id === ref.trace.id) continue;
-        const gapSec = other.point.t - ref.point.t;
-        if (!Number.isFinite(gapSec) || Math.abs(gapSec) >= 30) continue;
+      // jumpTo every frame — no animation lag vs playback / hover seek.
+      map.jumpTo({
+        center: [follow.lon, follow.lat],
+        zoom,
+        bearing: nextBearing,
+        pitch,
+      });
+
+      markersRef.current.forEach((marker) => marker.remove());
+      markersRef.current = [];
+
+      const followId = prefs.followId;
+      samples.forEach((sample, index) => {
+        const isFollow =
+          followId === "centroid" ||
+          !followId ||
+          sample.trace.id === followId ||
+          sample.trace.id === follow.trace.id;
         const el = document.createElement("div");
-        el.innerHTML = gapHtml(formatGap(gapSec));
+        el.innerHTML = markerHtml(
+          sample.trace.color,
+          MARKER_SHAPES[index % MARKER_SHAPES.length] ?? "filled",
+          !isFollow,
+        );
         const marker = new maplibregl.Marker({
           element: el.firstElementChild as HTMLElement,
-          anchor: "left",
-          offset: [10, 0],
+          anchor: "center",
         })
-          .setLngLat([other.lon, other.lat])
+          .setLngLat([sample.lon, sample.lat])
           .addTo(map);
         markersRef.current.push(marker);
-      }
-    }
+      });
 
-    if (prefs.followId === "centroid" && samples.length > 1) {
-      const bounds = new maplibregl.LngLatBounds();
-      samples.forEach((s) => bounds.extend([s.lon, s.lat]));
-      if (!bounds.isEmpty()) {
-        map.fitBounds(bounds, {
-          padding: 80,
-          maxZoom: zoom,
-          duration: 0,
-          bearing: nextBearing,
-          pitch,
-        });
+      if (samples.length >= 2 && prefs.followId !== "centroid") {
+        const ref =
+          samples.find((s) => s.trace.id === follow.trace.id) ?? samples[0];
+        for (const other of samples) {
+          if (other.trace.id === ref.trace.id) continue;
+          const gapSec = other.point.t - ref.point.t;
+          if (!Number.isFinite(gapSec) || Math.abs(gapSec) >= 30) continue;
+          const el = document.createElement("div");
+          el.innerHTML = gapHtml(formatGap(gapSec));
+          const marker = new maplibregl.Marker({
+            element: el.firstElementChild as HTMLElement,
+            anchor: "left",
+            offset: [10, 0],
+          })
+            .setLngLat([other.lon, other.lat])
+            .addTo(map);
+          markersRef.current.push(marker);
+        }
       }
+
+      if (prefs.followId === "centroid" && samples.length > 1) {
+        const bounds = new maplibregl.LngLatBounds();
+        samples.forEach((s) => bounds.extend([s.lon, s.lat]));
+        if (!bounds.isEmpty()) {
+          map.fitBounds(bounds, {
+            padding: 80,
+            maxZoom: zoom,
+            duration: 0,
+            bearing: nextBearing,
+            pitch,
+          });
+        }
+      }
+    };
+
+    if (progressSubscribe && !previewProgress) {
+      return progressSubscribe((p) => place(p));
     }
+    place(activeProgress ?? 0);
   }, [
     activeProgress,
     previewProgress,
@@ -570,6 +601,8 @@ export function ChaseTrackMap({
     prefs.chaseZoom,
     prefs.followId,
     pitch,
+    sampleOpts,
+    progressSubscribe,
   ]);
 
   void bearingAtProgress;

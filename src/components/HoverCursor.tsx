@@ -24,8 +24,11 @@ export function useHoverCursor(): HoverCursorController | null {
 
 /**
  * Owns a pointer-x hover cursor for a stacked chart group. Hover line +
- * readout paint via rAF; playback index is separate and ignored while hovering.
- * Pass hoverEnabled={false} while playback is playing to suppress preview.
+ * readout paint via rAF; playback solid cursor is a separate DOM overlay
+ * (no Recharts remount). Pass hoverEnabled={false} while playing.
+ *
+ * When `controller` is provided, the parent owns the instance (so it can
+ * drive setPlaybackFraction from the playback clock subscribe loop).
  */
 export function HoverCursorScope({
   children,
@@ -33,6 +36,7 @@ export function HoverCursorScope({
   onPreviewIndex,
   hoverEnabled = true,
   className,
+  controller: external,
 }: {
   children: ReactNode;
   playbackIndex?: number | null;
@@ -41,8 +45,14 @@ export function HoverCursorScope({
   /** False while playing — no hover line / readout / preview index. */
   hoverEnabled?: boolean;
   className?: string;
+  /** Optional parent-owned controller (session playback overlay). */
+  controller?: HoverCursorController;
 }) {
-  const cursor = useMemo(() => createHoverCursorController(), []);
+  const owned = useMemo(
+    () => (external ? null : createHoverCursorController()),
+    [external],
+  );
+  const cursor = external ?? owned!;
   const onPreviewRef = useRef(onPreviewIndex);
   onPreviewRef.current = onPreviewIndex;
 
@@ -50,9 +60,9 @@ export function HoverCursorScope({
     cursor.setOnIndex((index) => onPreviewRef.current?.(index));
     return () => {
       cursor.setOnIndex(null);
-      cursor.dispose();
+      if (!external) cursor.dispose();
     };
-  }, [cursor]);
+  }, [cursor, external]);
 
   useEffect(() => {
     cursor.setPlaybackIndex(playbackIndex);
@@ -100,6 +110,43 @@ export function HoverCursorLine({
       data-apex-hover-line="1"
       aria-hidden
       className="pointer-events-none absolute top-0 bottom-0 z-[5] w-0 border-l border-dashed border-zinc-300/90"
+      style={{
+        left: 0,
+        opacity: 0,
+        transition: "none",
+        willChange: "transform, opacity",
+      }}
+    />
+  );
+}
+
+/**
+ * Solid playback cursor — lightweight DOM overlay updated via rAF/ref.
+ * No CSS transition/animation; does not remount Recharts.
+ */
+export function PlaybackCursorLine({
+  plotRef,
+  pad = DEFAULT_PLOT_PAD,
+}: {
+  plotRef: RefObject<HTMLElement | null>;
+  pad?: PlotPad;
+}) {
+  const cursor = useHoverCursor();
+  const lineRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const line = lineRef.current;
+    const plot = plotRef.current;
+    if (!cursor || !line || !plot) return;
+    return cursor.attachPlaybackLine(line, plot, pad);
+  }, [cursor, plotRef, pad]);
+
+  return (
+    <div
+      ref={lineRef}
+      data-apex-playback-line="1"
+      aria-hidden
+      className="pointer-events-none absolute top-0 bottom-0 z-[6] w-0 border-l-2 border-orange-400"
       style={{
         left: 0,
         opacity: 0,

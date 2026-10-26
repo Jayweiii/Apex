@@ -38,6 +38,15 @@ export type TrackTrace = {
 type MapProps = {
   traces: TrackTrace[];
   activeProgress?: number | null;
+  /**
+   * Session playback: `"time"` (shared ms-from-lap-start).
+   * Compare: `"track"` (trackDist / index — default).
+   */
+  progressBasis?: "time" | "track";
+  /** Required when progressBasis is `"time"` (lap_time_ms). */
+  durationMs?: number;
+  /** Full-rate progress while playing (avoids throttled React progress). */
+  progressSubscribe?: (listener: (progress: number) => void) => () => void;
   /** Hover preview — ghost marker only; never seeks video. */
   previewProgress?: number | null;
   onPreviewProgress?: (progress: number | null) => void;
@@ -276,6 +285,9 @@ export function TrackMap(props: MapProps) {
         <ChaseTrackMap
           traces={props.traces}
           activeProgress={props.activeProgress}
+          progressBasis={props.progressBasis}
+          durationMs={props.durationMs}
+          progressSubscribe={props.progressSubscribe}
           previewProgress={props.previewProgress}
           onPreviewProgress={props.onPreviewProgress}
           hoverPreviewEnabled={props.hoverPreviewEnabled}
@@ -297,6 +309,9 @@ export function TrackMap(props: MapProps) {
       headerSlot={povControl}
       basemap={basemap}
       onBasemapChange={hideChrome ? undefined : updateBasemap}
+      progressBasis={props.progressBasis}
+      durationMs={props.durationMs}
+      progressSubscribe={props.progressSubscribe}
     />
   );
 }

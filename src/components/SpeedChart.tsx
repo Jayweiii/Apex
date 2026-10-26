@@ -2,7 +2,11 @@
 
 import { hoverIndex, isSeekPointer } from "@/components/chart-hover";
 import { bindChartScrub } from "@/components/chart-scrub";
-import { HoverCursorLine, useHoverCursor } from "@/components/HoverCursor";
+import {
+  HoverCursorLine,
+  PlaybackCursorLine,
+  useHoverCursor,
+} from "@/components/HoverCursor";
 import { type PlotPad } from "@/components/hover-cursor";
 import { useSpeedUnit } from "@/components/useSpeedUnit";
 import {
@@ -307,14 +311,8 @@ export function SpeedChart({
                 ) : null}
               </>
             ) : null}
-            {/* Playback cursor — solid. Hover is a separate dashed DOM line. */}
-            {active ? (
-              <ReferenceLine
-                x={active.t}
-                stroke="#e4e4e7"
-                strokeWidth={1.5}
-              />
-            ) : null}
+            {/* Playback cursor is a DOM overlay (PlaybackCursorLine) — not
+                ReferenceLine — so playback does not remount Recharts. */}
             {trimMarkers ? (
               <>
                 <ReferenceLine
@@ -355,6 +353,7 @@ export function SpeedChart({
           </AreaChart>
         </ResponsiveContainer>
         <HoverCursorLine plotRef={chartWrapRef} pad={SPEED_PLOT_PAD} />
+        <PlaybackCursorLine plotRef={chartWrapRef} pad={SPEED_PLOT_PAD} />
         {trimMarkers && onTrimBoundaryDrag && points.length >= 2 ? (
           <TrimHandles
             startT={trimMarkers.startT}

@@ -127,8 +127,9 @@ export function videoTimeFromLapProgress(
   progress: number,
   video: Pick<SessionVideo, "offsetSec" | "rate">,
 ) {
-  const lastT = lap.points[lap.points.length - 1]?.t ?? lap.lapTimeMs / 1000;
-  const lapTime = Math.max(0, Math.min(1, progress)) * lastT;
+  // Shared time base: progress × lap_time_ms (not last sample t / index).
+  const durationSec = Math.max(0.001, lap.lapTimeMs / 1000);
+  const lapTime = Math.max(0, Math.min(1, progress)) * durationSec;
   return videoTimeFromSession(sessionTimeForLapPoint(lap, lapTime), video);
 }
 
@@ -139,10 +140,9 @@ export function lapProgressFromVideoTime(
   video: Pick<SessionVideo, "offsetSec" | "rate">,
 ) {
   const sessionTime = sessionTimeFromVideo(videoTime, video);
-  const lastT = lap.points[lap.points.length - 1]?.t ?? lap.lapTimeMs / 1000;
-  if (lastT <= 0) return 0;
+  const durationSec = Math.max(0.001, lap.lapTimeMs / 1000);
   const lapTime = Math.max(0, sessionTime - lap.startOffsetSec);
-  return Math.max(0, Math.min(1, lapTime / lastT));
+  return Math.max(0, Math.min(1, lapTime / durationSec));
 }
 
 export function suggestOffsetFromClocks(

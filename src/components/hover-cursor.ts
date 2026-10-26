@@ -1,10 +1,11 @@
 /**
- * Pointer-driven chart hover cursor.
+ * Pointer-driven chart hover cursor + solid playback cursor overlay.
  *
  * Source of truth while hovering is pointer X (converted once to a 0..1
  * plot fraction + sample index). Hover line(s) and readout paint in the
  * same rAF — no React state round-trip per chart. Playback progress is a
- * separate solid cursor and is ignored for the readout while hovering.
+ * separate solid cursor (DOM overlay, no Recharts remount) and is ignored
+ * for the readout while hovering.
  *
  * While playback is playing, hover is disabled entirely: no hover line,
  * no hover readout, no map preview index — readouts follow playback only.
@@ -66,12 +67,22 @@ export type HoverCursorController = {
   getIndex: () => number | null;
   setPlaybackIndex: (index: number | null) => void;
   /**
+   * Solid playback cursor X as 0..1 plot fraction (time-mapped).
+   * Painted via rAF — does not re-render Recharts.
+   */
+  setPlaybackFraction: (fraction: number | null) => void;
+  /**
    * When false (e.g. playback playing), ignore pointer moves and clear any
    * active hover so lines/readouts follow playback only.
    */
   setEnabled: (enabled: boolean) => void;
   isEnabled: () => boolean;
   attachHoverLine: (
+    el: HTMLElement,
+    plotEl: HTMLElement,
+    pad?: PlotPad,
+  ) => () => void;
+  attachPlaybackLine: (
     el: HTMLElement,
     plotEl: HTMLElement,
     pad?: PlotPad,
@@ -92,6 +103,7 @@ export function createHoverCursorController(): HoverCursorController {
   let fraction: number | null = null;
   let hoverIndex: number | null = null;
   let playbackIndex: number | null = null;
+  let playbackFraction: number | null = null;
   let hovering = false;
   let enabled = true;
   let raf = 0;
@@ -99,7 +111,8 @@ export function createHoverCursorController(): HoverCursorController {
   let onIndex: ((index: number | null) => void) | null = null;
   let lastEmitted: number | null | undefined = undefined;
 
-  const lines = new Set<LineTarget>();
+  const hoverLines = new Set<LineTarget>();
+  const playbackLines = new Set<LineTarget>();
   const readouts = new Set<ReadoutTarget>();
 
   const schedule = () => {
@@ -124,12 +137,23 @@ export function createHoverCursorController(): HoverCursorController {
     const showHover =
       enabled && hovering && fraction != null && hoverIndex != null;
 
-    for (const line of lines) {
+    for (const line of hoverLines) {
       if (!showHover || fraction == null) {
         line.el.style.opacity = "0";
         continue;
       }
       const x = xFromFraction(fraction, line.plotEl, line.pad);
+      line.el.style.opacity = "1";
+      line.el.style.transform = `translate3d(${x}px,0,0)`;
+    }
+
+    const showPlayback = playbackFraction != null;
+    for (const line of playbackLines) {
+      if (!showPlayback || playbackFraction == null) {
+        line.el.style.opacity = "0";
+        continue;
+      }
+      const x = xFromFraction(playbackFraction, line.plotEl, line.pad);
       line.el.style.opacity = "1";
       line.el.style.transform = `translate3d(${x}px,0,0)`;
     }
@@ -186,6 +210,11 @@ export function createHoverCursorController(): HoverCursorController {
       if (!hovering || !enabled) schedule();
     },
 
+    setPlaybackFraction(next) {
+      playbackFraction = next;
+      schedule();
+    },
+
     setEnabled(next) {
       if (enabled === next) return;
       enabled = next;
@@ -200,10 +229,22 @@ export function createHoverCursorController(): HoverCursorController {
       el.style.opacity = "0";
       el.style.willChange = "transform, opacity";
       el.style.transition = "none";
-      lines.add(target);
+      hoverLines.add(target);
       schedule();
       return () => {
-        lines.delete(target);
+        hoverLines.delete(target);
+      };
+    },
+
+    attachPlaybackLine(el, plotEl, pad = DEFAULT_PLOT_PAD) {
+      const target: LineTarget = { el, plotEl, pad };
+      el.style.opacity = "0";
+      el.style.willChange = "transform, opacity";
+      el.style.transition = "none";
+      playbackLines.add(target);
+      schedule();
+      return () => {
+        playbackLines.delete(target);
       };
     },
 
@@ -226,7 +267,8 @@ export function createHoverCursorController(): HoverCursorController {
       raf = 0;
       if (leaveTimer != null) clearTimeout(leaveTimer);
       leaveTimer = null;
-      lines.clear();
+      hoverLines.clear();
+      playbackLines.clear();
       readouts.clear();
       onIndex = null;
     },

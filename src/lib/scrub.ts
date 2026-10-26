@@ -10,18 +10,42 @@ export function clampProgress(progress: number) {
 
 /**
  * Sample a GPS lap at a fractional progress (0..1).
- * Prefers trackDist (map-matched / distance-aligned) when present so chart
- * distance scrubbing lands on the same along-track position as compare series.
+ *
+ * - `basis: "time"` (session playback): interpolate by lap-local `t` so the
+ *   map marker shares the clock with charts/video. Requires `durationSec`.
+ * - `basis: "track"` / default: prefers trackDist (compare distance-align),
+ *   else index fraction.
  */
 export function sampleAtProgress(
   points: GpsPoint[],
   progress: number,
+  options?: {
+    basis?: "time" | "track";
+    durationSec?: number;
+    t0?: number;
+  },
 ): GpsPoint {
   if (!points.length) {
     return { t: 0, speed: 0, lat: 0, lon: 0 };
   }
   if (points.length === 1) return points[0];
   const p = clampProgress(progress);
+
+  if (options?.basis === "time") {
+    const t0 = options.t0 ?? points[0]!.t;
+    const durationSec =
+      options.durationSec != null && options.durationSec > 0
+        ? options.durationSec
+        : Math.max(0.001, points[points.length - 1]!.t - t0);
+    const targetT = t0 + p * durationSec;
+    let hi = 1;
+    while (hi < points.length && points[hi]!.t < targetT) hi += 1;
+    const right = Math.min(hi, points.length - 1);
+    const left = Math.max(0, right - 1);
+    const span = points[right]!.t - points[left]!.t;
+    const mix = span <= 0 ? 0 : (targetT - points[left]!.t) / span;
+    return mixPoint(points[left]!, points[right]!, mix);
+  }
 
   const hasTrackDist = points.some((point) => point.trackDist != null);
   if (hasTrackDist) {
@@ -70,6 +94,11 @@ export function progressNearPoint(
   lat: number,
   lon: number,
   distanceMeters: (aLat: number, aLon: number, bLat: number, bLon: number) => number,
+  options?: {
+    basis?: "time" | "track";
+    durationSec?: number;
+    t0?: number;
+  },
 ): { progress: number; distance: number } {
   if (points.length < 2) return { progress: 0, distance: Number.POSITIVE_INFINITY };
   let bestDistance = Number.POSITIVE_INFINITY;
@@ -80,6 +109,18 @@ export function progressNearPoint(
       bestDistance = distance;
       bestIndex = i;
     }
+  }
+
+  if (options?.basis === "time") {
+    const t0 = options.t0 ?? points[0]!.t;
+    const durationSec =
+      options.durationSec != null && options.durationSec > 0
+        ? options.durationSec
+        : Math.max(0.001, points[points.length - 1]!.t - t0);
+    return {
+      progress: clampProgress((points[bestIndex]!.t - t0) / durationSec),
+      distance: bestDistance,
+    };
   }
 
   const hasTrackDist = points.some((point) => point.trackDist != null);

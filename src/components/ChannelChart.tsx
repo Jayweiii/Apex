@@ -2,7 +2,11 @@
 
 import { hoverIndex, isSeekPointer } from "@/components/chart-hover";
 import { bindChartScrub } from "@/components/chart-scrub";
-import { HoverCursorLine, useHoverCursor } from "@/components/HoverCursor";
+import {
+  HoverCursorLine,
+  PlaybackCursorLine,
+  useHoverCursor,
+} from "@/components/HoverCursor";
 import { type PlotPad } from "@/components/hover-cursor";
 import { useCallback, useRef } from "react";
 import {
@@ -10,7 +14,6 @@ import {
   Legend,
   Line,
   LineChart,
-  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -68,6 +71,8 @@ export function ChannelChart({
   showXAxis?: boolean;
   compact?: boolean;
 }) {
+  // Playback cursor is the DOM overlay; activeX kept for API compat.
+  void activeX;
   const hoverCursor = useHoverCursor();
   const plotRef = useRef<HTMLDivElement | null>(null);
   const scrub = bindChartScrub(points.length, {
@@ -163,13 +168,6 @@ export function ChannelChart({
             {showLegend || series.length > 1 ? (
               <Legend wrapperStyle={{ fontSize: 10 }} />
             ) : null}
-            {activeX != null ? (
-              <ReferenceLine
-                x={activeX}
-                stroke="#e4e4e7"
-                strokeWidth={1.5}
-              />
-            ) : null}
             {series.map((item) => (
               <Line
                 key={item.dataKey}
@@ -186,6 +184,7 @@ export function ChannelChart({
           </LineChart>
         </ResponsiveContainer>
         <HoverCursorLine plotRef={plotRef} pad={CHANNEL_PLOT_PAD} />
+        <PlaybackCursorLine plotRef={plotRef} pad={CHANNEL_PLOT_PAD} />
       </div>
     </div>
   );

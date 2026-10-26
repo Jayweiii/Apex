@@ -27,29 +27,44 @@ export function shortestAngleDelta(fromDeg: number, toDeg: number): number {
   return d;
 }
 
+type SampleOpts = {
+  basis?: "time" | "track";
+  durationSec?: number;
+  t0?: number;
+};
+
 /** Instantaneous along-track bearing near `progress` (look-ahead). */
 export function bearingAtProgress(
   points: GpsPoint[],
   progress: number,
   lookAhead = 0.012,
+  sampleOpts?: SampleOpts,
 ): number {
   if (points.length < 2) return 0;
   const p = clampProgress(progress);
-  const here = sampleAtProgress(points, p);
-  const ahead = sampleAtProgress(points, Math.min(1, p + lookAhead));
+  const here = sampleAtProgress(points, p, sampleOpts);
+  const ahead = sampleAtProgress(points, Math.min(1, p + lookAhead), sampleOpts);
   if (
     Math.abs(ahead.lat - here.lat) < 1e-9 &&
     Math.abs(ahead.lon - here.lon) < 1e-9
   ) {
     // Fall back to a slightly larger look-ahead, then previous segment.
-    const ahead2 = sampleAtProgress(points, Math.min(1, p + lookAhead * 3));
+    const ahead2 = sampleAtProgress(
+      points,
+      Math.min(1, p + lookAhead * 3),
+      sampleOpts,
+    );
     if (
       Math.abs(ahead2.lat - here.lat) > 1e-9 ||
       Math.abs(ahead2.lon - here.lon) > 1e-9
     ) {
       return bearingDeg(here.lat, here.lon, ahead2.lat, ahead2.lon);
     }
-    const back = sampleAtProgress(points, Math.max(0, p - lookAhead));
+    const back = sampleAtProgress(
+      points,
+      Math.max(0, p - lookAhead),
+      sampleOpts,
+    );
     return bearingDeg(back.lat, back.lon, here.lat, here.lon);
   }
   return bearingDeg(here.lat, here.lon, ahead.lat, ahead.lon);
@@ -67,6 +82,7 @@ export function smoothBearingAtProgress(
     lookAhead?: number;
     window?: number;
     alpha?: number;
+    sampleOpts?: SampleOpts;
   },
 ): number {
   const lookAhead = options?.lookAhead ?? 0.012;
@@ -76,7 +92,9 @@ export function smoothBearingAtProgress(
   const samples: number[] = [];
   for (let i = -2; i <= 2; i += 1) {
     const at = clampProgress(p + (i * window) / 4);
-    samples.push(bearingAtProgress(points, at, lookAhead));
+    samples.push(
+      bearingAtProgress(points, at, lookAhead, options?.sampleOpts),
+    );
   }
   // Circular mean via unit vectors.
   let sx = 0;

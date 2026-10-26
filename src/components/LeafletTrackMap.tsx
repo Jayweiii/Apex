@@ -67,9 +67,16 @@ function haversine(
   return 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+type SampleOpts = {
+  basis?: "time" | "track";
+  durationSec?: number;
+  t0?: number;
+};
+
 function nearestProgress(
   latlng: L.LatLng,
   traces: Array<TrackTrace & { points: GpsPoint[] }>,
+  sampleOpts?: SampleOpts,
 ) {
   let best = { progress: 0, distance: Number.POSITIVE_INFINITY };
   for (const trace of traces) {
@@ -78,6 +85,7 @@ function nearestProgress(
       latlng.lat,
       latlng.lng,
       haversine,
+      sampleOpts,
     );
     if (candidate.distance < best.distance) best = candidate;
   }
@@ -162,10 +170,18 @@ function offsetByBearing(
 }
 
 /** Approximate along-track bearing (deg) near `progress` for a perpendicular nudge. */
-function trackBearing(points: GpsPoint[], progress: number): number {
+function trackBearing(
+  points: GpsPoint[],
+  progress: number,
+  sampleOpts?: SampleOpts,
+): number {
   if (points.length < 2) return 0;
-  const here = sampleAtProgress(points, progress);
-  const ahead = sampleAtProgress(points, Math.min(1, progress + 0.01));
+  const here = sampleAtProgress(points, progress, sampleOpts);
+  const ahead = sampleAtProgress(
+    points,
+    Math.min(1, progress + 0.01),
+    sampleOpts,
+  );
   const dLat = ahead.lat - here.lat;
   const dLon = ahead.lon - here.lon;
   return (Math.atan2(dLon, dLat) * 180) / Math.PI;
@@ -252,6 +268,9 @@ export function LeafletTrackMap({
   onSfEndpointMove,
   basemap = DEFAULT_BASEMAP,
   onBasemapChange,
+  progressBasis = "track",
+  durationMs,
+  progressSubscribe,
 }: {
   traces: TrackTrace[];
   activeProgress?: number | null;
@@ -261,6 +280,10 @@ export function LeafletTrackMap({
   /** False while playback is playing — no ghost/hover tooltip preview. */
   hoverPreviewEnabled?: boolean;
   onProgress?: (progress: number | null) => void;
+  /** `"time"` = session shared clock; `"track"` = compare distance align. */
+  progressBasis?: "time" | "track";
+  durationMs?: number;
+  progressSubscribe?: (listener: (progress: number) => void) => () => void;
   gpsMode?: GpsDisplayMode;
   onGpsModeChange?: (mode: GpsDisplayMode) => void;
   analysisMode?: GpsDisplayMode;
@@ -296,6 +319,21 @@ export function LeafletTrackMap({
   const sfEditingRef = useRef(sfEditing);
   const drawableRef = useRef<Array<TrackTrace & { points: GpsPoint[] }>>([]);
   const fittedKeyRef = useRef<string>("");
+  const sampleOpts = useMemo(
+    () =>
+      progressBasis === "time"
+        ? {
+            basis: "time" as const,
+            durationSec:
+              durationMs != null && durationMs > 0
+                ? durationMs / 1000
+                : undefined,
+          }
+        : undefined,
+    [progressBasis, durationMs],
+  );
+  const sampleOptsRef = useRef(sampleOpts);
+  sampleOptsRef.current = sampleOpts;
   const [localBasemap, setLocalBasemap] = useState<BasemapMode>(basemap);
   const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(
     null,
@@ -382,7 +420,7 @@ export function LeafletTrackMap({
     const progressAt = (latlng: L.LatLng) => {
       const current = drawableRef.current;
       if (!current.length) return null;
-      return nearestProgress(latlng, current);
+      return nearestProgress(latlng, current, sampleOptsRef.current);
     };
 
     const setTooltipPos = (clientX?: number, clientY?: number) => {
@@ -737,13 +775,13 @@ export function LeafletTrackMap({
     const placeAt = (progress: number, ghost: boolean) => {
       const samples = drawable
         .map((trace) => {
-          const point = sampleAtProgress(trace.points, progress);
+          const point = sampleAtProgress(trace.points, progress, sampleOpts);
           return {
             trace,
             point,
             lat: point.lat,
             lon: point.lon,
-            bearing: trackBearing(trace.points, progress),
+            bearing: trackBearing(trace.points, progress, sampleOpts),
             color: trace.colorBySpeed ? "#f97316" : trace.color,
           };
         })
@@ -792,6 +830,12 @@ export function LeafletTrackMap({
       }
     };
 
+    if (progressSubscribe && !(hoverPreviewEnabled && previewProgress != null)) {
+      return progressSubscribe((progress) => {
+        markers.clearLayers();
+        placeAt(progress, false);
+      });
+    }
     if (activeProgress != null) placeAt(activeProgress, false);
     const ghost =
       hoverPreviewEnabled && previewProgress != null ? previewProgress : null;
@@ -801,7 +845,14 @@ export function LeafletTrackMap({
     ) {
       placeAt(ghost, true);
     }
-  }, [activeProgress, previewProgress, hoverPreviewEnabled, drawable]);
+  }, [
+    activeProgress,
+    previewProgress,
+    hoverPreviewEnabled,
+    drawable,
+    sampleOpts,
+    progressSubscribe,
+  ]);
 
   if (!drawable.length) return null;
 
@@ -812,7 +863,7 @@ export function LeafletTrackMap({
       ? []
       : drawable.map((trace) => ({
           trace,
-          point: sampleAtProgress(trace.points, tooltipProgress),
+          point: sampleAtProgress(trace.points, tooltipProgress, sampleOpts),
         }));
 
   const shellClass = embedded

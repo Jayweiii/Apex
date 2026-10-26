@@ -16,9 +16,17 @@ import {
   type RefObject,
 } from "react";
 
+/** How often to push progress into React state while playing (scrubber UI).
+ * Map markers also follow this unless they subscribe to `subscribe`. */
+const UI_PROGRESS_INTERVAL_MS = 50;
+
 /**
  * Own-clock playback: RAF advances progress at `speed`; seek/scrub pause
  * and set progress. Keyboard: Space play/pause, ←/→ scrub, 1–4 speeds.
+ *
+ * While playing, `progressRef` + `subscribe` update every frame (map/cursor
+ * overlays). React `progress` state is throttled so charts are not
+ * re-rendered / remounted each frame.
  */
 export function usePlaybackClock({
   durationMs,
@@ -36,13 +44,22 @@ export function usePlaybackClock({
   const progressRef = useRef(0);
   const durationRef = useRef(durationMs);
   durationRef.current = durationMs;
+  const listenersRef = useRef(new Set<(progress: number) => void>());
 
-  const setProgress = useCallback((next: number | null) => {
-    if (next == null) return;
-    const clamped = clampPlaybackProgress(next);
-    progressRef.current = clamped;
-    setProgressState(clamped);
+  const notify = useCallback((next: number) => {
+    progressRef.current = next;
+    for (const listener of listenersRef.current) listener(next);
   }, []);
+
+  const setProgress = useCallback(
+    (next: number | null) => {
+      if (next == null) return;
+      const clamped = clampPlaybackProgress(next);
+      notify(clamped);
+      setProgressState(clamped);
+    },
+    [notify],
+  );
 
   const setSpeed = useCallback((next: number) => {
     if (isPlaybackSpeed(next)) setSpeedState(next);
@@ -53,28 +70,37 @@ export function usePlaybackClock({
   const play = useCallback(() => {
     setPlaying((was) => {
       if (!was && progressRef.current >= 1) {
-        progressRef.current = 0;
+        notify(0);
         setProgressState(0);
       }
       return true;
     });
-  }, []);
+  }, [notify]);
 
   const toggle = useCallback(() => {
     setPlaying((was) => {
       if (was) return false;
       if (progressRef.current >= 1) {
-        progressRef.current = 0;
+        notify(0);
         setProgressState(0);
       }
       return true;
     });
+  }, [notify]);
+
+  const subscribe = useCallback((listener: (progress: number) => void) => {
+    listenersRef.current.add(listener);
+    listener(progressRef.current);
+    return () => {
+      listenersRef.current.delete(listener);
+    };
   }, []);
 
   useEffect(() => {
     if (!playing || !enabled) return;
     let raf = 0;
     let last = performance.now();
+    let lastUi = 0;
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
       const dt = (now - last) / 1000;
@@ -85,13 +111,16 @@ export function usePlaybackClock({
         durationRef.current,
         speed,
       );
-      progressRef.current = next;
-      setProgressState(next);
+      notify(next);
+      if (now - lastUi >= UI_PROGRESS_INTERVAL_MS || next >= 1) {
+        lastUi = now;
+        setProgressState(next);
+      }
       if (next >= 1) setPlaying(false);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [playing, enabled, speed]);
+  }, [playing, enabled, speed, notify]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -146,6 +175,8 @@ export function usePlaybackClock({
 
   return {
     progress,
+    progressRef,
+    subscribe,
     setProgress,
     playing,
     play,

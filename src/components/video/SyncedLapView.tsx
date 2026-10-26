@@ -1,5 +1,6 @@
 "use client";
 
+import { createHoverCursorController } from "@/components/hover-cursor";
 import { PlaybackControls } from "@/components/PlaybackControls";
 import {
   SessionToolsPanel,
@@ -38,6 +39,15 @@ import {
   type PlayerSyncEvent,
   type SyncAuthority,
 } from "@/lib/playback-sync";
+import {
+  indexNearestTime,
+  lapDurationSec,
+  plotFractionFromTime,
+  progressFromTimeSec,
+  sampleAtTime,
+  seriesT0,
+  timeSecFromProgress,
+} from "@/lib/playback-timebase";
 import { sessionLapHref } from "@/lib/session-lap-url";
 import type { SessionVideo, TelemetryPoint } from "@/lib/types";
 import { isVideoSynced } from "@/lib/video-sync-guide";
@@ -46,7 +56,6 @@ import {
   videoTimeFromLapProgress,
   type SyncLap,
 } from "@/lib/video-sync";
-import { progressFromIndex } from "@/lib/scrub";
 import {
   useCallback,
   useEffect,
@@ -301,17 +310,19 @@ export function SyncedLapView({
     [onVideoChange],
   );
 
-  const durationMs = Math.max(
-    1,
-    lap.lap_time_ms ||
-      Math.round((chartData[chartData.length - 1]?.t ?? 1) * 1000),
-  );
+  // Shared time base: progress 0..1 ≡ ms from interpolated lap start /
+  // lap_time_ms. Map, charts, and video all sample on this clock.
+  const durationMs = Math.max(1, lap.lap_time_ms || 1);
+  const durationSec = lapDurationSec(durationMs);
 
   const clock = usePlaybackClock({
     durationMs,
     enabled: true,
     rootRef,
   });
+
+  const hoverController = useMemo(() => createHoverCursorController(), []);
+  useEffect(() => () => hoverController.dispose(), [hoverController]);
 
   const drivePlayer = useCallback(
     (action: "play" | "pause" | "seek" | "rate", value?: number) => {
@@ -468,57 +479,98 @@ export function SyncedLapView({
     setPreviewProgress(null);
   }, [hoverEnabled]);
 
-  /** Map playback 0..1 onto padded chart index when trim context is shown. */
+  /** Playback window in chart time (trim window or full lap). */
+  const playbackWindow = useMemo(() => {
+    if (effectiveTrimMarkers) {
+      return {
+        t0: effectiveTrimMarkers.startT,
+        durationSec: Math.max(
+          0.001,
+          effectiveTrimMarkers.endT - effectiveTrimMarkers.startT,
+        ),
+      };
+    }
+    // Prefer t0=0 (interpolated lap start) when series starts near 0;
+    // otherwise use the first sample so padded neighbors still map cleanly.
+    const first = seriesT0(chartData);
+    const t0 = Math.abs(first) < 0.05 ? 0 : first;
+    return { t0, durationSec };
+  }, [effectiveTrimMarkers, chartData, durationSec]);
+
+  const chartDomain = useMemo(() => {
+    if (chartData.length < 2) return { firstT: 0, lastT: 1 };
+    return {
+      firstT: chartData[0]!.t,
+      lastT: chartData[chartData.length - 1]!.t,
+    };
+  }, [chartData]);
+
+  /** Map shared progress 0..1 → chart index via lap-local time. */
   const indexFromLapProgress = useCallback(
     (progress: number) => {
       if (chartData.length < 2) return null;
-      if (effectiveTrimMarkers) {
-        const span = Math.max(
-          1e-6,
-          effectiveTrimMarkers.endT - effectiveTrimMarkers.startT,
-        );
-        const targetT =
-          effectiveTrimMarkers.startT +
-          Math.min(1, Math.max(0, progress)) * span;
-        let best = 0;
-        let bestDist = Infinity;
-        for (let i = 0; i < chartData.length; i += 1) {
-          const dist = Math.abs(chartData[i].t - targetT);
-          if (dist < bestDist) {
-            bestDist = dist;
-            best = i;
-          }
-        }
-        return best;
-      }
-      return Math.round(progress * (chartData.length - 1));
+      const targetT = timeSecFromProgress(
+        progress,
+        playbackWindow.durationSec,
+        playbackWindow.t0,
+      );
+      return indexNearestTime(chartData, targetT);
     },
-    [chartData, effectiveTrimMarkers],
+    [chartData, playbackWindow],
   );
 
   const lapProgressFromChartIndex = useCallback(
     (next: number | null) => {
       if (next == null || chartData.length < 2) return null;
-      if (effectiveTrimMarkers) {
-        const point = chartData[Math.min(chartData.length - 1, Math.max(0, next))];
-        if (!point) return null;
-        const span = Math.max(
-          1e-6,
-          effectiveTrimMarkers.endT - effectiveTrimMarkers.startT,
-        );
-        return Math.min(
-          1,
-          Math.max(0, (point.t - effectiveTrimMarkers.startT) / span),
-        );
-      }
-      return progressFromIndex(next, chartData.length);
+      const point = chartData[Math.min(chartData.length - 1, Math.max(0, next))];
+      if (!point) return null;
+      return progressFromTimeSec(
+        point.t,
+        playbackWindow.durationSec,
+        playbackWindow.t0,
+      );
     },
-    [chartData, effectiveTrimMarkers],
+    [chartData, playbackWindow],
   );
 
-  // Playback solid cursor only — hover dashed line is DOM/rAF (ignores
-  // clock/video timeupdate while the pointer is over the chart stack).
+  // Throttled React index for readout / pause scrub only — solid cursor
+  // paints via hoverController.setPlaybackFraction every clock frame.
   const playbackIndex = indexFromLapProgress(clock.progress);
+
+  const syncProbeRef = useRef<HTMLSpanElement | null>(null);
+
+  useEffect(() => {
+    const { firstT, lastT } = chartDomain;
+    return clock.subscribe((progress) => {
+      const targetT = timeSecFromProgress(
+        progress,
+        playbackWindow.durationSec,
+        playbackWindow.t0,
+      );
+      const fraction = plotFractionFromTime(targetT, firstT, lastT);
+      hoverController.setPlaybackFraction(fraction);
+      hoverController.setPlaybackIndex(indexNearestTime(chartData, targetT));
+
+      // Map samples the same shared time base (progressBasis="time").
+      const mapPoint = data.length ? sampleAtTime(data, targetT) : null;
+      const probe = syncProbeRef.current;
+      if (probe) {
+        probe.dataset.apexPlaybackT = String(targetT);
+        probe.dataset.apexChartT = String(targetT);
+        probe.dataset.apexMapT = String(mapPoint?.t ?? targetT);
+        probe.dataset.apexMapLat = mapPoint?.lat != null ? String(mapPoint.lat) : "";
+        probe.dataset.apexMapLon = mapPoint?.lon != null ? String(mapPoint.lon) : "";
+        probe.dataset.apexProgress = String(progress);
+      }
+    });
+  }, [
+    clock,
+    chartData,
+    chartDomain,
+    playbackWindow,
+    hoverController,
+    data,
+  ]);
   const [speedUnit] = useSpeedUnit();
   const formatCursorReadout = useCallback(
     (index: number | null) => {
@@ -565,8 +617,11 @@ export function SyncedLapView({
     [lapProgressFromChartIndex, setProgressFromUi],
   );
 
-  const chartLapTimeSec =
-    clock.progress * (lap.lap_time_ms / 1000);
+  const chartLapTimeSec = timeSecFromProgress(
+    clock.progress,
+    durationSec,
+    0,
+  );
 
   const mapProps = {
     centerline,
@@ -645,6 +700,9 @@ export function SyncedLapView({
         },
       ]}
       activeProgress={clock.progress}
+      progressBasis="time"
+      durationMs={durationMs}
+      progressSubscribe={clock.playing ? clock.subscribe : undefined}
       previewProgress={hoverEnabled ? previewProgress : null}
       onPreviewProgress={hoverEnabled ? setPreviewProgress : undefined}
       hoverPreviewEnabled={hoverEnabled}
@@ -693,6 +751,12 @@ export function SyncedLapView({
         ref={hoverReadoutRef}
         data-apex-hover-readout="1"
         className="font-mono"
+      />
+      <span
+        ref={syncProbeRef}
+        data-apex-playback-sync="1"
+        hidden
+        aria-hidden
       />
       {deltaVsBest != null ? (
         <span>Δ best {formatGap(deltaVsBest)}</span>
@@ -750,7 +814,7 @@ export function SyncedLapView({
   const telemetry = (
     <StackedLapTelemetry
       points={chartData}
-      activeIndex={playbackIndex}
+      activeIndex={clock.playing ? null : playbackIndex}
       onPreviewIndex={previewFromChart}
       onSeekIndex={seekFromChart}
       syncId="lap-detail"
@@ -762,6 +826,7 @@ export function SyncedLapView({
       formatHoverReadout={(i) => formatCursorReadout(i)}
       formatPlaybackReadout={formatCursorReadout}
       hoverEnabled={hoverEnabled}
+      hoverController={hoverController}
     />
   );
 

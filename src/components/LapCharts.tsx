@@ -1,5 +1,6 @@
 "use client";
 
+import { createHoverCursorController } from "@/components/hover-cursor";
 import { StackedLapTelemetry } from "@/components/StackedTelemetry";
 import { SyncedVideo } from "@/components/SyncedVideo";
 import { MissingGps, TrackMap } from "@/components/TrackMap";
@@ -13,9 +14,16 @@ import {
   mapMatchLap,
   type GpsDisplayMode,
 } from "@/lib/map-match";
+import {
+  indexNearestTime,
+  lapDurationSec,
+  plotFractionFromTime,
+  progressFromTimeSec,
+  seriesT0,
+  timeSecFromProgress,
+} from "@/lib/playback-timebase";
 import type { TelemetryPoint } from "@/lib/types";
-import { progressFromIndex } from "@/lib/scrub";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 export function LapCharts({
   points,
@@ -56,29 +64,74 @@ export function LapCharts({
   const [progress, setProgress] = useState<number | null>(null);
   const [previewProgress, setPreviewProgress] = useState<number | null>(null);
   const chartPoints = analysis;
+  const durationSec = useMemo(() => {
+    if (chartPoints.length < 2) return 1;
+    const span =
+      chartPoints[chartPoints.length - 1]!.t - seriesT0(chartPoints);
+    return lapDurationSec(Math.round(Math.max(1, span * 1000)));
+  }, [chartPoints]);
+  const durationMs = Math.round(durationSec * 1000);
+  const t0 = useMemo(() => {
+    const first = seriesT0(chartPoints);
+    return Math.abs(first) < 0.05 ? 0 : first;
+  }, [chartPoints]);
+
+  const hoverController = useMemo(() => createHoverCursorController(), []);
+  useEffect(() => () => hoverController.dispose(), [hoverController]);
+
   // Playback solid cursor only — hover dashed line is DOM/rAF.
   const playbackIndex =
     progress == null || chartPoints.length < 2
       ? null
-      : Math.round(progress * (chartPoints.length - 1));
-  const durationHint =
-    chartPoints.length > 1
-      ? chartPoints[chartPoints.length - 1].t - chartPoints[0].t
-      : undefined;
+      : indexNearestTime(
+          chartPoints,
+          timeSecFromProgress(progress, durationSec, t0),
+        );
+
+  useEffect(() => {
+    if (progress == null || chartPoints.length < 2) {
+      hoverController.setPlaybackFraction(null);
+      hoverController.setPlaybackIndex(null);
+      return;
+    }
+    const targetT = timeSecFromProgress(progress, durationSec, t0);
+    const firstT = chartPoints[0]!.t;
+    const lastT = chartPoints[chartPoints.length - 1]!.t;
+    hoverController.setPlaybackFraction(
+      plotFractionFromTime(targetT, firstT, lastT),
+    );
+    hoverController.setPlaybackIndex(indexNearestTime(chartPoints, targetT));
+  }, [progress, chartPoints, durationSec, t0, hoverController]);
 
   const previewFromChart = useCallback(
     (next: number | null) => {
-      setPreviewProgress(progressFromIndex(next, chartPoints.length));
+      if (next == null || chartPoints.length < 2) {
+        setPreviewProgress(null);
+        return;
+      }
+      const point = chartPoints[Math.min(chartPoints.length - 1, Math.max(0, next))];
+      setPreviewProgress(
+        point
+          ? progressFromTimeSec(point.t, durationSec, t0)
+          : null,
+      );
     },
-    [chartPoints.length],
+    [chartPoints, durationSec, t0],
   );
 
   const seekFromChart = useCallback(
     (next: number | null) => {
       setPreviewProgress(null);
-      setProgress(progressFromIndex(next, chartPoints.length));
+      if (next == null || chartPoints.length < 2) {
+        setProgress(null);
+        return;
+      }
+      const point = chartPoints[Math.min(chartPoints.length - 1, Math.max(0, next))];
+      setProgress(
+        point ? progressFromTimeSec(point.t, durationSec, t0) : null,
+      );
     },
-    [chartPoints.length],
+    [chartPoints, durationSec, t0],
   );
 
   const mapBlock = hasGps(data) ? (
@@ -93,6 +146,8 @@ export function LapCharts({
         },
       ]}
       activeProgress={progress}
+      progressBasis="time"
+      durationMs={durationMs}
       previewProgress={previewProgress}
       onPreviewProgress={setPreviewProgress}
       onProgress={(next) => {
@@ -117,7 +172,7 @@ export function LapCharts({
           <SyncedVideo
             src={videoSrc}
             progress={progress}
-            durationHint={durationHint}
+            durationHint={durationSec}
             onProgress={(next) => {
               setPreviewProgress(null);
               setProgress(next);
@@ -132,6 +187,7 @@ export function LapCharts({
         onPreviewIndex={previewFromChart}
         onSeekIndex={seekFromChart}
         syncId="lap-detail"
+        hoverController={hoverController}
       />
     </div>
   );
