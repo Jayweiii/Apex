@@ -24,6 +24,7 @@ export function SignOutButton() {
       type="button"
       onClick={signOut}
       disabled={busy}
+      aria-busy={busy}
       className="rounded-full border border-zinc-800 px-3 py-1.5 text-xs font-medium tracking-wide text-zinc-400 transition hover:border-zinc-600 hover:text-zinc-200 disabled:opacity-50"
     >
       {busy ? "Signing out…" : "Sign out"}

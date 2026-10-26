@@ -39,8 +39,8 @@ type MapProps = {
   traces: TrackTrace[];
   activeProgress?: number | null;
   /**
-   * Session playback: `"time"` (shared ms-from-lap-start).
-   * Compare: `"track"` (trackDist / index — default).
+   * Shared progress sampling: `"time"` = elapsed ms from lap start (default for
+   * session + compare so map shows spatial gap). `"track"` = distance align.
    */
   progressBasis?: "time" | "track";
   /** Required when progressBasis is `"time"` (lap_time_ms). */

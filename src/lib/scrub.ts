@@ -11,9 +11,10 @@ export function clampProgress(progress: number) {
 /**
  * Sample a GPS lap at a fractional progress (0..1).
  *
- * - `basis: "time"` (session playback): interpolate by lap-local `t` so the
- *   map marker shares the clock with charts/video. Requires `durationSec`.
- * - `basis: "track"` / default: prefers trackDist (compare distance-align),
+ * - `basis: "time"` (session + compare playback): interpolate by lap-local `t`
+ *   so map/charts/video share elapsed ms from lap start. Requires `durationSec`
+ *   (shared max lap for compare).
+ * - `basis: "track"` / default: prefers trackDist (optional distance align),
  *   else index fraction.
  */
 export function sampleAtProgress(

@@ -3,6 +3,12 @@
 import { hoverIndex, isSeekPointer } from "@/components/chart-hover";
 import { bindChartScrub } from "@/components/chart-scrub";
 import {
+  HoverCursorLine,
+  HoverCursorScope,
+  PlaybackCursorLine,
+} from "@/components/HoverCursor";
+import { createHoverCursorController } from "@/components/hover-cursor";
+import {
   SessionToolsPanel,
   type SessionToolTab,
 } from "@/components/SessionToolsPanel";
@@ -14,11 +20,14 @@ import { resolveTrackCenterline } from "@/lib/cloud-tracks";
 import {
   COMPARE_COLORS,
   compareMany,
+  compareManyByTime,
   defaultLapIds,
   defaultLapPair,
   hasGps,
   MAX_COMPARE_LAPS,
   parseCompareSlots,
+  sharedCompareDurationMs,
+  type CompareAxis,
   type MultiComparedPoint,
 } from "@/lib/compare";
 import {
@@ -32,6 +41,7 @@ import {
 import { lapAsSyncLap } from "@/lib/dual-video-sync";
 import { useSpeedUnit } from "@/components/useSpeedUnit";
 import {
+  formatClock,
   formatG,
   formatGap,
   formatLapTime,
@@ -47,7 +57,12 @@ import {
   mapMatchLap,
   type GpsDisplayMode,
 } from "@/lib/map-match";
-import { progressFromIndex } from "@/lib/scrub";
+import {
+  indexNearestTime,
+  plotFractionFromTime,
+  progressFromTimeSec,
+  timeSecFromProgress,
+} from "@/lib/playback-timebase";
 import { channelLabel } from "@/lib/telemetry-channels";
 import { getTrack } from "@/lib/tracks";
 import { pickSessionVideoForLap } from "@/lib/pick-session-video";
@@ -437,25 +452,46 @@ export function LapCompare({
   const [speedUnit] = useSpeedUnit();
   const speedUnitLabel = speedUnitSuffix(speedUnit);
 
+  const [chartAxis, setChartAxis] = useState<CompareAxis>("time");
+  const sharedMs = useMemo(
+    () =>
+      sharedCompareDurationMs(
+        ...ordered.map((item) => item.lap.lap_time_ms),
+      ),
+    [ordered],
+  );
+  const sharedSec = sharedMs / 1000;
+
   const series: MultiComparedPoint[] = useMemo(() => {
     if (ordered.length < 2 || sameLap) return [];
     const ref = ordered[0];
     const others = ordered.slice(1);
-    return compareMany(
+    const refPts = analysisPoints(
+      matchedByLapId.get(ref.lap.id) ?? null,
+      ref.lap.telemetry,
+      analysisMode,
+    );
+    const otherPts = others.map((item) =>
       analysisPoints(
-        matchedByLapId.get(ref.lap.id) ?? null,
-        ref.lap.telemetry,
+        matchedByLapId.get(item.lap.id) ?? null,
+        item.lap.telemetry,
         analysisMode,
       ),
-      others.map((item) =>
-        analysisPoints(
-          matchedByLapId.get(item.lap.id) ?? null,
-          item.lap.telemetry,
-          analysisMode,
-        ),
-      ),
     );
-  }, [ordered, sameLap, matchedByLapId, analysisMode]);
+    // Default: time-aligned (same elapsed ms). Distance toggle kept for analysis.
+    return chartAxis === "time"
+      ? compareManyByTime(refPts, otherPts, 180, sharedMs)
+      : compareMany(refPts, otherPts);
+  }, [ordered, sameLap, matchedByLapId, analysisMode, chartAxis, sharedMs]);
+
+  const xKey = chartAxis === "time" ? "t" : "dist";
+  const formatXTick = useCallback(
+    (value: number) =>
+      chartAxis === "time"
+        ? formatClock(Number(value))
+        : formatDistance(Number(value)),
+    [chartAxis],
+  );
 
   /** Speed channels converted for the preferred unit (telemetry stays km/h). */
   const speedSeries = useMemo(
@@ -498,9 +534,15 @@ export function LapCompare({
   const [progress, setProgress] = useState<number | null>(null);
   const [previewProgress, setPreviewProgress] = useState<number | null>(null);
   const [playing, setPlaying] = useState(false);
+  const [progressSubscribe, setProgressSubscribe] = useState<
+    ((listener: (progress: number) => void) => () => void) | null
+  >(null);
   const hoverEnabled = !playing;
   const displayProgress =
     (hoverEnabled ? previewProgress : null) ?? progress;
+
+  const hoverController = useMemo(() => createHoverCursorController(), []);
+  useEffect(() => () => hoverController.dispose(), [hoverController]);
 
   useEffect(() => {
     if (hoverEnabled) return;
@@ -537,10 +579,73 @@ export function LapCompare({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onDraftChange, draftKey, analysisMode]);
 
+  const progressFromSeriesIndex = useCallback(
+    (index: number | null) => {
+      if (index == null || series.length < 2) return null;
+      const row = series[Math.min(series.length - 1, Math.max(0, index))];
+      if (!row) return null;
+      if (chartAxis === "time") {
+        const t = typeof row.t === "number" ? row.t : 0;
+        return progressFromTimeSec(t, sharedSec, 0);
+      }
+      return Math.min(1, Math.max(0, index / (series.length - 1)));
+    },
+    [series, chartAxis, sharedSec],
+  );
+
   const hoverAt =
     displayProgress == null || series.length < 2
       ? null
-      : Math.round(displayProgress * (series.length - 1));
+      : chartAxis === "time"
+        ? indexNearestTime(
+            series.map((row) => ({ t: typeof row.t === "number" ? row.t : 0 })),
+            timeSecFromProgress(displayProgress, sharedSec, 0),
+          )
+        : Math.round(displayProgress * (series.length - 1));
+
+  // Drive DOM playback cursor from shared progress (throttled React or rAF subscribe).
+  useEffect(() => {
+    const apply = (p: number | null) => {
+      if (p == null || series.length < 2) {
+        hoverController.setPlaybackFraction(null);
+        hoverController.setPlaybackIndex(null);
+        return;
+      }
+      if (chartAxis === "time") {
+        const targetT = timeSecFromProgress(p, sharedSec, 0);
+        const firstT = typeof series[0]?.t === "number" ? series[0].t : 0;
+        const lastT =
+          typeof series[series.length - 1]?.t === "number"
+            ? (series[series.length - 1]!.t as number)
+            : sharedSec;
+        hoverController.setPlaybackFraction(
+          plotFractionFromTime(targetT, firstT, lastT),
+        );
+        hoverController.setPlaybackIndex(
+          indexNearestTime(
+            series.map((row) => ({ t: typeof row.t === "number" ? row.t : 0 })),
+            targetT,
+          ),
+        );
+        return;
+      }
+      hoverController.setPlaybackFraction(p);
+      hoverController.setPlaybackIndex(
+        Math.round(p * (series.length - 1)),
+      );
+    };
+    apply(progress);
+    if (!playing || !progressSubscribe) return;
+    return progressSubscribe((p) => apply(p));
+  }, [
+    progress,
+    playing,
+    progressSubscribe,
+    series,
+    chartAxis,
+    sharedSec,
+    hoverController,
+  ]);
 
   const previewFromChart = useCallback(
     (next: number | null) => {
@@ -548,16 +653,16 @@ export function LapCompare({
         setPreviewProgress(null);
         return;
       }
-      setPreviewProgress(progressFromIndex(next, series.length));
+      setPreviewProgress(progressFromSeriesIndex(next));
     },
-    [hoverEnabled, series.length],
+    [hoverEnabled, progressFromSeriesIndex],
   );
   const seekFromChart = useCallback(
     (next: number | null) => {
       setPreviewProgress(null);
-      setProgress(progressFromIndex(next, series.length));
+      setProgress(progressFromSeriesIndex(next));
     },
-    [series.length],
+    [progressFromSeriesIndex],
   );
   const chartScrub = bindChartScrub(series.length, {
     onPreviewIndex: hoverEnabled ? previewFromChart : undefined,
@@ -814,6 +919,13 @@ export function LapCompare({
                 <TrackMap
                   traces={mapTraces}
                   activeProgress={progress}
+                  progressBasis="time"
+                  durationMs={sharedMs}
+                  progressSubscribe={
+                    playing && progressSubscribe
+                      ? progressSubscribe
+                      : undefined
+                  }
                   previewProgress={hoverEnabled ? previewProgress : null}
                   onPreviewProgress={
                     hoverEnabled ? setPreviewProgress : undefined
@@ -851,21 +963,64 @@ export function LapCompare({
                     setProgress(next);
                   }}
                   onPlayingChange={setPlaying}
+                  onProgressSubscribe={(subscribe) =>
+                    setProgressSubscribe(() => subscribe)
+                  }
                   compact
                 />
               </div>
               <div className="flex flex-col gap-2">
-              <p className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">
-                Telemetry · all channels
-              </p>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">
+                  Telemetry · {chartAxis === "time" ? "time sync" : "distance"}
+                </p>
+                <div
+                  className="inline-flex rounded-lg border border-zinc-800 bg-zinc-950/80 p-0.5 text-[11px]"
+                  role="group"
+                  aria-label="Chart axis"
+                >
+                  {(
+                    [
+                      { value: "time" as const, label: "Time" },
+                      { value: "track" as const, label: "Distance" },
+                    ] as const
+                  ).map((option) => {
+                    const active = chartAxis === option.value;
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        aria-pressed={active}
+                        onClick={() => setChartAxis(option.value)}
+                        className={`min-h-7 rounded-md px-2.5 font-medium transition ${
+                          active
+                            ? "bg-zinc-100 text-zinc-950"
+                            : "text-zinc-400 hover:text-zinc-200"
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <HoverCursorScope
+                controller={hoverController}
+                hoverEnabled={hoverEnabled}
+                onPreviewIndex={hoverEnabled ? previewFromChart : undefined}
+                className="flex flex-col gap-2"
+              >
 
               {stackedChannels.includes("speed") ? (
                 <ChartCard
                   title="Speed"
                   hint={
-                    analysisMode === "snapped"
-                      ? "Aligned on snapped track distance"
-                      : "Aligned on raw GPS path"
+                    chartAxis === "time"
+                      ? "Same elapsed ms · map shows gap"
+                      : analysisMode === "snapped"
+                        ? "Aligned on snapped track distance"
+                        : "Aligned on raw GPS path"
                   }
                   scrub={chartScrub}
                 >
@@ -879,9 +1034,9 @@ export function LapCompare({
                     >
                       <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
                       <XAxis
-                        dataKey="dist"
+                        dataKey={xKey}
                         type="number"
-                        tickFormatter={(value) => formatDistance(Number(value))}
+                        tickFormatter={formatXTick}
                         stroke="#71717a"
                         fontSize={11}
                       />
@@ -892,12 +1047,12 @@ export function LapCompare({
                         width={48}
                       />
                       <Tooltip
-                        content={<CompareTooltip mode="speed" speedUnit={speedUnit} />}
+                        content={<CompareTooltip mode="speed" speedUnit={speedUnit} axis={chartAxis} />}
                       />
                       <Legend />
                       {hoverAt != null ? (
                         <ReferenceLine
-                          x={series[hoverAt]?.dist}
+                          x={chartAxis === "time" ? series[hoverAt]?.t : series[hoverAt]?.dist}
                           stroke="#a1a1aa"
                           strokeDasharray="4 4"
                         />
@@ -923,9 +1078,11 @@ export function LapCompare({
                 <ChartCard
                   title="Delta"
                   hint={
-                    analysisMode === "snapped"
-                      ? "Snapped · positive means behind reference"
-                      : "Raw · positive means behind reference"
+                    chartAxis === "time"
+                      ? "Meters ahead of ref at same elapsed time"
+                      : analysisMode === "snapped"
+                        ? "Snapped · positive means behind reference"
+                        : "Raw · positive means behind reference"
                   }
                   scrub={chartScrub}
                 >
@@ -939,18 +1096,18 @@ export function LapCompare({
                     >
                       <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
                       <XAxis
-                        dataKey="dist"
+                        dataKey={xKey}
                         type="number"
-                        tickFormatter={(value) => formatDistance(Number(value))}
+                        tickFormatter={formatXTick}
                         stroke="#71717a"
                         fontSize={11}
                       />
                       <YAxis stroke="#71717a" fontSize={11} unit=" s" width={48} />
-                      <Tooltip content={<CompareTooltip mode="delta" />} />
+                      <Tooltip content={<CompareTooltip mode="delta" axis={chartAxis} />} />
                       <Legend />
                       {hoverAt != null ? (
                         <ReferenceLine
-                          x={series[hoverAt]?.dist}
+                          x={chartAxis === "time" ? series[hoverAt]?.t : series[hoverAt]?.dist}
                           stroke="#a1a1aa"
                           strokeDasharray="4 4"
                         />
@@ -985,9 +1142,9 @@ export function LapCompare({
                     >
                       <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
                       <XAxis
-                        dataKey="dist"
+                        dataKey={xKey}
                         type="number"
-                        tickFormatter={(value) => formatDistance(Number(value))}
+                        tickFormatter={formatXTick}
                         stroke="#71717a"
                         fontSize={11}
                       />
@@ -996,7 +1153,7 @@ export function LapCompare({
                       <Legend />
                       {hoverAt != null ? (
                         <ReferenceLine
-                          x={series[hoverAt]?.dist}
+                          x={chartAxis === "time" ? series[hoverAt]?.t : series[hoverAt]?.dist}
                           stroke="#a1a1aa"
                           strokeDasharray="4 4"
                         />
@@ -1043,9 +1200,9 @@ export function LapCompare({
                     >
                       <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
                       <XAxis
-                        dataKey="dist"
+                        dataKey={xKey}
                         type="number"
-                        tickFormatter={(value) => formatDistance(Number(value))}
+                        tickFormatter={formatXTick}
                         stroke="#71717a"
                         fontSize={11}
                       />
@@ -1054,7 +1211,7 @@ export function LapCompare({
                       <Legend />
                       {hoverAt != null ? (
                         <ReferenceLine
-                          x={series[hoverAt]?.dist}
+                          x={chartAxis === "time" ? series[hoverAt]?.t : series[hoverAt]?.dist}
                           stroke="#a1a1aa"
                           strokeDasharray="4 4"
                         />
@@ -1088,18 +1245,18 @@ export function LapCompare({
                     >
                       <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
                       <XAxis
-                        dataKey="dist"
+                        dataKey={xKey}
                         type="number"
-                        tickFormatter={(value) => formatDistance(Number(value))}
+                        tickFormatter={formatXTick}
                         stroke="#71717a"
                         fontSize={11}
                       />
                       <YAxis stroke="#71717a" fontSize={11} width={40} />
-                      <Tooltip content={<CompareTooltip mode="g" />} />
+                      <Tooltip content={<CompareTooltip mode="g" axis={chartAxis} />} />
                       <Legend />
                       {hoverAt != null ? (
                         <ReferenceLine
-                          x={series[hoverAt]?.dist}
+                          x={chartAxis === "time" ? series[hoverAt]?.t : series[hoverAt]?.dist}
                           stroke="#a1a1aa"
                           strokeDasharray="4 4"
                         />
@@ -1133,9 +1290,9 @@ export function LapCompare({
                     >
                       <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
                       <XAxis
-                        dataKey="dist"
+                        dataKey={xKey}
                         type="number"
-                        tickFormatter={(value) => formatDistance(Number(value))}
+                        tickFormatter={formatXTick}
                         stroke="#71717a"
                         fontSize={11}
                       />
@@ -1144,7 +1301,7 @@ export function LapCompare({
                       <Legend />
                       {hoverAt != null ? (
                         <ReferenceLine
-                          x={series[hoverAt]?.dist}
+                          x={chartAxis === "time" ? series[hoverAt]?.t : series[hoverAt]?.dist}
                           stroke="#a1a1aa"
                           strokeDasharray="4 4"
                         />
@@ -1178,9 +1335,9 @@ export function LapCompare({
                     >
                       <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
                       <XAxis
-                        dataKey="dist"
+                        dataKey={xKey}
                         type="number"
-                        tickFormatter={(value) => formatDistance(Number(value))}
+                        tickFormatter={formatXTick}
                         stroke="#71717a"
                         fontSize={11}
                       />
@@ -1189,7 +1346,7 @@ export function LapCompare({
                       <Legend />
                       {hoverAt != null ? (
                         <ReferenceLine
-                          x={series[hoverAt]?.dist}
+                          x={chartAxis === "time" ? series[hoverAt]?.t : series[hoverAt]?.dist}
                           stroke="#a1a1aa"
                           strokeDasharray="4 4"
                         />
@@ -1210,6 +1367,7 @@ export function LapCompare({
                   </ResponsiveContainer>
                 </ChartCard>
               ) : null}
+              </HoverCursorScope>
               </div>
             </div>
           </div>
@@ -1367,6 +1525,7 @@ function ChartCard({
   children: ReactNode;
   scrub?: ReturnType<typeof bindChartScrub>;
 }) {
+  const plotRef = useRef<HTMLDivElement | null>(null);
   return (
     <div
       className="max-w-full shrink-0 overflow-hidden rounded-xl border border-zinc-800/80 bg-zinc-950/40 px-2.5 py-2"
@@ -1379,12 +1538,15 @@ function ChartCard({
         <p className="truncate font-mono text-[10px] text-zinc-600">{hint}</p>
       </div>
       <div
+        ref={plotRef}
         className="relative h-[120px] min-h-[120px] touch-none sm:h-[140px] sm:min-h-[140px]"
         data-apex-chart-plot="compare"
         style={{ minHeight: 120 }}
         {...scrub}
       >
         <div className="absolute inset-0 min-h-0">{children}</div>
+        <HoverCursorLine plotRef={plotRef} />
+        <PlaybackCursorLine plotRef={plotRef} />
       </div>
     </div>
   );
@@ -1396,6 +1558,7 @@ function CompareTooltip({
   label,
   mode = "speed",
   speedUnit = "mph",
+  axis = "time",
 }: {
   active?: boolean;
   payload?: { name?: string; value?: number; color?: string }[];
@@ -1403,17 +1566,24 @@ function CompareTooltip({
   mode?: "speed" | "delta" | "g";
   /** When mode=speed, values are already converted to this unit. */
   speedUnit?: "mph" | "kmh";
+  axis?: CompareAxis;
 }) {
   if (!active || !payload?.length) return null;
   const unit = speedUnitSuffix(speedUnit);
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-zinc-100">
-      <p className="mb-1 text-zinc-500">{formatDistance(Number(label))}</p>
+      <p className="mb-1 text-zinc-500">
+        {axis === "time"
+          ? formatClock(Number(label))
+          : formatDistance(Number(label))}
+      </p>
       {payload.map((item) => (
         <p key={item.name} style={{ color: item.color }}>
           {item.name}:{" "}
           {mode === "delta"
-            ? formatGap(Number(item.value))
+            ? axis === "time"
+              ? `${Number(item.value) >= 0 ? "+" : ""}${Number(item.value).toFixed(1)} m`
+              : formatGap(Number(item.value))
             : mode === "g"
               ? formatG(Number(item.value))
               : `${Number(item.value).toFixed(0)} ${unit}`}

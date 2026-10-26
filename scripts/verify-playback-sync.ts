@@ -90,6 +90,10 @@ const compare = readFileSync(
 );
 assert(compare.includes("stackedChannels"), "compare stacks channels");
 assert(!compare.includes("setChartPanel"), "compare has no chart tabs");
-assert(compare.includes("Telemetry · all channels"), "compare stacked label");
+assert(
+  compare.includes("Telemetry ·") && compare.includes("time sync"),
+  "compare stacked label (time sync default)",
+);
+assert(compare.includes('progressBasis="time"'), "compare map time basis");
 
 console.log("verify-playback-sync ok");

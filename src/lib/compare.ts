@@ -36,10 +36,16 @@ export const MAX_COMPARE_LAPS = 4;
 
 /** Flat multi-lap series for Recharts (`speed0` = ref, `delta1` = other[0]−ref, …). */
 export type MultiComparedPoint = {
+  /** Meters from SF (distance-align) or ref distance at elapsed t (time-align). */
   dist: number;
+  /** Elapsed seconds from lap start (time-align charts). */
+  t?: number;
   snapped?: boolean;
   [key: string]: number | boolean | undefined;
 };
+
+/** Chart / playback axis for multi-lap compare. Default for UI is time. */
+export type CompareAxis = "time" | "track";
 
 export function hasGps(points: TelemetryPoint[]): boolean {
   return points.some((point) => point.lat != null && point.lon != null);
@@ -284,6 +290,39 @@ export function valueAt(
   return readValue(left, key) + (readValue(right, key) - readValue(left, key)) * mix;
 }
 
+/** Linear interpolate a telemetry channel at elapsed lap-local time (seconds). */
+export function valueAtTime(
+  samples: DistSample[],
+  t: number,
+  key: InterpolateKey | "dist",
+) {
+  const first = samples[0];
+  const last = samples[samples.length - 1];
+  if (!first || !last) return 0;
+  if (t <= first.t) {
+    return key === "dist" ? first.dist : readValue(first, key);
+  }
+  if (t >= last.t) {
+    return key === "dist" ? last.dist : readValue(last, key);
+  }
+  let hi = 1;
+  while (hi < samples.length && samples[hi]!.t < t) hi += 1;
+  const right = samples[hi] ?? last;
+  const left = samples[hi - 1] ?? first;
+  const span = right.t - left.t;
+  const mix = span === 0 ? 0 : (t - left.t) / span;
+  if (key === "dist") {
+    return left.dist + (right.dist - left.dist) * mix;
+  }
+  return readValue(left, key) + (readValue(right, key) - readValue(left, key)) * mix;
+}
+
+/** Shared compare clock length: longest lap so both cars keep advancing by elapsed ms. */
+export function sharedCompareDurationMs(...lapMs: number[]) {
+  const positive = lapMs.filter((ms) => Number.isFinite(ms) && ms > 0);
+  return Math.max(1, positive.length ? Math.max(...positive) : 1);
+}
+
 const OPTIONAL_COMPARE_KEYS: InterpolateKey[] = [
   "throttle",
   "brake",
@@ -368,6 +407,7 @@ function capitalize(key: string) {
  * Compare 2–4 laps against a selected reference.
  * Flat keys: speed0/g0 = reference; speed{i}/g{i}/delta{i} for each other (i≥1).
  * Also mirrors legacy refSpeed/otherSpeed/delta when exactly one other.
+ * Distance-aligned (legacy / toggle). Prefer {@link compareManyByTime} for playback.
  */
 export function compareMany(
   reference: TelemetryPoint[],
@@ -420,6 +460,79 @@ export function compareMany(
       row.refG = first.refG;
       row.otherG = first.otherG;
       row.delta = first.delta;
+    }
+    out.push(row);
+  }
+  return out;
+}
+
+/**
+ * Time-aligned multi-lap compare: same elapsed seconds from each lap start.
+ * At time t, each series shows where that car was — map gap is spatial.
+ * delta{i} = dist_other(t) − dist_ref(t) (meters; negative = behind on track).
+ */
+export function compareManyByTime(
+  reference: TelemetryPoint[],
+  others: TelemetryPoint[][],
+  steps = 180,
+  durationMs?: number,
+): MultiComparedPoint[] {
+  if (!others.length) return [];
+  const snapped =
+    usesTrackDistance(reference) &&
+    others.every((other) => usesTrackDistance(other));
+  const ref = withDistance(enrichTelemetry(reference));
+  const alts = others.map((other) => withDistance(enrichTelemetry(other)));
+  if (ref.length < 2 || alts.some((alt) => alt.length < 2)) return [];
+
+  const refEndT = ref[ref.length - 1]!.t;
+  const altEndTs = alts.map((alt) => alt[alt.length - 1]!.t);
+  const axisEndSec =
+    durationMs != null && durationMs > 0
+      ? durationMs / 1000
+      : Math.max(refEndT, ...altEndTs, 0.001);
+
+  const optionalKeys = OPTIONAL_COMPARE_KEYS.filter((key) =>
+    [ref, ...alts].some((samples) => sampleHasKey(samples, key)),
+  );
+
+  const out: MultiComparedPoint[] = [];
+  for (let i = 0; i < steps; i += 1) {
+    const t = (i / (steps - 1)) * axisEndSec;
+    const refDist = valueAtTime(ref, t, "dist");
+    const row: MultiComparedPoint = {
+      t,
+      dist: refDist,
+      snapped,
+      speed0: valueAtTime(ref, t, "speed"),
+      g0: valueAtTime(ref, t, "g"),
+      latG0: valueAtTime(ref, t, "latG"),
+      lonG0: valueAtTime(ref, t, "lonG"),
+      dist0: refDist,
+    };
+    for (const key of optionalKeys) {
+      row[`${key}0`] = valueAtTime(ref, t, key);
+    }
+    alts.forEach((alt, j) => {
+      const idx = j + 1;
+      const otherDist = valueAtTime(alt, t, "dist");
+      row[`speed${idx}`] = valueAtTime(alt, t, "speed");
+      row[`g${idx}`] = valueAtTime(alt, t, "g");
+      row[`latG${idx}`] = valueAtTime(alt, t, "latG");
+      row[`lonG${idx}`] = valueAtTime(alt, t, "lonG");
+      row[`dist${idx}`] = otherDist;
+      // Meters ahead of ref at the same elapsed time (negative = behind).
+      row[`delta${idx}`] = otherDist - refDist;
+      for (const key of optionalKeys) {
+        row[`${key}${idx}`] = valueAtTime(alt, t, key);
+      }
+    });
+    if (others.length === 1) {
+      row.refSpeed = row.speed0;
+      row.otherSpeed = row.speed1;
+      row.refG = row.g0;
+      row.otherG = row.g1;
+      row.delta = row.delta1;
     }
     out.push(row);
   }

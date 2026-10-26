@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* Hover utilities only on real hover devices — iOS sticky :hover steals first tap. */
+@custom-variant hover (@media (hover: hover) and (pointer: fine):hover);
+
+
 :root {
   --background: #09090b;
   --foreground: #f4f4f5;
@@ -52,7 +56,11 @@ body::before {
   box-sizing: border-box;
 }
 
-/* Clickable affordances — pointer by default; drag handles may override. */
+/* Clickable affordances — pointer by default; drag handles may override.
+ * touch-action: manipulation removes 300ms double-tap zoom delay on iOS.
+ * :active gives immediate pressed feedback; :focus-visible for keyboard.
+ * Tailwind hover: remapped above to fine pointers only (first-tap fix).
+ */
 button:not(:disabled),
 [role="button"]:not([aria-disabled="true"]),
 a[href],
@@ -60,12 +68,42 @@ label[for],
 select:not(:disabled),
 summary {
   cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    color 0.12s ease,
+    background-color 0.12s ease,
+    border-color 0.12s ease,
+    opacity 0.12s ease,
+    filter 0.12s ease,
+    box-shadow 0.12s ease;
+}
+
+button:not(:disabled):focus-visible,
+[role="button"]:not([aria-disabled="true"]):focus-visible,
+a[href]:focus-visible,
+summary:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--accent) 75%, white);
+  outline-offset: 2px;
+}
+
+button:not(:disabled):active,
+[role="button"]:not([aria-disabled="true"]):active,
+a[href]:active,
+summary:active {
+  filter: brightness(0.88);
 }
 
 button:disabled,
 [role="button"][aria-disabled="true"],
 select:disabled {
   cursor: not-allowed;
+}
+
+button[aria-busy="true"],
+[role="button"][aria-busy="true"] {
+  cursor: progress;
+  opacity: 0.75;
 }
 
 /*

@@ -5,7 +5,9 @@ import { Mp4Player } from "@/components/video/Mp4Player";
 import { YouTubePlayer } from "@/components/video/YouTubePlayer";
 import type { VideoPlayerHandle } from "@/components/video/useVideoSync";
 import {
+  dualProgressFromVideoTime,
   dualVideoTimeAtProgress,
+  sharedCompareDurationMs,
   sideHasPlayableVideo,
   sideHasVideoMeta,
   type DualVideoSide,
@@ -21,13 +23,15 @@ import {
 import {
   createSyncSuppress,
   DRIFT_CHECK_INTERVAL_MS,
-  lapProgressFromVideoTime,
   nearestPlaybackSpeed,
   needsDriftCorrection,
   type PlayerSyncEvent,
   type SyncAuthority,
 } from "@/lib/playback-sync";
 import { useCallback, useEffect, useRef, useState } from "react";
+
+/** Throttle React progress while playing — map/cursors use subscribe. */
+const UI_PROGRESS_INTERVAL_MS = 50;
 
 export type MultiVideoSide = DualVideoSide & { color: string };
 
@@ -99,7 +103,8 @@ function gridClass(count: number, compact: boolean) {
 }
 
 /**
- * Up to 4 onboard videos lockstepped by shared lap-relative progress (0..1).
+ * Up to 4 onboard videos lockstepped by shared elapsed-ms progress (0..1).
+ * Clock = max lap_time_ms; same t for every side (spatial gap on map).
  * Two-way: track controls drive all players; any YouTube play/pause/seek/rate
  * drives the shared track cursor (and the other players).
  */
@@ -110,6 +115,7 @@ export function DualSessionVideos({
   progress,
   onProgress,
   onPlayingChange,
+  onProgressSubscribe,
   compact = false,
 }: {
   sides?: MultiVideoSide[];
@@ -121,6 +127,10 @@ export function DualSessionVideos({
   onProgress: (next: number | null) => void;
   /** Lets parent gate hover preview while videos are playing. */
   onPlayingChange?: (playing: boolean) => void;
+  /** Full-rate progress while playing (map / DOM cursors). */
+  onProgressSubscribe?: (
+    subscribe: (listener: (progress: number) => void) => () => void,
+  ) => void;
   /** Dense chrome for one-screen compare dashboard. */
   compact?: boolean;
 }) {
@@ -137,6 +147,7 @@ export function DualSessionVideos({
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState<PlaybackSpeed>(1);
+  const listenersRef = useRef(new Set<(progress: number) => void>());
 
   useEffect(() => {
     onPlayingChange?.(playing);
@@ -146,8 +157,24 @@ export function DualSessionVideos({
   const authorityRef = useRef<SyncAuthority>("clock");
   const suppress = useRef(createSyncSuppress());
   const lapMs = resolved.map((side) => side.lap.lapTimeMs);
-  const positiveMs = lapMs.filter((ms) => ms > 0);
-  const sharedMs = Math.max(1, positiveMs.length ? Math.min(...positiveMs) : 1);
+  const sharedMs = sharedCompareDurationMs(...lapMs);
+
+  const notify = useCallback((next: number) => {
+    progressRef.current = next;
+    for (const listener of listenersRef.current) listener(next);
+  }, []);
+
+  const subscribe = useCallback((listener: (progress: number) => void) => {
+    listenersRef.current.add(listener);
+    listener(progressRef.current);
+    return () => {
+      listenersRef.current.delete(listener);
+    };
+  }, []);
+
+  useEffect(() => {
+    onProgressSubscribe?.(subscribe);
+  }, [onProgressSubscribe, subscribe]);
 
   const sideKey = resolved
     .map((s) => `${s.lap.id}:${s.video?.id ?? ""}:${s.video?.offsetSec ?? 0}`)
@@ -156,14 +183,26 @@ export function DualSessionVideos({
   const driveAll = useCallback(
     (action: "play" | "pause" | "rate", value?: number) => {
       suppress.current.arm();
-      playersRef.current.forEach((player) => {
+      playersRef.current.forEach((player, index) => {
         if (!player) return;
-        if (action === "play") player.play();
-        else if (action === "pause") player.pause();
+        // Don't restart a finished shorter lap while the shared clock continues.
+        if (action === "play") {
+          const side = resolved[index];
+          if (side) {
+            const elapsed =
+              progressRef.current * (Math.max(1, sharedMs) / 1000);
+            if (elapsed >= side.lap.lapTimeMs / 1000) {
+              player.pause();
+              return;
+            }
+          }
+          player.play();
+        } else if (action === "pause") player.pause();
         else if (action === "rate" && value != null) player.setRate?.(value);
       });
     },
-    [],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sides via sideKey/sharedMs
+    [sideKey, sharedMs],
   );
 
   const seekAll = useCallback(
@@ -171,7 +210,7 @@ export function DualSessionVideos({
       const clamped = Math.max(0, Math.min(1, next));
       suppress.current.arm();
       resolved.forEach((side, index) => {
-        const t = dualVideoTimeAtProgress(side, clamped);
+        const t = dualVideoTimeAtProgress(side, clamped, sharedMs);
         if (t == null) return;
         const player = playersRef.current[index];
         if (!player) return;
@@ -182,7 +221,7 @@ export function DualSessionVideos({
       });
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- seek by current sides snapshot
-    [sideKey],
+    [sideKey, sharedMs],
   );
 
   useEffect(() => {
@@ -202,6 +241,7 @@ export function DualSessionVideos({
     driveAll("rate", speed);
     let raf = 0;
     let last = performance.now();
+    let lastUi = 0;
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
       if (authorityRef.current !== "clock") return;
@@ -213,13 +253,16 @@ export function DualSessionVideos({
         sharedMs,
         speed,
       );
-      progressRef.current = next;
-      onProgress(next);
+      notify(next);
+      if (now - lastUi >= UI_PROGRESS_INTERVAL_MS || next >= 1) {
+        lastUi = now;
+        onProgress(next);
+      }
       if (next >= 1) setPlaying(false);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [playing, onProgress, sharedMs, speed, driveAll]);
+  }, [playing, onProgress, sharedMs, speed, driveAll, notify]);
 
   useEffect(() => {
     if (!playing) return;
@@ -239,26 +282,44 @@ export function DualSessionVideos({
       if (event.type === "play") {
         authorityRef.current = "video";
         setPlaying(true);
-        const next = lapProgressFromVideoTime(
-          side.lap,
+        const next = dualProgressFromVideoTime(
+          side,
           playersRef.current[sideIndex]?.getTime() ?? 0,
-          side.video,
+          sharedMs,
         );
-        progressRef.current = next;
+        notify(next);
         onProgress(next);
         suppress.current.arm();
         resolved.forEach((other, index) => {
           if (index === sideIndex) return;
-          const t = dualVideoTimeAtProgress(other, next);
+          const t = dualVideoTimeAtProgress(other, next, sharedMs);
           const player = playersRef.current[index];
           if (!player) return;
           if (t != null) player.seek(t);
           player.setRate?.(speed);
-          player.play();
+          const elapsed = next * (sharedMs / 1000);
+          if (elapsed < other.lap.lapTimeMs / 1000) player.play();
         });
         return;
       }
       if (event.type === "pause" || event.type === "ended") {
+        // A shorter lap hitting ended must not stop the shared max clock.
+        if (event.type === "ended") {
+          const next = dualProgressFromVideoTime(
+            side,
+            playersRef.current[sideIndex]?.getTime() ??
+              side.lap.lapTimeMs / 1000,
+            sharedMs,
+          );
+          notify(next);
+          onProgress(next);
+          if (next < 1 && authorityRef.current === "clock") return;
+          if (next < 1) {
+            authorityRef.current = "clock";
+            setPlaying(true);
+            return;
+          }
+        }
         authorityRef.current = "video";
         setPlaying(false);
         suppress.current.arm();
@@ -266,12 +327,12 @@ export function DualSessionVideos({
           if (index !== sideIndex) p?.pause();
         });
         if (event.type === "ended") {
-          progressRef.current = 1;
+          notify(1);
           onProgress(1);
         } else {
           const time = playersRef.current[sideIndex]?.getTime() ?? 0;
-          const next = lapProgressFromVideoTime(side.lap, time, side.video);
-          progressRef.current = next;
+          const next = dualProgressFromVideoTime(side, time, sharedMs);
+          notify(next);
           onProgress(next);
           seekAll(next, true);
         }
@@ -280,8 +341,8 @@ export function DualSessionVideos({
       if (event.type === "seek") {
         authorityRef.current = "video";
         setPlaying(false);
-        const next = lapProgressFromVideoTime(side.lap, event.time, side.video);
-        progressRef.current = next;
+        const next = dualProgressFromVideoTime(side, event.time, sharedMs);
+        notify(next);
         onProgress(next);
         seekAll(next, true);
         return;
@@ -298,12 +359,12 @@ export function DualSessionVideos({
       }
       if (event.type === "time") {
         if (authorityRef.current !== "video") return;
-        const next = lapProgressFromVideoTime(side.lap, event.time, side.video);
-        progressRef.current = next;
+        const next = dualProgressFromVideoTime(side, event.time, sharedMs);
+        notify(next);
         onProgress(next);
         resolved.forEach((other, index) => {
           if (index === sideIndex) return;
-          const t = dualVideoTimeAtProgress(other, next);
+          const t = dualVideoTimeAtProgress(other, next, sharedMs);
           const player = playersRef.current[index];
           if (t == null || !player) return;
           if (needsDriftCorrection(t, player.getTime())) {
@@ -314,7 +375,7 @@ export function DualSessionVideos({
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sideKey, onProgress, seekAll, speed],
+    [sideKey, onProgress, seekAll, speed, sharedMs, notify],
   );
 
   useEffect(() => {
@@ -427,16 +488,16 @@ export function DualSessionVideos({
       {!compact ? (
         <div>
           <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
-            {count > 2 ? `${count}-way` : "Dual"} onboard · two-way sync
+            {count > 2 ? `${count}-way` : "Dual"} onboard · time sync
           </p>
           <p className="mt-1 text-sm text-zinc-400">
-            Play track or any YouTube — all players and the shared cursor stay
-            locked; each side keeps its saved offset.
+            Same elapsed ms from each lap start — map shows the gap; all players
+            and the shared cursor stay locked.
           </p>
         </div>
       ) : (
         <p className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">
-          {count > 2 ? `${count}-way` : "Dual"} onboard
+          {count > 2 ? `${count}-way` : "Dual"} onboard · time
         </p>
       )}
 

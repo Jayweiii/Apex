@@ -1,11 +1,18 @@
 /**
- * Side-by-side dual-session video: shared lap-relative progress (0..1)
+ * Side-by-side dual-session video: shared elapsed-ms progress (0..1)
  * drives both players from each lap's start + video offset/rate.
+ *
+ * progress ≡ elapsedMs / sharedCompareDurationMs (max lap). Same wall
+ * clock for every side — not % of each lap's own duration — so map/video
+ * show the spatial gap at identical elapsed time from lap start.
  */
+import { sharedCompareDurationMs } from "./compare";
 import type { SessionVideo } from "./types";
 import {
+  sessionTimeForLapPoint,
+  sessionTimeFromVideo,
   toSyncLaps,
-  videoTimeFromLapProgress,
+  videoTimeFromSession,
   type SyncLap,
 } from "./video-sync";
 
@@ -21,6 +28,8 @@ export type DualVideoSide = {
   needsLocalFile?: boolean;
   label: string;
 };
+
+export { sharedCompareDurationMs };
 
 export function lapAsSyncLap(lap: {
   id: string;
@@ -40,18 +49,61 @@ export function lapAsSyncLap(lap: {
   );
 }
 
-/** Video time for a side at shared lap-relative progress. */
-export function dualVideoTimeAtProgress(
-  side: DualVideoSide,
+/** Elapsed seconds on the shared compare clock for progress 0..1. */
+export function elapsedSecFromProgress(
   progress: number,
-): number | null {
-  if (!side.video) return null;
-  return videoTimeFromLapProgress(side.lap, progress, side.video);
+  sharedMs: number,
+): number {
+  const clock = Math.max(1, sharedMs) / 1000;
+  return Math.max(0, Math.min(1, progress)) * clock;
+}
+
+/** Clamp elapsed seconds into a single lap's playback window. */
+export function lapLocalSecFromElapsed(
+  lap: Pick<SyncLap, "lapTimeMs">,
+  elapsedSec: number,
+): number {
+  const lapDur = Math.max(0.001, lap.lapTimeMs / 1000);
+  return Math.max(0, Math.min(elapsedSec, lapDur));
 }
 
 /**
- * Advance shared lap progress by wall-clock delta using the shortest lap
- * as the shared timeline (lockstep ends when any lap finishes).
+ * Video time for a side at shared progress on the max-lap clock.
+ * Pass `sharedMs` (max lap) so every side seeks the same elapsed ms.
+ */
+export function dualVideoTimeAtProgress(
+  side: DualVideoSide,
+  progress: number,
+  sharedMs?: number,
+): number | null {
+  if (!side.video) return null;
+  const clockMs = sharedMs ?? sharedCompareDurationMs(side.lap.lapTimeMs);
+  const elapsed = elapsedSecFromProgress(progress, clockMs);
+  const lapTime = lapLocalSecFromElapsed(side.lap, elapsed);
+  return videoTimeFromSession(
+    sessionTimeForLapPoint(side.lap, lapTime),
+    side.video,
+  );
+}
+
+/**
+ * Shared progress from a side's video clock (elapsed / sharedMs).
+ */
+export function dualProgressFromVideoTime(
+  side: DualVideoSide,
+  videoTime: number,
+  sharedMs: number,
+): number {
+  if (!side.video) return 0;
+  const sessionTime = sessionTimeFromVideo(videoTime, side.video);
+  const elapsed = Math.max(0, sessionTime - side.lap.startOffsetSec);
+  const clock = Math.max(1, sharedMs) / 1000;
+  return Math.max(0, Math.min(1, elapsed / clock));
+}
+
+/**
+ * Advance shared lap progress by wall-clock delta using the longest lap
+ * as the shared timeline (absolute elapsed ms — cars diverge spatially).
  *
  * Accepts either `(progress, dt, refMs, otherMs)` or `(progress, dt, ...lapMs)`.
  */
@@ -60,8 +112,7 @@ export function advanceSharedProgress(
   deltaSec: number,
   ...lapMs: number[]
 ): number {
-  const positive = lapMs.filter((ms) => Number.isFinite(ms) && ms > 0);
-  const sharedMs = Math.max(1, positive.length ? Math.min(...positive) : 1);
+  const sharedMs = sharedCompareDurationMs(...lapMs);
   const next = progress + deltaSec / (sharedMs / 1000);
   return Math.max(0, Math.min(1, next));
 }
@@ -85,8 +136,12 @@ export function dualCompareAlignedAtLapStart(
   ref: DualVideoSide,
   other: DualVideoSide,
 ): { refVideoTime: number | null; otherVideoTime: number | null } {
+  const sharedMs = sharedCompareDurationMs(
+    ref.lap.lapTimeMs,
+    other.lap.lapTimeMs,
+  );
   return {
-    refVideoTime: dualVideoTimeAtProgress(ref, 0),
-    otherVideoTime: dualVideoTimeAtProgress(other, 0),
+    refVideoTime: dualVideoTimeAtProgress(ref, 0, sharedMs),
+    otherVideoTime: dualVideoTimeAtProgress(other, 0, sharedMs),
   };
 }

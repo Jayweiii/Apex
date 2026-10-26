@@ -5,10 +5,12 @@ import {
   COMPARE_COLORS,
   compareHref,
   compareMany,
+  compareManyByTime,
   defaultLapIds,
   MAX_COMPARE_LAPS,
   parseCompareSlots,
   serializeCompareSlots,
+  sharedCompareDurationMs,
 } from "../src/lib/compare";
 import {
   advanceSharedProgress,
@@ -95,10 +97,21 @@ assert(typeof series[30].delta1 === "number", "delta1");
 assert(typeof series[30].delta3 === "number", "delta3");
 assert(series[30].delta1 !== series[30].delta3, "distinct deltas");
 
-const advanced = advanceSharedProgress(0, 10, 100_000, 90_000, 95_000, 110_000);
+const timeSeries = compareManyByTime(refPts, [otherA, otherB, otherC], 60, 88_000);
+assert(timeSeries.length === 60, "compareManyByTime steps");
+assert(typeof timeSeries[30].t === "number", "time axis t");
 assert(
-  Math.abs(advanced - 10 / 90) < 1e-6,
-  `min of 4 laps clocks progress, got ${advanced}`,
+  Math.abs((timeSeries[30].t as number) - (30 / 59) * 88) < 1e-6,
+  "mid t along shared duration",
+);
+assert(typeof timeSeries[30].speed0 === "number", "time speed0");
+assert(typeof timeSeries[30].delta1 === "number", "time delta is distance gap");
+assert(sharedCompareDurationMs(90_000, 91_000, 92_000) === 92_000, "shared max");
+
+const advanced = advanceSharedProgress(0, 11, 100_000, 90_000, 95_000, 110_000);
+assert(
+  Math.abs(advanced - 11 / 110) < 1e-6,
+  `max of 4 laps clocks progress, got ${advanced}`,
 );
 
 const video: SessionVideo = {
