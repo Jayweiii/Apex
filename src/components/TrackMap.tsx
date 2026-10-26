@@ -61,6 +61,8 @@ type MapProps = {
   centerline?: Array<{ lat: number; lon: number }> | null;
   /** Prefer this trace as chase follow default (e.g. reference lap). */
   defaultFollowId?: string;
+  /** Compare reference for POV/overview gap labels (defaults to first trace). */
+  referenceId?: string;
   /** Shorter map for home/hero embeds. */
   compact?: boolean;
   /** Stretch to parent height (session dashboard left column). */
@@ -296,6 +298,7 @@ export function TrackMap(props: MapProps) {
           compact={props.compact}
           panel={props.panel}
           basemap={basemap}
+          referenceId={props.referenceId ?? props.defaultFollowId}
         />
       </div>
     );

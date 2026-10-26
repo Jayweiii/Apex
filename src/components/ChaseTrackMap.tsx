@@ -219,6 +219,7 @@ export function ChaseTrackMap({
   progressBasis = "track",
   durationMs,
   progressSubscribe,
+  referenceId,
 }: {
   traces: ChaseTrace[];
   activeProgress?: number | null;
@@ -239,6 +240,8 @@ export function ChaseTrackMap({
   durationMs?: number;
   /** Full-rate progress while playing (map markers / chase camera). */
   progressSubscribe?: (listener: (progress: number) => void) => () => void;
+  /** Compare reference lap — gap labels are vs this car, not the follow cam. */
+  referenceId?: string;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -607,20 +610,25 @@ export function ChaseTrackMap({
         markersRef.current.push(marker);
       });
 
-      if (samples.length >= 2 && prefs.followId !== "centroid") {
+      // Gap vs COMPARE REFERENCE (not chase follow): one label per non-ref car.
+      if (samples.length >= 2) {
         const ref =
-          samples.find((s) => s.trace.id === follow.trace.id) ?? samples[0];
+          (referenceId
+            ? samples.find((s) => s.trace.id === referenceId)
+            : null) ??
+          samples.find((s) => s.trace.id === drawable[0]?.id) ??
+          samples[0];
         for (const other of samples) {
           if (other.trace.id === ref.trace.id) continue;
           // Time-aligned playback: both samples share elapsed t, so t−t ≈ 0.
-          // Gap = when other reached ref's current distance (or vice versa).
+          // Gap = when ref was at other's current distance minus now.
           const gapSec = timeGapAtProgress(
             ref.trace.points as GpsPoint[],
             other.trace.points as GpsPoint[],
             progress,
             sampleOpts,
           );
-          if (gapSec == null || !Number.isFinite(gapSec) || Math.abs(gapSec) >= 30) {
+          if (gapSec == null || !Number.isFinite(gapSec) || Math.abs(gapSec) >= 120) {
             continue;
           }
           const el = document.createElement("div");
@@ -665,6 +673,7 @@ export function ChaseTrackMap({
     pitch,
     sampleOpts,
     progressSubscribe,
+    referenceId,
   ]);
 
   void bearingAtProgress;

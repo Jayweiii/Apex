@@ -45,4 +45,16 @@ assert(
   "default ignores excluded",
 );
 
+// In-lap / out-lap must not win default selection over a real flying lap.
+const withInLap = [
+  { id: "out", lap_number: 1, lap_time_ms: 12_000 },
+  { id: "hot", lap_number: 2, lap_time_ms: 94_700 },
+  { id: "hot2", lap_number: 3, lap_time_ms: 95_100 },
+  { id: "in", lap_number: 11, lap_time_ms: 6_148 },
+];
+assert(
+  resolveSelectedLap(withInLap, null)?.id === "hot",
+  `default picks best flying lap, got ${resolveSelectedLap(withInLap, null)?.id}`,
+);
+
 console.log("session-lap-url: ok");

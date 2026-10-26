@@ -7,6 +7,8 @@ export type DistSample = TelemetryPoint & { dist: number };
 export type ComparedPoint = {
   /** Meters from lap start along the shared distance axis (snapped trackDist when present). */
   dist: number;
+  /** Reference elapsed seconds at this distance (cursor sync across axis toggle). */
+  t?: number;
   refSpeed: number;
   otherSpeed: number;
   refG: number;
@@ -213,8 +215,23 @@ function haversine(lat1: number, lon1: number, lat2: number, lon2: number) {
   return 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+/**
+ * True when trackDist spans real meters. All-null / all-zero junk must fall
+ * back to path distance — otherwise time-sync delta becomes −elapsed
+ * (valueAt(ref, 0, "t") ≡ 0 → delta = −t) and distance-axis charts go blank.
+ */
 export function usesTrackDistance(points: TelemetryPoint[]): boolean {
-  return points.some((point) => point.trackDist != null);
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+  let count = 0;
+  for (const point of points) {
+    const d = point.trackDist;
+    if (d == null || !Number.isFinite(d)) continue;
+    count += 1;
+    if (d < min) min = d;
+    if (d > max) max = d;
+  }
+  return count >= 2 && max - min > 10;
 }
 
 /**
@@ -376,6 +393,8 @@ export function compareLaps(
     const otherTime = valueAt(alt, dist, "t");
     const row: ComparedPoint = {
       dist,
+      /** Reference elapsed time at this distance — keeps cursor when toggling axis. */
+      t: refTime,
       refSpeed: valueAt(ref, dist, "speed"),
       otherSpeed: valueAt(alt, dist, "speed"),
       refG: valueAt(ref, dist, "g"),
@@ -424,6 +443,7 @@ export function compareMany(
     const first = pairs[0][i];
     const row: MultiComparedPoint = {
       dist: first.dist,
+      t: first.t,
       snapped: first.snapped,
       speed0: first.refSpeed,
       g0: first.refG,

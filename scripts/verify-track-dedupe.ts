@@ -5,6 +5,7 @@ import { cloudRowToTrack } from "../src/lib/cloud-tracks";
 import {
   dedupeTracksByIdentity,
   findTrackByName,
+  getTrack,
   popularTracks,
   preferTrackDuplicate,
   resolveBuiltinAlias,
@@ -119,6 +120,12 @@ const equivCold = trackEquivalentIds("thunderhill-west");
 assert(
   equivCold.includes("custom-thunderhill-west"),
   "equiv includes custom twin without cache",
+);
+// Direct /tracks/custom-thunderhill-west must resolve without shared cache (SSR).
+const coldCustom = getTrack("custom-thunderhill-west");
+assert(
+  coldCustom != null && coldCustom.name.includes("West"),
+  `getTrack(custom-thunderhill-west) cold, got ${coldCustom?.id}`,
 );
 
 console.log("verify-track-dedupe ok", {

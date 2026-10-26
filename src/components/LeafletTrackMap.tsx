@@ -272,6 +272,7 @@ export function LeafletTrackMap({
   progressBasis = "track",
   durationMs,
   progressSubscribe,
+  referenceId,
 }: {
   traces: TrackTrace[];
   activeProgress?: number | null;
@@ -306,6 +307,8 @@ export function LeafletTrackMap({
   /** Shared Street | Satellite selection (persists across Overview/POV). */
   basemap?: BasemapMode;
   onBasemapChange?: (mode: BasemapMode) => void;
+  /** Compare reference for gap labels (defaults to first drawable). */
+  referenceId?: string;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -852,9 +855,13 @@ export function LeafletTrackMap({
       });
 
       if (!ghost && samples.length >= 2) {
-        const ref = samples[0];
-        for (let i = 1; i < samples.length; i += 1) {
+        const ref =
+          (referenceId
+            ? samples.find((s) => s.trace.id === referenceId)
+            : null) ?? samples[0];
+        for (let i = 0; i < samples.length; i += 1) {
           const other = samples[i];
+          if (other.trace.id === ref.trace.id) continue;
           const gapSec = timeGapAtProgress(
             ref.trace.points,
             other.trace.points,
@@ -864,7 +871,7 @@ export function LeafletTrackMap({
           if (
             gapSec == null ||
             !Number.isFinite(gapSec) ||
-            Math.abs(gapSec) >= 30
+            Math.abs(gapSec) >= 120
           ) {
             continue;
           }
@@ -903,6 +910,7 @@ export function LeafletTrackMap({
     drawable,
     sampleOpts,
     progressSubscribe,
+    referenceId,
   ]);
 
   if (!drawable.length) return null;

@@ -1,4 +1,6 @@
+import { builtinCenterline } from "@/lib/centerlines";
 import { haversineMeters } from "@/lib/map-match";
+import { resolveBuiltinAlias } from "@/lib/tracks";
 import type { TelemetryPoint } from "@/lib/types";
 
 /** Lap fields needed for best-lap eligibility and auto-flagging. */
@@ -16,7 +18,8 @@ export type SuspiciousReason =
   | "partial_coverage"
   | "out_lap"
   | "in_lap"
-  | "gps_jump";
+  | "gps_jump"
+  | "short_distance";
 
 export type LapSuspicion = {
   lapId: string;
@@ -31,6 +34,12 @@ const DURATION_ABS_MS = 8_000;
 const SF_GAP_PARTIAL_M = 120;
 /** Path length below this fraction of session median ⇒ partial. */
 const PATH_LEN_FRAC = 0.7;
+/**
+ * Path length below this fraction of expected track length ⇒ invalid short
+ * split (e.g. Thunderhill West ~3 mi; a 1:21 that only covers ~87% of the
+ * circuit must not top the leaderboard).
+ */
+export const TRACK_LEN_FRAC = 0.9;
 /** Single hop above this is a GPS jump (meters). */
 const GPS_JUMP_M = 80;
 /** Implied speed above this between samples is a jump (m/s ≈ 288 km/h). */
@@ -44,8 +53,12 @@ export function isLapExcluded(
 
 /** Absolute floor — out/in segments are typically well under this. */
 export const MIN_FULL_LAP_MS = 45_000;
-/** Reject laps shorter/longer than this fraction of the session median. */
-const MEDIAN_LO = 0.55;
+/**
+ * Reject laps shorter/longer than this fraction of the session median.
+ * LO=0.90 catches short splits (e.g. 1:21 when session median ≈ 1:35) even
+ * when GPS path length is unavailable on cloud leaderboards.
+ */
+const MEDIAN_LO = 0.9;
 const MEDIAN_HI = 1.45;
 
 /**
@@ -82,7 +95,7 @@ export function lapsEligibleForBest<
     excluded?: boolean | null;
     telemetry?: TelemetryPoint[] | null;
   },
->(laps: T[]): T[] {
+>(laps: T[], trackId?: string | null): T[] {
   const included = laps.filter((lap) => !isLapExcluded(lap));
   if (!included.length) return [];
 
@@ -95,6 +108,7 @@ export function lapsEligibleForBest<
       telemetry: lap.telemetry,
       excluded: lap.excluded,
     })),
+    trackId,
   );
 
   return included.filter((lap, index) => {
@@ -102,13 +116,14 @@ export function lapsEligibleForBest<
     const id = lap.id ?? `lap-${index}`;
     const flag = suspicious.get(id);
     if (!flag) return true;
-    // Out/in/GPS-jump/partial never count as session best.
+    // Out/in/GPS-jump/partial/short never count as session best.
     return !flag.reasons.some(
       (reason) =>
         reason === "out_lap" ||
         reason === "in_lap" ||
         reason === "gps_jump" ||
         reason === "partial_coverage" ||
+        reason === "short_distance" ||
         reason === "duration_outlier",
     );
   });
@@ -122,8 +137,9 @@ export function bestLapTimeMs(
     excluded?: boolean | null;
     telemetry?: TelemetryPoint[] | null;
   }>,
+  trackId?: string | null,
 ): number | null {
-  const eligible = lapsEligibleForBest(laps);
+  const eligible = lapsEligibleForBest(laps, trackId);
   if (!eligible.length) return null;
   return Math.min(...eligible.map((lap) => lap.lap_time_ms));
 }
@@ -141,8 +157,8 @@ export function lapsForDefaultCompare<
     excluded?: boolean | null;
     telemetry?: TelemetryPoint[] | null;
   },
->(laps: T[]): T[] {
-  const eligible = lapsEligibleForBest(laps);
+>(laps: T[], trackId?: string | null): T[] {
+  const eligible = lapsEligibleForBest(laps, trackId);
   if (eligible.length) return eligible;
   const med = sessionMedianLapMs(laps.filter((lap) => !isLapExcluded(lap)));
   const byDuration = laps.filter(
@@ -181,6 +197,36 @@ function pathLengthMeters(points: TelemetryPoint[]): number {
     prev = point;
   }
   return sum;
+}
+
+/** Expected full-lap path length from the builtin/alias centerline (meters). */
+export function expectedTrackLengthMeters(
+  trackId: string | null | undefined,
+): number | null {
+  if (!trackId) return null;
+  const line =
+    builtinCenterline(trackId) ??
+    builtinCenterline(resolveBuiltinAlias(trackId));
+  if (!line || line.length < 2) return null;
+  let sum = 0;
+  for (let i = 1; i < line.length; i += 1) {
+    const a = line[i - 1]!;
+    const b = line[i]!;
+    sum += haversineMeters(a.lat, a.lon, b.lat, b.lon);
+  }
+  return sum > 100 ? sum : null;
+}
+
+/** True when GPS path is too short vs the circuit (invalid short split). */
+export function isShortOfTrackLength(
+  points: TelemetryPoint[] | null | undefined,
+  trackId: string | null | undefined,
+  frac = TRACK_LEN_FRAC,
+): boolean {
+  const expected = expectedTrackLengthMeters(trackId);
+  if (expected == null || !points?.length) return false;
+  const pathLen = pathLengthMeters(points);
+  return pathLen > 50 && pathLen < expected * frac;
 }
 
 function startFinishGapMeters(points: TelemetryPoint[]): number | null {
@@ -224,14 +270,19 @@ const REASON_LABELS: Record<SuspiciousReason, string> = {
   out_lap: "Out lap",
   in_lap: "In lap",
   gps_jump: "GPS jump",
+  short_distance: "Short distance",
 };
 
 /**
  * Auto-flag suspicious laps (splitter bugs, outlaps, GPS glitches).
  * Does NOT exclude — UI shows a label only; Jason wants no auto-exclude.
  * First/last partial segments are labeled out lap / in lap.
+ * Short-of-track-length laps are flagged invalid for bests/leaderboards.
  */
-export function flagSuspiciousLaps(laps: LapQualityInput[]): LapSuspicion[] {
+export function flagSuspiciousLaps(
+  laps: LapQualityInput[],
+  trackId?: string | null,
+): LapSuspicion[] {
   if (laps.length < 2) return [];
 
   const times = laps.map((lap) => lap.lap_time_ms).filter((t) => t > 0);
@@ -239,6 +290,7 @@ export function flagSuspiciousLaps(laps: LapQualityInput[]): LapSuspicion[] {
   const pathLens = laps.map((lap) => pathLengthMeters(lap.telemetry ?? []));
   const positivePaths = pathLens.filter((len) => len > 50);
   const medPath = median(positivePaths);
+  const expectedTrack = expectedTrackLengthMeters(trackId);
   const lastIdx = laps.length - 1;
 
   const out: LapSuspicion[] = [];
@@ -261,7 +313,12 @@ export function flagSuspiciousLaps(laps: LapQualityInput[]): LapSuspicion[] {
     const partialByGap = gap != null && gap > SF_GAP_PARTIAL_M;
     const partialByPath =
       medPath != null && medPath > 100 && pathLen > 0 && pathLen < medPath * PATH_LEN_FRAC;
-    const looksPartial = partialByGap || partialByPath || durationOutlier;
+    const shortOfTrack =
+      expectedTrack != null &&
+      pathLen > 50 &&
+      pathLen < expectedTrack * TRACK_LEN_FRAC;
+    const looksPartial =
+      partialByGap || partialByPath || durationOutlier || shortOfTrack;
 
     // Out/in: label first/last incomplete segments — never auto-exclude.
     if (looksPartial && i === 0) {
@@ -271,6 +328,7 @@ export function flagSuspiciousLaps(laps: LapQualityInput[]): LapSuspicion[] {
     } else {
       if (durationOutlier) reasons.push("duration_outlier");
       if (partialByGap || partialByPath) reasons.push("partial_coverage");
+      if (shortOfTrack) reasons.push("short_distance");
     }
 
     if (hasBigGpsJump(points)) {
@@ -290,9 +348,10 @@ export function flagSuspiciousLaps(laps: LapQualityInput[]): LapSuspicion[] {
 
 export function suspicionByLapId(
   laps: LapQualityInput[],
+  trackId?: string | null,
 ): Map<string, LapSuspicion> {
   const map = new Map<string, LapSuspicion>();
-  for (const item of flagSuspiciousLaps(laps)) {
+  for (const item of flagSuspiciousLaps(laps, trackId)) {
     map.set(item.lapId, item);
   }
   return map;

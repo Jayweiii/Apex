@@ -358,16 +358,45 @@ function TrackOverviewMap({
 
 export function TrackDetail({ id }: { id: string }) {
   const [track, setTrack] = useState<Track | null>(() => getTrack(id));
+  const [trackLoading, setTrackLoading] = useState(() => !getTrack(id));
   const [tab, setTab] = useState<"sessions" | "leaderboard" | "upload">(
     "sessions",
   );
   const local = useLocalSessions();
+  // Warm sharedTracksCache so non-builtin community ids resolve after hydrate.
+  useExtraTracks();
 
   useEffect(() => {
+    let cancelled = false;
+    async function resolve() {
+      const direct = getTrack(id);
+      if (direct) {
+        if (!cancelled) {
+          setTrack(direct);
+          setTrackLoading(false);
+        }
+        return;
+      }
+      if (hasSupabaseConfig()) {
+        try {
+          const shared = await fetchSharedTracks(createClient());
+          if (!cancelled) setSharedTracksCache(shared);
+        } catch {
+          // keep empty
+        }
+      }
+      if (!cancelled) {
+        setTrack(getTrack(id));
+        setTrackLoading(false);
+      }
+    }
     const frame = window.requestAnimationFrame(() => {
-      setTrack(getTrack(id));
+      void resolve();
     });
-    return () => window.cancelAnimationFrame(frame);
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(frame);
+    };
   }, [id]);
 
   if (!track) {
@@ -376,7 +405,7 @@ export function TrackDetail({ id }: { id: string }) {
         <AppHeader />
         <main className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6">
           <p className="text-sm text-zinc-400">
-            {local === null ? "Loading track…" : "Track not found."}
+            {trackLoading || local === null ? "Loading track…" : "Track not found."}
           </p>
           <Link href="/tracks" className="mt-4 inline-block text-sm text-orange-400">
             Back to tracks

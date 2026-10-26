@@ -4,10 +4,14 @@
 import { defaultLapIds, defaultLapPair } from "../src/lib/compare";
 import {
   bestLapTimeMs,
+  expectedTrackLengthMeters,
   flagSuspiciousLaps,
   isLapExcluded,
+  isPlausibleFullLapMs,
+  isShortOfTrackLength,
   lapsEligibleForBest,
   lapsForDefaultCompare,
+  TRACK_LEN_FRAC,
   type LapQualityInput,
 } from "../src/lib/lap-quality";
 import type { TelemetryPoint } from "../src/lib/types";
@@ -158,5 +162,54 @@ assert(
   withOutIn.every((lap) => !lap.excluded),
   "out/in labels do not auto-exclude",
 );
+
+// Short-of-track-length: path << expected Thunderhill West centerline.
+const westLen = expectedTrackLengthMeters("thunderhill-west");
+assert(westLen != null && westLen > 2000, `west track length, got ${westLen}`);
+assert(
+  expectedTrackLengthMeters("custom-thunderhill-west") === westLen,
+  "custom alias same length",
+);
+
+// Tiny oval (~1 km) vs West (~4 km) → short_distance.
+const shortPts = ovalLap(82);
+assert(
+  isShortOfTrackLength(shortPts, "thunderhill-west"),
+  "short path vs track length",
+);
+const shortFlags = flagSuspiciousLaps(
+  [
+    {
+      id: "fullish",
+      lap_number: 1,
+      lap_time_ms: 95_000,
+      telemetry: ovalLap(95),
+    },
+    {
+      id: "shortSplit",
+      lap_number: 2,
+      lap_time_ms: 81_908,
+      telemetry: shortPts,
+    },
+    {
+      id: "full2",
+      lap_number: 3,
+      lap_time_ms: 96_000,
+      telemetry: ovalLap(96),
+    },
+  ],
+  "thunderhill-west",
+);
+assert(
+  shortFlags.some(
+    (f) => f.lapId === "shortSplit" && f.reasons.includes("short_distance"),
+  ),
+  "short_distance reason",
+);
+assert(
+  !isPlausibleFullLapMs(81_908, 95_000),
+  "1:21 vs 1:35 median fails duration gate (leaderboard)",
+);
+assert(TRACK_LEN_FRAC === 0.9, "90% track length threshold");
 
 console.log("verify-exclude-laps ok");

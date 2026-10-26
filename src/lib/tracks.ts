@@ -178,12 +178,17 @@ export function builtinTrack(id: string): Track | null {
 }
 
 export function getTrack(id: string): Track | null {
-  return (
+  const direct =
     builtinTrack(id) ??
     sharedTracksCache.find((track) => track.id === id) ??
     listCustomTracks().find((track) => track.id === id) ??
-    null
-  );
+    null;
+  if (direct) return direct;
+  // SSR / cold cache: /tracks/custom-thunderhill-west must resolve before
+  // sharedTracksCache loads (direct load was "Track not found").
+  const alias = resolveBuiltinAlias(id);
+  if (alias && alias !== id) return builtinTrack(alias);
+  return null;
 }
 
 /**

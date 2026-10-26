@@ -3,11 +3,15 @@
  * Also accepts a lap UUID for redirects from legacy /laps/[lapId] routes.
  */
 
+import { lapsForDefaultCompare } from "@/lib/lap-quality";
+import type { TelemetryPoint } from "@/lib/types";
+
 export type LapPick = {
   id: string;
   lap_number: number;
   lap_time_ms: number;
   excluded?: boolean | null;
+  telemetry?: TelemetryPoint[] | null;
 };
 
 export function sessionLapHref(
@@ -44,8 +48,9 @@ export function resolveSelectedLap<T extends LapPick>(
 ): T | null {
   if (!laps.length) return null;
   if (lapParam == null || lapParam === "") {
-    const eligible = laps.filter((lap) => !lap.excluded);
-    const pool = eligible.length ? eligible : laps;
+    // Prefer fastest valid flying lap — never default to a 6s in-lap just
+    // because it is the numerically smallest duration.
+    const pool = lapsForDefaultCompare(laps);
     return pool.reduce((best, lap) =>
       lap.lap_time_ms < best.lap_time_ms ? lap : best,
     );

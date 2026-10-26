@@ -225,8 +225,11 @@ export function LapList({
                 <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
                   {formatLapTime(lap.lap_time_ms)}
                   {isFastest ? (
-                    <span className="text-[10px] font-sans uppercase tracking-[0.2em] text-orange-500">
-                      Best
+                    <span
+                      className="rounded-md border border-orange-500/40 bg-orange-500/15 px-1.5 py-0.5 text-[10px] font-sans uppercase tracking-[0.16em] text-orange-400"
+                      data-apex-session-best="1"
+                    >
+                      Session best
                     </span>
                   ) : null}
                   {excluded ? (

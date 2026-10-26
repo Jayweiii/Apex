@@ -387,7 +387,12 @@ export function SessionLapDetail({
               {deltaSec.toFixed(3)}s
             </span>
           ) : (
-            <span className="text-orange-500/90">Best</span>
+            <span
+              className="rounded-md border border-orange-500/40 bg-orange-500/15 px-1.5 py-0.5 text-[10px] font-sans uppercase tracking-[0.16em] text-orange-400"
+              data-apex-session-best="1"
+            >
+              Session best
+            </span>
           )}
           {lap.excluded ? (
             <span className="rounded-md border border-zinc-700 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-zinc-500">

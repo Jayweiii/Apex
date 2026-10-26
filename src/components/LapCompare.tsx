@@ -632,13 +632,11 @@ export function LapCompare({
       if (index == null || series.length < 2) return null;
       const row = series[Math.min(series.length - 1, Math.max(0, index))];
       if (!row) return null;
-      if (chartAxis === "time") {
-        const t = typeof row.t === "number" ? row.t : 0;
-        return progressFromTimeSec(t, sharedSec, 0);
-      }
-      return Math.min(1, Math.max(0, index / (series.length - 1)));
+      // Both axes carry ref elapsed `t` — keep the shared clock on toggle.
+      const t = typeof row.t === "number" ? row.t : 0;
+      return progressFromTimeSec(t, sharedSec, 0);
     },
-    [series, chartAxis, sharedSec],
+    [series, sharedSec],
   );
 
   // Dashed Recharts ReferenceLine is hover-only. While playing, the solid
@@ -649,14 +647,14 @@ export function LapCompare({
     previewProgress == null ||
     series.length < 2
       ? null
-      : chartAxis === "time"
-        ? indexNearestTime(
-            series.map((row) => ({ t: typeof row.t === "number" ? row.t : 0 })),
-            timeSecFromProgress(previewProgress, sharedSec, 0),
-          )
-        : Math.round(previewProgress * (series.length - 1));
+      : indexNearestTime(
+          series.map((row) => ({ t: typeof row.t === "number" ? row.t : 0 })),
+          timeSecFromProgress(previewProgress, sharedSec, 0),
+        );
 
   // Drive DOM playback cursor from shared progress (throttled React or rAF subscribe).
+  // Progress is always elapsed-time fraction — Distance mode maps via row.t so
+  // toggling Time↔Distance does not reset the timer.
   useEffect(() => {
     const apply = (p: number | null) => {
       if (p == null || series.length < 2) {
@@ -664,28 +662,37 @@ export function LapCompare({
         hoverController.setPlaybackIndex(null);
         return;
       }
+      const targetT = timeSecFromProgress(p, sharedSec, 0);
+      const firstT = typeof series[0]?.t === "number" ? series[0].t : 0;
+      const lastT =
+        typeof series[series.length - 1]?.t === "number"
+          ? (series[series.length - 1]!.t as number)
+          : sharedSec;
+      const idx = indexNearestTime(
+        series.map((row) => ({ t: typeof row.t === "number" ? row.t : 0 })),
+        targetT,
+      );
       if (chartAxis === "time") {
-        const targetT = timeSecFromProgress(p, sharedSec, 0);
-        const firstT = typeof series[0]?.t === "number" ? series[0].t : 0;
-        const lastT =
-          typeof series[series.length - 1]?.t === "number"
-            ? (series[series.length - 1]!.t as number)
-            : sharedSec;
         hoverController.setPlaybackFraction(
           plotFractionFromTime(targetT, firstT, lastT),
         );
-        hoverController.setPlaybackIndex(
-          indexNearestTime(
-            series.map((row) => ({ t: typeof row.t === "number" ? row.t : 0 })),
-            targetT,
-          ),
+      } else {
+        // Distance axis: X position from dist at the time-matched row.
+        const firstD = typeof series[0]?.dist === "number" ? series[0].dist : 0;
+        const lastD =
+          typeof series[series.length - 1]?.dist === "number"
+            ? series[series.length - 1]!.dist
+            : firstD;
+        const dist =
+          typeof series[idx ?? 0]?.dist === "number"
+            ? (series[idx ?? 0]!.dist as number)
+            : firstD;
+        const span = lastD - firstD;
+        hoverController.setPlaybackFraction(
+          span > 0 ? Math.min(1, Math.max(0, (dist - firstD) / span)) : 0,
         );
-        return;
       }
-      hoverController.setPlaybackFraction(p);
-      hoverController.setPlaybackIndex(
-        Math.round(p * (series.length - 1)),
-      );
+      hoverController.setPlaybackIndex(idx);
     };
     apply(progress);
     if (!playing || !progressSubscribe) return;
@@ -1034,6 +1041,7 @@ export function LapCompare({
                   }
                   analysisDisabled={!hasAnalysisSnap}
                   defaultFollowId={ordered[0]?.lap.id}
+                  referenceId={ordered[0]?.lap.id}
                   panel
                 />
               ) : (
@@ -1114,11 +1122,11 @@ export function LapCompare({
                   }
                   scrub={chartScrub}
                 >
-                  <ResponsiveContainer width="100%" height={200} minHeight={200}>
+                  <ResponsiveContainer width="100%" height="100%" minHeight={280}>
                     <LineChart
                       data={speedSeries}
                       syncId="compare"
-                      margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
+                      margin={{ top: 4, right: 8, left: 0, bottom: 4 }}
                       onMouseMove={onChartMouseMove}
                       onMouseLeave={() => setPreviewProgress(null)}
                     >
@@ -1177,11 +1185,11 @@ export function LapCompare({
                   }
                   scrub={chartScrub}
                 >
-                  <ResponsiveContainer width="100%" height={200} minHeight={200}>
+                  <ResponsiveContainer width="100%" height="100%" minHeight={280}>
                     <LineChart
                       data={series}
                       syncId="compare"
-                      margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
+                      margin={{ top: 4, right: 8, left: 0, bottom: 4 }}
                       onMouseMove={onChartMouseMove}
                       onMouseLeave={() => setPreviewProgress(null)}
                     >
@@ -1223,11 +1231,11 @@ export function LapCompare({
 
               {stackedChannels.includes("throttleBrake") ? (
                 <ChartCard title={channelLabel("throttleBrake")} hint="0–100%" scrub={chartScrub}>
-                  <ResponsiveContainer width="100%" height={200} minHeight={200}>
+                  <ResponsiveContainer width="100%" height="100%" minHeight={280}>
                     <LineChart
                       data={series}
                       syncId="compare"
-                      margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
+                      margin={{ top: 4, right: 8, left: 0, bottom: 4 }}
                       onMouseMove={onChartMouseMove}
                       onMouseLeave={() => setPreviewProgress(null)}
                     >
@@ -1281,11 +1289,11 @@ export function LapCompare({
 
               {stackedChannels.includes("steering") ? (
                 <ChartCard title={channelLabel("steering")} hint="degrees" scrub={chartScrub}>
-                  <ResponsiveContainer width="100%" height={200} minHeight={200}>
+                  <ResponsiveContainer width="100%" height="100%" minHeight={280}>
                     <LineChart
                       data={series}
                       syncId="compare"
-                      margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
+                      margin={{ top: 4, right: 8, left: 0, bottom: 4 }}
                       onMouseMove={onChartMouseMove}
                       onMouseLeave={() => setPreviewProgress(null)}
                     >
@@ -1326,11 +1334,11 @@ export function LapCompare({
 
               {stackedChannels.includes("g") ? (
                 <ChartCard title="G" hint="Combined acceleration" scrub={chartScrub}>
-                  <ResponsiveContainer width="100%" height={200} minHeight={200}>
+                  <ResponsiveContainer width="100%" height="100%" minHeight={280}>
                     <LineChart
                       data={series}
                       syncId="compare"
-                      margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
+                      margin={{ top: 4, right: 8, left: 0, bottom: 4 }}
                       onMouseMove={onChartMouseMove}
                       onMouseLeave={() => setPreviewProgress(null)}
                     >
@@ -1371,11 +1379,11 @@ export function LapCompare({
 
               {stackedChannels.includes("gearRpm") ? (
                 <ChartCard title={channelLabel("gearRpm")} scrub={chartScrub}>
-                  <ResponsiveContainer width="100%" height={200} minHeight={200}>
+                  <ResponsiveContainer width="100%" height="100%" minHeight={280}>
                     <LineChart
                       data={series}
                       syncId="compare"
-                      margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
+                      margin={{ top: 4, right: 8, left: 0, bottom: 4 }}
                       onMouseMove={onChartMouseMove}
                       onMouseLeave={() => setPreviewProgress(null)}
                     >
@@ -1416,11 +1424,11 @@ export function LapCompare({
 
               {stackedChannels.includes("heading") ? (
                 <ChartCard title={channelLabel("heading")} hint="degrees" scrub={chartScrub}>
-                  <ResponsiveContainer width="100%" height={200} minHeight={200}>
+                  <ResponsiveContainer width="100%" height="100%" minHeight={280}>
                     <LineChart
                       data={series}
                       syncId="compare"
-                      margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
+                      margin={{ top: 4, right: 8, left: 0, bottom: 4 }}
                       onMouseMove={onChartMouseMove}
                       onMouseLeave={() => setPreviewProgress(null)}
                     >
@@ -1604,6 +1612,8 @@ function SessionLapToggleList({
 
 /**
  * Fixed plot height so Recharts ResponsiveContainer never collapses to 0.
+ * Container is tall enough that the cartesian plot (≥200px) survives legend
+ * + X-axis chrome inside the SVG.
  */
 function ChartCard({
   title,
@@ -1630,12 +1640,12 @@ function ChartCard({
       </div>
       <div
         ref={plotRef}
-        className="relative h-[220px] min-h-[220px] touch-none sm:h-[240px] sm:min-h-[240px]"
+        className="relative h-[300px] min-h-[300px] touch-none sm:h-[320px] sm:min-h-[320px]"
         data-apex-chart-plot="compare"
-        style={{ minHeight: 220, height: 220 }}
+        style={{ minHeight: 300, height: 300 }}
         {...scrub}
       >
-        <div className="absolute inset-0 min-h-[200px]">{children}</div>
+        <div className="absolute inset-0 min-h-[280px]">{children}</div>
         <HoverCursorLine plotRef={plotRef} />
         <PlaybackCursorLine plotRef={plotRef} />
       </div>

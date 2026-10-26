@@ -4,6 +4,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
+  compareMany,
   compareManyByTime,
   sharedCompareDurationMs,
   valueAt,
@@ -66,6 +67,28 @@ assert(
   (series[20]!.delta1 as number) < -0.5,
   `slower car behind (neg gap), got ${series[20]!.delta1}`,
 );
+assert(
+  Math.abs((series[20]!.delta1 as number) + midT) > 1,
+  `time-sync delta must not be −elapsed (got ${series[20]!.delta1} at t=${midT})`,
+);
+
+// All-zero trackDist must fall back to path distance (prod −elapsed bug).
+const zeroTrack = (pts: TelemetryPoint[]) =>
+  pts.map((p) => ({ ...p, trackDist: 0 }));
+const zeroSeries = compareManyByTime(zeroTrack(fast), [zeroTrack(slow)], 41, shared);
+assert(zeroSeries.length === 41, "zero-trackDist still builds series");
+assert(
+  Math.abs((zeroSeries[20]!.delta1 as number) + midT) > 1,
+  `zero trackDist delta not −elapsed, got ${zeroSeries[20]!.delta1}`,
+);
+// Distance axis must also produce a real series (not blank charts).
+const distSeries = compareMany(zeroTrack(fast), [zeroTrack(slow)], 41);
+assert(distSeries.length === 41, "distance axis series non-empty with zero trackDist");
+assert(
+  typeof distSeries[20]!.dist === "number" && (distSeries[20]!.dist as number) > 10,
+  "distance axis uses path meters",
+);
+assert(typeof distSeries[20]!.t === "number", "distance rows carry ref t for axis toggle");
 
 const video: SessionVideo = {
   id: "v",
