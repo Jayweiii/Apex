@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "fixture": "/cursor/stores/self/fixtures/GL010057-session-gps.json",
+  "pointCount": 3667,
+  "durationSec": 922.222,
+  "hz": 3.975,
+  "expectedApprox": 3667,
+  "payloadBytes": 12601,
+  "channels": [
+    "t",
+    "lat",
+    "lon",
+    "s"
+  ],
+  "note": "Live GL010057.LRV parse previously reported gps_quality.sampleCount=12030 (~10 Hz). This fixture is a ~4 Hz reconstruction; encode preserves every fixture sample.",
+  "session1aa2fb88": "Cannot rebuild full-res: no raw_object_key / LRV in storage. Cleared coarse 144-pt source_gps; owner must re-select GL010057.LRV once, then source_gps stays full-res."
+}

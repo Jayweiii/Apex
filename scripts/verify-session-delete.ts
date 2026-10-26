@@ -158,10 +158,12 @@ assert(cloud.includes("autoStart"), "reparse click auto-starts");
 
 const tools = read("src/components/SessionToolsPanel.tsx");
 assert(tools.includes("showButtons"), "showButtons for toolbar dedupe");
-assert(tools.includes("defaultOpen"), "compare laps default open prop");
 
 const compare = read("src/components/LapCompare.tsx");
-assert(compare.includes("defaultOpen"), "compare Laps panel default open");
+assert(
+  compare.includes("Comparing (") || compare.includes("lapPicker"),
+  "compare lap picker always visible",
+);
 
 const account = read("src/components/AccountSessions.tsx");
 assert(account.includes("DeleteSessionControl"), "account row delete");

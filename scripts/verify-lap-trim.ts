@@ -129,10 +129,11 @@ const detail = readFileSync(
   "utf8",
 );
 assert(
-  detail.includes("ExcludeFromBestControl"),
-  "exclude in selected lap header",
+  !detail.includes("ExcludeFromBestControl"),
+  "exclude is per-row in lap list only (no duplicate in detail)",
 );
-assert(detail.includes("LapTrimControls"), "trim controls on session lap");
+assert(detail.includes("LapTrimControls"), "trim controls on speed chart header");
+assert(detail.includes('data-testid="toolbar-trim"'), "trim button on chart");
 assert(detail.includes("buildTrimChartContext"), "padded trim chart context");
 assert(detail.includes("clampTrimDrag"), "bidirectional clamp");
 

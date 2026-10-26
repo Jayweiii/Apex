@@ -145,8 +145,15 @@ const lapCompareSrc = fs.readFileSync(
   path.join(root, "src/components/LapCompare.tsx"),
   "utf8",
 );
-assert(lapCompareSrc.includes("LapChipPicker"), "compare uses compact lap chips");
-assert(lapCompareSrc.includes("defaultOpen"), "compare lap selection expanded by default");
+assert(
+  lapCompareSrc.includes("lapPicker") ||
+    lapCompareSrc.includes("Comparing ("),
+  "compare uses always-visible lap picker",
+);
+assert(
+  lapCompareSrc.includes("apex-pressable"),
+  "compare picker uses shared pressable styles",
+);
 assert(
   lapCompareSrc.includes("min-h-[120px]") || lapCompareSrc.includes("h-[120px]"),
   "compare ChartCard keeps ≥120px plot height",

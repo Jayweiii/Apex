@@ -40,11 +40,19 @@ const compare = read("src/components/LapCompare.tsx");
 assert(compare.includes("data-apex-compare-chart"), "compare charts tagged");
 assert(compare.includes("min-h-[120px]"), "compare plot min 120px");
 assert(compare.includes("minHeight={120}"), "ResponsiveContainer minHeight");
-assert(compare.includes("defaultOpen"), "laps panel open by default");
-assert(compare.includes("LapChipPicker"), "compact chip picker");
-assert(compare.includes("Search laps"), "optional lap search");
+assert(
+  compare.includes("Comparing (") || compare.includes("lapPicker"),
+  "laps picker always visible",
+);
+assert(compare.includes("apex-pressable"), "shared pressable styles");
+assert(
+  compare.includes("Search sessions") ||
+    compare.includes("Search laps") ||
+    compare.includes("Track"),
+  "session/track filter in picker",
+);
 
 const tools = read("src/components/SessionToolsPanel.tsx");
-assert(tools.includes("defaultOpen"), "tools panel supports defaultOpen");
+assert(tools.includes("showButtons"), "tools panel still available for extras");
 
 console.log(JSON.stringify({ ok: true, chartHeights: "≥100/120px contracts" }));
