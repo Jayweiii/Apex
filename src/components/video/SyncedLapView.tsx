@@ -707,20 +707,27 @@ export function SyncedLapView({
     />
   );
 
+  // Stable traces identity — inline arrays recreated every clock.progress
+  // tick would clearLayers/rebuild the route polyline (visible flicker).
+  const mapTraces = useMemo(
+    () => [
+      {
+        id: "lap",
+        label: `Lap ${lap.lap_number}`,
+        color: "#f97316",
+        points: data,
+        colorBySpeed: true as const,
+        lapKind: mapLapMeta.lapKind,
+        sfCrossing: mapLapMeta.sfCrossing,
+      },
+    ],
+    [lap.lap_number, data, mapLapMeta.lapKind, mapLapMeta.sfCrossing],
+  );
+
   const mapBlock = hasGps(data) ? (
     <TrackMap
-      traces={[
-        {
-          id: "lap",
-          label: `Lap ${lap.lap_number}`,
-          color: "#f97316",
-          points: data,
-          colorBySpeed: true,
-          lapKind: mapLapMeta.lapKind,
-          sfCrossing: mapLapMeta.sfCrossing,
-        },
-      ]}
-      activeProgress={clock.progress}
+      traces={mapTraces}
+      activeProgress={clock.playing ? undefined : clock.progress}
       progressBasis="time"
       durationMs={durationMs}
       progressSubscribe={clock.playing ? clock.subscribe : undefined}

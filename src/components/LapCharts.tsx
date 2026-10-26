@@ -134,17 +134,22 @@ export function LapCharts({
     [chartPoints, durationSec, t0],
   );
 
+  const mapTraces = useMemo(
+    () => [
+      {
+        id: "lap",
+        label,
+        color: "#f97316",
+        points: data,
+        colorBySpeed: true as const,
+      },
+    ],
+    [label, data],
+  );
+
   const mapBlock = hasGps(data) ? (
     <TrackMap
-      traces={[
-        {
-          id: "lap",
-          label,
-          color: "#f97316",
-          points: data,
-          colorBySpeed: true,
-        },
-      ]}
+      traces={mapTraces}
       activeProgress={progress}
       progressBasis="time"
       durationMs={durationMs}

@@ -693,10 +693,17 @@ export function LeafletTrackMap({
   }, [activeBasemap]);
 
   // Draw traces + centerline only when geometry identity changes.
+  // Guard on drawKey so React re-renders from playback progress never
+  // clearLayers/recreate the route polyline (session-page flicker).
+  const drawnGeometryKeyRef = useRef<string>("");
   useEffect(() => {
     const map = mapRef.current;
     const layers = layersRef.current;
     if (!map || !layers || !drawable.length) return;
+
+    const geometryKey = `${drawKey}|cl:${centerlineGps.length}|${minSpeed.toFixed(1)}|${maxSpeed.toFixed(1)}`;
+    if (drawnGeometryKeyRef.current === geometryKey) return;
+    drawnGeometryKeyRef.current = geometryKey;
 
     layers.clearLayers();
     const bounds = L.latLngBounds([]);
@@ -807,24 +814,33 @@ export function LeafletTrackMap({
   }, [drawable, centerlineGps, minSpeed, maxSpeed, drawKey]);
 
   // Playback markers (solid) + optional hover ghost preview.
+  // Prefer progressSubscribe (rAF) while playing — do not depend on throttled
+  // React activeProgress, which would resubscribe / clearLayers every ~50ms.
+  // Route polylines live in layersRef and are never touched here.
   useEffect(() => {
     const markers = markersRef.current;
     if (!markers) return;
-    markers.clearLayers();
-    if (!drawable.length) return;
+    const tracesSnapshot = drawableRef.current;
+    if (!tracesSnapshot.length) {
+      markers.clearLayers();
+      return;
+    }
 
-    const multi = drawable.length > 1;
+    const multi = tracesSnapshot.length > 1;
+    const opts = sampleOptsRef.current;
 
     const placeAt = (progress: number, ghost: boolean) => {
-      const samples = drawable
+      const live = drawableRef.current;
+      markers.clearLayers();
+      const samples = live
         .map((trace) => {
-          const point = sampleAtProgress(trace.points, progress, sampleOpts);
+          const point = sampleAtProgress(trace.points, progress, opts);
           return {
             trace,
             point,
             lat: point.lat,
             lon: point.lon,
-            bearing: trackBearing(trace.points, progress, sampleOpts),
+            bearing: trackBearing(trace.points, progress, opts),
             color: trace.colorBySpeed ? "#f97316" : trace.color,
           };
         })
@@ -866,7 +882,7 @@ export function LeafletTrackMap({
             ref.trace.points,
             other.trace.points,
             progress,
-            sampleOpts,
+            opts,
           );
           if (
             gapSec == null ||
@@ -890,7 +906,6 @@ export function LeafletTrackMap({
 
     if (progressSubscribe && !(hoverPreviewEnabled && previewProgress != null)) {
       return progressSubscribe((progress) => {
-        markers.clearLayers();
         placeAt(progress, false);
       });
     }
@@ -904,10 +919,11 @@ export function LeafletTrackMap({
       placeAt(ghost, true);
     }
   }, [
-    activeProgress,
+    // While progressSubscribe is set, ignore activeProgress identity churn.
+    progressSubscribe ? null : activeProgress,
     previewProgress,
     hoverPreviewEnabled,
-    drawable,
+    drawKey,
     sampleOpts,
     progressSubscribe,
     referenceId,

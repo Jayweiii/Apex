@@ -26,6 +26,7 @@ import {
   hasGps,
   MAX_COMPARE_LAPS,
   parseCompareSlots,
+  serializeCompareSlots,
   sharedCompareDurationMs,
   type CompareAxis,
   type MultiComparedPoint,
@@ -68,6 +69,7 @@ import { channelLabel } from "@/lib/telemetry-channels";
 import { getTrack } from "@/lib/tracks";
 import { pickSessionVideoForLap } from "@/lib/pick-session-video";
 import type { LapRow, SessionVideo } from "@/lib/types";
+import { usePathname, useRouter } from "next/navigation";
 import {
   useCallback,
   useEffect,
@@ -358,48 +360,48 @@ export function LapCompare({
     );
   }, [filteredSessions, baseSessionId]);
 
-  // Keep slots valid when session list / filter changes (bail if unchanged).
+  // Keep slots valid when session list changes (bail if unchanged).
+  // Resolve against allSessions so track-filter / browse-session changes never
+  // drop already-selected laps from other sessions.
   // Never overwrite after the user has clicked — late session loads used to
   // reseed L10/L11 from URL and clobber early picker clicks.
   useEffect(() => {
     setSlots((prev) => {
-      if (!filteredSessions.length) return prev;
+      if (!allSessions.length) return prev;
+
+      const findLap = (sessionId: string, lapId: string) => {
+        const session = allSessions.find((s) => s.id === sessionId);
+        if (!session) return null;
+        const lap = session.laps.find((item) => item.id === lapId);
+        return lap ? { session, lap } : null;
+      };
 
       if (userTouchedSlotsRef.current) {
-        // Remap only when a chosen lap still exists; never fall back to laps[0].
         const kept = prev
-          .map((slot) => {
-            const session = filteredSessions.find((s) => s.id === slot.sessionId);
-            if (!session) return null;
-            const lap = session.laps.find((item) => item.id === slot.lapId);
-            if (!lap) return null;
-            return slot;
-          })
+          .map((slot) => (findLap(slot.sessionId, slot.lapId) ? slot : null))
           .filter((slot): slot is SlotState => slot != null);
         return kept.length >= 2 ? kept.slice(0, MAX_COMPARE_LAPS) : prev;
       }
 
       const next = prev
         .map((slot) => {
-          const session = filteredSessions.find((s) => s.id === slot.sessionId);
-          if (!session) return null;
-          const lap = session.laps.find((item) => item.id === slot.lapId);
-          // Do not substitute laps[0] — that races URL preselection.
-          if (!lap) return null;
-          return { ...slot, sessionId: session.id, lapId: lap.id };
+          const hit = findLap(slot.sessionId, slot.lapId);
+          if (!hit) return null;
+          return { ...slot, sessionId: hit.session.id, lapId: hit.lap.id };
         })
         .filter((slot): slot is SlotState => slot != null);
 
+      const seedPool = filteredSessions.length ? filteredSessions : allSessions;
       const resolvedSlots =
         next.length >= 2
           ? next.slice(0, MAX_COMPARE_LAPS)
           : seedSlots({
-              sessions: filteredSessions,
+              sessions: seedPool,
               initialRef,
               initialOther,
               initialOtherSession,
               initialLaps,
-              baseSessionId: filteredSessions[0]?.id ?? baseSessionId,
+              baseSessionId: seedPool[0]?.id ?? baseSessionId,
             });
 
       const same =
@@ -413,6 +415,7 @@ export function LapCompare({
       return same ? prev : resolvedSlots;
     });
   }, [
+    allSessions,
     filteredSessions,
     initialRef,
     initialOther,
@@ -443,8 +446,12 @@ export function LapCompare({
   const resolved = useMemo((): ResolvedSlot[] => {
     const out: ResolvedSlot[] = [];
     slots.forEach((slot, index) => {
+      // Prefer allSessions so chips/charts keep cross-session picks when the
+      // browse dropdown / track filter shows a different subset.
       const session =
-        filteredSessions.find((s) => s.id === slot.sessionId) ?? null;
+        allSessions.find((s) => s.id === slot.sessionId) ??
+        filteredSessions.find((s) => s.id === slot.sessionId) ??
+        null;
       const lap = session?.laps.find((item) => item.id === slot.lapId) ?? null;
       if (!session || !lap) return;
       out.push({
@@ -457,7 +464,33 @@ export function LapCompare({
       });
     });
     return out;
-  }, [slots, filteredSessions, refIndex]);
+  }, [slots, allSessions, filteredSessions, refIndex]);
+
+  const router = useRouter();
+  const pathname = usePathname();
+  // Persist cross-session selections in the URL (`laps=session:lap,...`).
+  useEffect(() => {
+    if (readOnly) return;
+    if (!userTouchedSlotsRef.current && !initialLaps) return;
+    if (slots.length < 2) return;
+    const refLapId =
+      slots[refIndex]?.lapId ?? slots[0]?.lapId ?? undefined;
+    const qs = serializeCompareSlots(
+      slots.map((slot) => ({
+        sessionId: slot.sessionId,
+        lapId: slot.lapId,
+      })),
+      refLapId,
+    );
+    if (!qs) return;
+    const next = `${pathname}?${qs}`;
+    const current =
+      typeof window !== "undefined"
+        ? `${window.location.pathname}${window.location.search}`
+        : "";
+    if (current === next) return;
+    router.replace(next, { scroll: false });
+  }, [slots, refIndex, pathname, router, readOnly, initialLaps]);
 
   // Reorder so reference is first for map/charts/video (color follows slot index).
   const ordered = useMemo((): ResolvedSlot[] => {
@@ -825,35 +858,43 @@ export function LapCompare({
         <div className="flex min-h-[2.75rem] flex-wrap content-start gap-1.5">
           {slots.map((slot, index) => {
             const session =
-              filteredSessions.find((s) => s.id === slot.sessionId) ?? null;
+              allSessions.find((s) => s.id === slot.sessionId) ??
+              filteredSessions.find((s) => s.id === slot.sessionId) ??
+              null;
             const lap = session?.laps.find((item) => item.id === slot.lapId);
             const color = COMPARE_COLORS[index % COMPARE_COLORS.length];
             const isRef = index === refIndex;
+            const sessionTitle =
+              session?.title?.trim() ||
+              session?.name.split(" · ")[0]?.trim() ||
+              session?.name ||
+              slot.sessionId;
             return (
               <div
                 key={slot.key}
                 className="inline-flex max-w-full flex-wrap items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-950/80 px-2 py-1.5"
+                data-apex-compare-chip={`${slot.sessionId}:${slot.lapId}`}
               >
                 <span
                   className="inline-block h-2 w-2 shrink-0 rounded-full"
                   style={{ background: color }}
                 />
-                <span className="font-mono text-xs text-zinc-100">
-                  L{lap?.lap_number ?? "—"}{" "}
-                  <span className="text-zinc-500">
-                    {formatLapTime(lap?.lap_time_ms ?? 0)}
+                <span className="min-w-0 text-xs text-zinc-100">
+                  {multiSession ? (
+                    <span className="mr-1 max-w-[8rem] truncate align-bottom text-[10px] text-zinc-400">
+                      {sessionTitle}
+                    </span>
+                  ) : null}
+                  <span className="font-mono">
+                    L{lap?.lap_number ?? "—"}{" "}
+                    <span className="text-zinc-500">
+                      {formatLapTime(lap?.lap_time_ms ?? 0)}
+                    </span>
                   </span>
                 </span>
                 {isRef ? (
                   <span className="text-[10px] uppercase tracking-[0.12em] text-orange-400">
                     Ref
-                  </span>
-                ) : null}
-                {multiSession ? (
-                  <span className="max-w-[9rem] truncate text-[10px] text-zinc-500">
-                    {session
-                      ? formatSessionPickerLabel(session)
-                      : slot.sessionId}
                   </span>
                 ) : null}
                 {!readOnly ? (
@@ -1015,7 +1056,9 @@ export function LapCompare({
               {showMap ? (
                 <TrackMap
                   traces={mapTraces}
-                  activeProgress={progress}
+                  activeProgress={
+                    playing && progressSubscribe ? undefined : progress
+                  }
                   progressBasis="time"
                   durationMs={sharedMs}
                   progressSubscribe={

@@ -481,12 +481,24 @@ export function ChaseTrackMap({
     else map.once("load", place);
   }, [drawable]);
 
-  // Draw / update polylines when traces change.
+  // Draw / update polylines only when geometry / follow identity changes —
+  // never on every playback progress React re-render (session-page flicker).
+  const drawnChaseKeyRef = useRef<string>("");
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
 
     const followId = prefs.followId;
+    const geometryKey = drawable
+      .map((trace) => {
+        const first = trace.points[0];
+        const last = trace.points[trace.points.length - 1];
+        return `${trace.id}:${trace.points.length}:${first?.lat?.toFixed(5)}:${last?.lat?.toFixed(5)}:${trace.color}`;
+      })
+      .join("|");
+    const chaseKey = `${geometryKey}|follow:${followId ?? ""}`;
+    if (drawnChaseKeyRef.current === chaseKey) return;
+    drawnChaseKeyRef.current = chaseKey;
 
     const apply = () => {
       for (const layer of [...(map.getStyle().layers ?? [])]) {
@@ -664,7 +676,8 @@ export function ChaseTrackMap({
     }
     place(activeProgress ?? 0);
   }, [
-    activeProgress,
+    // While progressSubscribe owns the clock, skip activeProgress churn.
+    progressSubscribe ? null : activeProgress,
     previewProgress,
     hoverPreviewEnabled,
     drawable,
