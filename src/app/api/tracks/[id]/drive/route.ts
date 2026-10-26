@@ -271,7 +271,7 @@ export async function GET(
     lon: sfParsed?.lon ?? centerlineGps[0]!.lon,
   };
 
-  let centerline = closeLoop(
+  const centerline = closeLoop(
     decimatePolyline(polylineToLocal(origin, centerlineGps), 5),
   );
   if (pathLength(centerline) < 200) {

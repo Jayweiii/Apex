@@ -588,7 +588,9 @@ export function DriveGame({ trackId }: Props) {
       cancelAnimationFrame(raf);
       ro.disconnect();
     };
-  }, [payload, started, trackId, readInputs, onLapComplete]);
+    // onLapComplete is useEffectEvent — omit from deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [payload, started, trackId, readInputs]);
 
   const onSteerTouch = (
     e: React.TouchEvent<HTMLDivElement>,
