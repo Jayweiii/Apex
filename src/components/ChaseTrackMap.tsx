@@ -40,59 +40,95 @@ export type ChaseTrace = {
   sfCrossing?: { lat: number; lon: number } | null;
 };
 
-const BASEMAP_SOURCE_ID = "basemap";
-const BASEMAP_LAYER_ID = "basemap";
+/** Dual basemap layers — swap via opacity only (no setStyle / removeSource). */
+const SAT_SOURCE_ID = "basemap-satellite";
+const STREET_SOURCE_ID = "basemap-street";
+const SAT_LAYER_ID = "basemap-satellite";
+const STREET_LAYER_ID = "basemap-street";
 
-function basemapRaster(mode: BasemapMode) {
-  if (mode === "street") {
-    return {
-      tiles: [OSM_STREET.maplibreUrl],
-      attribution: OSM_STREET.attribution,
-    };
-  }
+/** Slightly above chase pitch so 60° is never clamped against maxPitch. */
+const CHASE_MAX_PITCH = 85;
+
+function basemapStyleSources() {
   return {
-    tiles: [ESRI_IMAGERY.url],
-    attribution: ESRI_IMAGERY.attribution,
+    [SAT_SOURCE_ID]: {
+      type: "raster" as const,
+      tiles: [ESRI_IMAGERY.url],
+      tileSize: 256,
+      attribution: ESRI_IMAGERY.attribution,
+    },
+    [STREET_SOURCE_ID]: {
+      type: "raster" as const,
+      tiles: [OSM_STREET.maplibreUrl],
+      tileSize: 256,
+      attribution: OSM_STREET.attribution,
+    },
   };
 }
 
+function basemapStyleLayers(mode: BasemapMode) {
+  // Street under satellite: both stay loaded so Street↔Satellite is instant.
+  return [
+    {
+      id: STREET_LAYER_ID,
+      type: "raster" as const,
+      source: STREET_SOURCE_ID,
+      minzoom: 0,
+      maxzoom: 19,
+      paint: { "raster-opacity": mode === "street" ? 1 : 0 },
+    },
+    {
+      id: SAT_LAYER_ID,
+      type: "raster" as const,
+      source: SAT_SOURCE_ID,
+      minzoom: 0,
+      maxzoom: 19,
+      paint: { "raster-opacity": mode === "satellite" ? 1 : 0 },
+    },
+  ];
+}
+
 /**
- * Swap only the raster basemap source/layer. Camera (center/zoom/bearing/pitch),
- * GeoJSON lap lines, and HTML markers are left untouched — no setStyle().
+ * Toggle Street ↔ Satellite via raster-opacity only.
+ * Camera (center/zoom/bearing/pitch), GeoJSON laps, and HTML markers stay put —
+ * no setStyle() and no source remove/add (avoids pitch resets + blank-tile lag).
  */
-function applyBasemapTiles(map: MapLibreMap, mode: BasemapMode) {
-  const raster = basemapRaster(mode);
+function applyBasemapTiles(
+  map: MapLibreMap,
+  mode: BasemapMode,
+  pitch = POV_PITCH_DEG,
+) {
   const center = map.getCenter();
   const zoom = map.getZoom();
   const bearing = map.getBearing();
-  const pitch = map.getPitch();
 
-  const beforeId = map
-    .getStyle()
-    .layers?.find((layer) => layer.id.startsWith("lap-line-"))?.id;
+  if (map.getLayer(STREET_LAYER_ID) && map.getLayer(SAT_LAYER_ID)) {
+    map.setPaintProperty(
+      STREET_LAYER_ID,
+      "raster-opacity",
+      mode === "street" ? 1 : 0,
+    );
+    map.setPaintProperty(
+      SAT_LAYER_ID,
+      "raster-opacity",
+      mode === "satellite" ? 1 : 0,
+    );
+  }
 
-  if (map.getLayer(BASEMAP_LAYER_ID)) map.removeLayer(BASEMAP_LAYER_ID);
-  if (map.getSource(BASEMAP_SOURCE_ID)) map.removeSource(BASEMAP_SOURCE_ID);
-
-  map.addSource(BASEMAP_SOURCE_ID, {
-    type: "raster",
-    tiles: raster.tiles,
-    tileSize: 256,
-    attribution: raster.attribution,
-  });
-  map.addLayer(
-    {
-      id: BASEMAP_LAYER_ID,
-      type: "raster",
-      source: BASEMAP_SOURCE_ID,
-      minzoom: 0,
-      maxzoom: 19,
-    },
-    beforeId,
-  );
-
-  // Re-assert chase camera after source churn (tiles async; camera sync).
+  // Always re-assert chase pitch (don't trust a stale 0 after style churn).
   map.jumpTo({ center, zoom, bearing, pitch });
+}
+
+/** Publish camera on the host for Playwright / QA. */
+function syncCameraAttrs(host: HTMLElement | null, map: MapLibreMap) {
+  if (!host) return;
+  host.dataset.apexPitch = String(Math.round(map.getPitch() * 10) / 10);
+  host.dataset.apexZoom = String(Math.round(map.getZoom() * 100) / 100);
+  host.dataset.apexBearing = String(Math.round(map.getBearing() * 10) / 10);
+  host.dataset.apexBasemap =
+    (map.getPaintProperty(SAT_LAYER_ID, "raster-opacity") as number) > 0.5
+      ? "satellite"
+      : "street";
 }
 
 export { POV_DEFAULT_ZOOM, POV_PITCH_DEG };
@@ -240,35 +276,29 @@ export function ChaseTrackMap({
   const sampleOptsRef = useRef(sampleOpts);
   sampleOptsRef.current = sampleOpts;
 
-  // Create map once (initial basemap; later swaps via applyBasemapTiles).
+  // Create map once (both basemaps; later swaps via opacity only).
   useEffect(() => {
     if (!hostRef.current || mapRef.current) return;
-    const initial = basemapRaster(basemap);
     const map = new maplibregl.Map({
       container: hostRef.current,
       style: {
         version: 8,
-        sources: {
-          [BASEMAP_SOURCE_ID]: {
-            type: "raster",
-            tiles: initial.tiles,
-            tileSize: 256,
-            attribution: initial.attribution,
-          },
+        // Sky/horizon makes chase pitch obvious on flat OSM cartography.
+        sky: {
+          "sky-color": "#0b1220",
+          "horizon-color": "#1e293b",
+          "fog-color": "#0b1220",
+          "sky-horizon-blend": 0.35,
+          "horizon-fog-blend": 0.75,
+          "fog-ground-blend": 0,
         },
-        layers: [
-          {
-            id: BASEMAP_LAYER_ID,
-            type: "raster",
-            source: BASEMAP_SOURCE_ID,
-            minzoom: 0,
-            maxzoom: 19,
-          },
-        ],
+        sources: basemapStyleSources(),
+        layers: basemapStyleLayers(basemap),
       },
       center: [-122.33, 39.54],
       zoom: clampChaseZoom(prefs.chaseZoom || POV_DEFAULT_ZOOM),
       pitch,
+      maxPitch: CHASE_MAX_PITCH,
       bearing: 0,
       attributionControl: { compact: true },
       interactive: true,
@@ -280,7 +310,16 @@ export function ChaseTrackMap({
 
     map.on("load", () => {
       map.resize();
+      // Re-assert pitch after first tiles (guards against style init clamps).
+      map.jumpTo({
+        center: map.getCenter(),
+        zoom: map.getZoom(),
+        bearing: map.getBearing(),
+        pitch,
+      });
+      syncCameraAttrs(hostRef.current, map);
     });
+    map.on("moveend", () => syncCameraAttrs(hostRef.current, map));
 
     const ro =
       typeof ResizeObserver !== "undefined"
@@ -357,24 +396,25 @@ export function ChaseTrackMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- create once
   }, []);
 
-  // Swap Street ↔ Satellite without setStyle (keeps chase camera + lap layers).
+  // Swap Street ↔ Satellite via opacity (keeps chase camera + lap layers).
   const appliedBasemapRef = useRef<BasemapMode | null>(null);
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    // Initial style already has the correct tiles; skip no-op remount churn.
+    // Initial style already has the correct opacities; skip no-op remount churn.
     if (appliedBasemapRef.current == null) {
       appliedBasemapRef.current = basemap;
       return;
     }
     if (appliedBasemapRef.current === basemap) return;
     const swap = () => {
-      applyBasemapTiles(map, basemap);
+      applyBasemapTiles(map, basemap, pitch);
       appliedBasemapRef.current = basemap;
+      syncCameraAttrs(hostRef.current, map);
     };
     if (map.isStyleLoaded()) swap();
     else map.once("load", swap);
-  }, [basemap]);
+  }, [basemap, pitch]);
 
   // SF crossing + out/in tags (additive; north-up + POV).
   useEffect(() => {
@@ -528,6 +568,7 @@ export function ChaseTrackMap({
         bearing: nextBearing,
         pitch,
       });
+      syncCameraAttrs(hostRef.current, map);
 
       markersRef.current.forEach((marker) => marker.remove());
       markersRef.current = [];

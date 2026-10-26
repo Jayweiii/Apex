@@ -126,6 +126,25 @@ assert(
   "no map.setStyle on chase basemap swap",
 );
 assert(chaseSrc.includes("jumpTo"), "chase reasserts camera after swap");
+assert(
+  chaseSrc.includes("basemap-satellite") && chaseSrc.includes("basemap-street"),
+  "dual basemap sources for snappy opacity swap",
+);
+assert(
+  chaseSrc.includes("raster-opacity"),
+  "basemap swap uses raster-opacity (no removeSource)",
+);
+const applyHelper = chaseSrc.slice(
+  chaseSrc.indexOf("function applyBasemapTiles"),
+  chaseSrc.indexOf("function syncCameraAttrs"),
+);
+assert(applyHelper.includes("raster-opacity"), "applyBasemapTiles toggles opacity");
+assert(
+  !/\.removeSource\s*\(/.test(applyHelper) && !/\.setStyle\s*\(/.test(applyHelper),
+  "applyBasemapTiles avoids setStyle/removeSource",
+);
+assert(chaseSrc.includes("maxPitch"), "chase maxPitch above POV pitch");
+assert(chaseSrc.includes("data-apex-pitch") || chaseSrc.includes("apexPitch"), "exposes pitch for QA");
 
 console.log("verify-chase-map ok", {
   b0: Math.round(b0),
