@@ -146,18 +146,24 @@ async function measureSync(page) {
     await pause.click({ timeout: 2000 }).catch(() => {});
   }
 
-  // Scrub to several progress points and compare line fraction ≈ range.
+  // Scrub to several progress points via native value setter (React onChange).
   const scrubSamples = [];
+  const rangeLoc = page.locator('input[type="range"]').first();
   for (const target of [0.15, 0.35, 0.55, 0.75]) {
-    await page.evaluate((t) => {
-      const range = document.querySelector('input[type="range"]');
-      if (!range) return;
-      const max = Number(range.max || 1000);
-      range.value = String(Math.round(t * max));
-      range.dispatchEvent(new Event("input", { bubbles: true }));
-      range.dispatchEvent(new Event("change", { bubbles: true }));
-    }, target);
-    await page.waitForTimeout(400);
+    if (await rangeLoc.count()) {
+      await rangeLoc.evaluate((el, t) => {
+        const max = Number(el.max || 1000);
+        const next = String(Math.round(t * max));
+        const setter = Object.getOwnPropertyDescriptor(
+          window.HTMLInputElement.prototype,
+          "value",
+        )?.set;
+        setter?.call(el, next);
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      }, target);
+    }
+    await page.waitForTimeout(500);
     const snap = await page.evaluate(() => {
       const range = document.querySelector('input[type="range"]');
       const progress = range
@@ -244,13 +250,30 @@ for (const vp of viewports) {
 
   // Within 1 frame @ 60fps ≈ 16.7ms. Allow 25ms for probe + GPS sample step.
   const FRAME_SEC = 1 / 60;
-  const scrubOk = measured.scrubSamples.every((s) => {
-    if (s.dt == null) return false;
-    return s.dt <= FRAME_SEC * 1.5 && s.playOpacity > 0.5 && s.markerOk;
-  });
+  const scrubTimes = measured.scrubSamples.map((s) => s.chartT).filter((t) => t != null);
+  const scrubMoved =
+    scrubTimes.length >= 2 &&
+    Math.max(...scrubTimes) - Math.min(...scrubTimes) > 1;
+  const scrubOk =
+    scrubMoved &&
+    measured.scrubSamples.every((s) => {
+      if (s.dt == null || s.progress == null || s.chartT == null) return false;
+      // chartT should track target progress × duration within a small band;
+      // we check relative ordering via scrubMoved and exact map/chart dt.
+      return s.dt <= FRAME_SEC * 1.5 && s.playOpacity > 0.5 && s.markerOk;
+    });
   const playingDtOk = measured.playingSamples
     .filter((s) => s.dt != null)
     .every((s) => s.dt <= FRAME_SEC * 1.5);
+  const playingMoved =
+    measured.playingSamples.filter((s) => s.playbackT != null).length >= 2 &&
+    Math.max(
+      ...measured.playingSamples.map((s) => s.playbackT ?? 0),
+    ) >
+      Math.min(
+        ...measured.playingSamples.map((s) => s.playbackT ?? Infinity),
+      ) +
+        0.05;
 
   const playingLines = measured.playingSamples.filter(
     (s) => (s.playLineCount ?? 0) > 0,
@@ -271,7 +294,9 @@ for (const vp of viewports) {
   report.viewports[vp.name] = {
     screenshot: shot,
     scrubOk,
+    scrubMoved,
     playingDtOk,
+    playingMoved,
     maxDtSec: maxDt,
     frameBudgetSec: FRAME_SEC * 1.5,
     scrubSamples: measured.scrubSamples,
@@ -289,6 +314,7 @@ report.ok = Object.values(report.viewports).every(
   (v) =>
     v.scrubOk &&
     v.playingDtOk &&
+    v.playingMoved &&
     v.playLinePresent &&
     v.noTransition,
 );
