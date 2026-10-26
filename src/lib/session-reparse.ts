@@ -1,3 +1,4 @@
+import { bestLapTimeMs, lapsEligibleForBest } from "@/lib/lap-quality";
 import { splitGoProLaps } from "@/lib/parse-gopro";
 import type { LatLon } from "@/lib/map-match";
 import {
@@ -273,6 +274,7 @@ export function overridesOutsideAutoBounds(
  */
 export function sessionDerivedFromLaps(
   laps: Array<{
+    id?: string;
     lap_time_ms: number;
     excluded?: boolean | null;
     lap_number?: number;
@@ -284,13 +286,14 @@ export function sessionDerivedFromLaps(
   sessionBestMs: number | null;
   eligibleCount: number;
 } {
-  const eligible = laps.filter((lap) => !lap.excluded);
-  const sessionBestMs = eligible.length
-    ? Math.min(...eligible.map((lap) => lap.lap_time_ms))
-    : null;
+  const withTelemetry = laps.map((lap) => ({
+    ...lap,
+    telemetry: lap.telemetry ?? lap.points ?? null,
+  }));
+  const eligible = lapsEligibleForBest(withTelemetry);
   return {
     lapCount: laps.length,
-    sessionBestMs,
+    sessionBestMs: bestLapTimeMs(withTelemetry),
     eligibleCount: eligible.length,
   };
 }

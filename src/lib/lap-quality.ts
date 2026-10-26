@@ -42,15 +42,86 @@ export function isLapExcluded(
   return Boolean(lap?.excluded);
 }
 
+/** Absolute floor — out/in segments are typically well under this. */
+export const MIN_FULL_LAP_MS = 45_000;
+/** Reject laps shorter/longer than this fraction of the session median. */
+const MEDIAN_LO = 0.55;
+const MEDIAN_HI = 1.45;
+
+/**
+ * Duration-only plausibility for full flying laps (no telemetry required).
+ * Used by cloud leaderboards where GPS samples are not loaded.
+ */
+export function isPlausibleFullLapMs(
+  lapTimeMs: number,
+  sessionMedianMs?: number | null,
+): boolean {
+  if (!Number.isFinite(lapTimeMs) || lapTimeMs < MIN_FULL_LAP_MS) return false;
+  if (sessionMedianMs != null && sessionMedianMs > 0) {
+    if (lapTimeMs < sessionMedianMs * MEDIAN_LO) return false;
+    if (lapTimeMs > sessionMedianMs * MEDIAN_HI) return false;
+  }
+  return true;
+}
+
+function sessionMedianLapMs(
+  laps: Array<{ lap_time_ms: number; excluded?: boolean | null }>,
+): number | null {
+  const times = laps
+    .filter((lap) => !isLapExcluded(lap) && lap.lap_time_ms >= MIN_FULL_LAP_MS)
+    .map((lap) => lap.lap_time_ms);
+  return median(times);
+}
+
 /** Laps that count toward best / theo / sectors / leaderboards. */
-export function lapsEligibleForBest<T extends { excluded?: boolean | null }>(
-  laps: T[],
-): T[] {
-  return laps.filter((lap) => !isLapExcluded(lap));
+export function lapsEligibleForBest<
+  T extends {
+    id?: string;
+    lap_number?: number;
+    lap_time_ms: number;
+    excluded?: boolean | null;
+    telemetry?: TelemetryPoint[] | null;
+  },
+>(laps: T[]): T[] {
+  const included = laps.filter((lap) => !isLapExcluded(lap));
+  if (!included.length) return [];
+
+  const med = sessionMedianLapMs(included);
+  const suspicious = suspicionByLapId(
+    included.map((lap, index) => ({
+      id: lap.id ?? `lap-${index}`,
+      lap_number: lap.lap_number ?? index + 1,
+      lap_time_ms: lap.lap_time_ms,
+      telemetry: lap.telemetry,
+      excluded: lap.excluded,
+    })),
+  );
+
+  return included.filter((lap, index) => {
+    if (!isPlausibleFullLapMs(lap.lap_time_ms, med)) return false;
+    const id = lap.id ?? `lap-${index}`;
+    const flag = suspicious.get(id);
+    if (!flag) return true;
+    // Out/in/GPS-jump/partial never count as session best.
+    return !flag.reasons.some(
+      (reason) =>
+        reason === "out_lap" ||
+        reason === "in_lap" ||
+        reason === "gps_jump" ||
+        reason === "partial_coverage" ||
+        reason === "duration_outlier",
+    );
+  });
 }
 
 export function bestLapTimeMs(
-  laps: Array<{ lap_time_ms: number; excluded?: boolean | null }>,
+  laps: Array<{
+    id?: string;
+    lap_number?: number;
+    lap_time_ms: number;
+    excluded?: boolean | null;
+    telemetry?: TelemetryPoint[] | null;
+  }>,
 ): number | null {
   const eligible = lapsEligibleForBest(laps);
   if (!eligible.length) return null;
@@ -58,12 +129,18 @@ export function bestLapTimeMs(
 }
 
 /**
- * Prefer non-excluded laps for default compare refs.
- * Falls back to all laps only when every lap is excluded (still viewable).
+ * Prefer non-excluded / valid full laps for default compare refs.
+ * Falls back to all laps only when every lap is filtered out (still viewable).
  */
-export function lapsForDefaultCompare<T extends { excluded?: boolean | null }>(
-  laps: T[],
-): T[] {
+export function lapsForDefaultCompare<
+  T extends {
+    id?: string;
+    lap_number?: number;
+    lap_time_ms: number;
+    excluded?: boolean | null;
+    telemetry?: TelemetryPoint[] | null;
+  },
+>(laps: T[]): T[] {
   const eligible = lapsEligibleForBest(laps);
   return eligible.length ? eligible : laps;
 }

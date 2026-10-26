@@ -10,6 +10,7 @@ import { YourSessions } from "@/components/YourSessions";
 import { builtinCenterline } from "@/lib/centerlines";
 import { fetchSharedTracks } from "@/lib/cloud-tracks";
 import { formatLapTime } from "@/lib/format";
+import { bestLapTimeMs } from "@/lib/lap-quality";
 import { listLocalSessions, type StoredSession } from "@/lib/local-store";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
 import {
@@ -45,13 +46,13 @@ function rowsForTrack(trackId: string, local: StoredSession[]): TrackRow[] {
         (aliases.has(session.trackId) || session.trackId === trackId),
     )
     .map((session) => {
-      const eligible = session.laps.filter((lap) => !lap.excluded);
-      if (!eligible.length) return null;
+      const best = bestLapTimeMs(session.laps);
+      if (best == null) return null;
       return {
         id: session.id,
         name: session.name,
         car: session.car?.trim() || "Unknown",
-        best: Math.min(...eligible.map((lap) => lap.lap_time_ms)),
+        best,
         laps: session.laps.length,
         kind: (session.kind ?? "upload") as DataKind,
       };
@@ -212,10 +213,40 @@ export function TrackHome() {
   );
 }
 
+function pickGpsLap(
+  laps: Array<{ telemetry?: TelemetryPoint[] | null; lap_time_ms?: number }>,
+): TelemetryPoint[] | null {
+  const withGps = laps
+    .map((lap) => lap.telemetry ?? [])
+    .filter(
+      (pts) =>
+        pts.filter((p) => p.lat != null && p.lon != null).length >= 40,
+    )
+    .sort((a, b) => b.length - a.length);
+  return withGps[0] ?? null;
+}
+
+/**
+ * Prefer a real session GPS outline over the builtin ellipse placeholder.
+ */
 function overviewPointsForTrack(
   track: Track,
   local: StoredSession[] | null,
+  cloudGps: TelemetryPoint[] | null,
 ): TelemetryPoint[] | null {
+  if (cloudGps && cloudGps.length >= 40) return cloudGps;
+
+  const localWithGps = (local ?? []).find((session) =>
+    session.laps.some((lap) =>
+      lap.telemetry.some((point) => point.lat != null && point.lon != null),
+    ),
+  );
+  if (localWithGps) {
+    const pts = pickGpsLap(localWithGps.laps);
+    if (pts) return pts;
+  }
+
+  // Last resort only — ellipse is not the real track.
   const centerline =
     builtinCenterline(track.id) ??
     builtinCenterline(resolveBuiltinAlias(track.id));
@@ -226,18 +257,6 @@ function overviewPointsForTrack(
       lat: point.lat,
       lon: point.lon,
     }));
-  }
-  const localWithGps = (local ?? []).find((session) =>
-    session.laps.some((lap) =>
-      lap.telemetry.some((point) => point.lat != null && point.lon != null),
-    ),
-  );
-  if (localWithGps) {
-    const lap =
-      localWithGps.laps.find((item) =>
-        item.telemetry.some((point) => point.lat != null && point.lon != null),
-      ) ?? localWithGps.laps[0];
-    return lap?.telemetry ?? null;
   }
   if (track.lat && track.lon) {
     return [
@@ -260,13 +279,56 @@ function TrackOverviewMap({
   track: Track;
   local: StoredSession[] | null;
 }) {
+  const [cloudGps, setCloudGps] = useState<TelemetryPoint[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      if (!hasSupabaseConfig()) return;
+      try {
+        const supabase = createClient();
+        const aliases = trackEquivalentIds(track.id);
+        let sessionsQuery = supabase
+          .from("sessions")
+          .select("id")
+          .eq("visibility", "public")
+          .order("created_at", { ascending: false })
+          .limit(8);
+        sessionsQuery =
+          aliases.length > 1
+            ? sessionsQuery.in("track_id", aliases)
+            : sessionsQuery.eq("track_id", track.id);
+        const { data: sessions } = await sessionsQuery;
+        const ids = (sessions ?? []).map((row) => row.id as string);
+        if (!ids.length || cancelled) return;
+        const { data: laps } = await supabase
+          .from("laps")
+          .select("telemetry, lap_time_ms, session_id")
+          .in("session_id", ids)
+          .order("lap_number", { ascending: true })
+          .limit(40);
+        if (cancelled) return;
+        const pts = pickGpsLap(
+          (laps ?? []).map((lap) => ({
+            telemetry: (lap.telemetry ?? null) as TelemetryPoint[] | null,
+            lap_time_ms: lap.lap_time_ms as number,
+          })),
+        );
+        if (pts) setCloudGps(pts);
+      } catch {
+        // keep ellipse / local fallback
+      }
+    }
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [track.id]);
+
   const mapPoints = useMemo(
-    () => overviewPointsForTrack(track, local),
-    [track, local],
+    () => overviewPointsForTrack(track, local, cloudGps),
+    [track, local, cloudGps],
   );
-  const centerline =
-    builtinCenterline(track.id) ??
-    builtinCenterline(resolveBuiltinAlias(track.id));
   if (!mapPoints || mapPoints.length < 2) return null;
 
   return (
@@ -282,7 +344,6 @@ function TrackOverviewMap({
           colorBySpeed: true,
         },
       ]}
-      centerline={centerline}
     />
   );
 }

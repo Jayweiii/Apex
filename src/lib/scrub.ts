@@ -70,23 +70,93 @@ export function sampleAtProgress(
   return mixPoint(points[index], points[index + 1], mix);
 }
 
+function mixNumber(a?: number, b?: number, mix = 0) {
+  const left = a ?? 0;
+  const right = b ?? left;
+  return left + (right - left) * mix;
+}
+
 function mixPoint(left: GpsPoint, right: GpsPoint, mix: number): GpsPoint {
-  const mixNumber = (a?: number, b?: number) =>
-    (a ?? 0) + ((b ?? 0) - (a ?? 0)) * mix;
-  return {
+  const out: GpsPoint = {
     ...right,
-    t: mixNumber(left.t, right.t),
-    speed: mixNumber(left.speed, right.speed),
-    lat: mixNumber(left.lat, right.lat),
-    lon: mixNumber(left.lon, right.lon),
-    latG: mixNumber(left.latG, right.latG),
-    lonG: mixNumber(left.lonG, right.lonG),
-    g: mixNumber(left.g, right.g),
-    trackDist: mixNumber(left.trackDist, right.trackDist),
-    lateralOffset: mixNumber(left.lateralOffset, right.lateralOffset),
-    rawLat: left.rawLat != null ? mixNumber(left.rawLat, right.rawLat) : undefined,
-    rawLon: left.rawLon != null ? mixNumber(left.rawLon, right.rawLon) : undefined,
+    t: mixNumber(left.t, right.t, mix),
+    speed: mixNumber(left.speed, right.speed, mix),
+    lat: mixNumber(left.lat, right.lat, mix),
+    lon: mixNumber(left.lon, right.lon, mix),
+    latG: mixNumber(left.latG, right.latG, mix),
+    lonG: mixNumber(left.lonG, right.lonG, mix),
+    g: mixNumber(left.g, right.g, mix),
+    rawLat: left.rawLat != null ? mixNumber(left.rawLat, right.rawLat, mix) : undefined,
+    rawLon: left.rawLon != null ? mixNumber(left.rawLon, right.rawLon, mix) : undefined,
   };
+  // Never invent trackDist=0 — that made timeGapAtProgress return −elapsed.
+  if (left.trackDist != null || right.trackDist != null) {
+    out.trackDist = mixNumber(left.trackDist, right.trackDist, mix);
+  } else {
+    delete out.trackDist;
+  }
+  if (left.lateralOffset != null || right.lateralOffset != null) {
+    out.lateralOffset = mixNumber(left.lateralOffset, right.lateralOffset, mix);
+  } else {
+    delete out.lateralOffset;
+  }
+  return out;
+}
+
+/** Cumulative path length (m) from lap start to each sample. */
+export function pathDistancesMeters(points: GpsPoint[]): number[] {
+  if (!points.length) return [];
+  const out = [0];
+  let dist = 0;
+  for (let i = 1; i < points.length; i += 1) {
+    const prev = points[i - 1]!;
+    const next = points[i]!;
+    const dLat = next.lat - prev.lat;
+    const dLon = next.lon - prev.lon;
+    // Equirectangular meters — good enough for along-track lookups.
+    const latMid = ((prev.lat + next.lat) / 2) * (Math.PI / 180);
+    const meters =
+      Math.hypot(dLat * 111_320, dLon * 111_320 * Math.cos(latMid)) || 0;
+    dist += meters;
+    out.push(dist);
+  }
+  return out;
+}
+
+/** Path meters at elapsed time t (haversine cumulative). */
+export function pathDistanceAtTime(points: GpsPoint[], t: number): number {
+  if (points.length < 2) return 0;
+  const dists = pathDistancesMeters(points);
+  if (t <= points[0]!.t) return 0;
+  const last = points[points.length - 1]!;
+  if (t >= last.t) return dists[dists.length - 1] ?? 0;
+  let hi = 1;
+  while (hi < points.length && points[hi]!.t < t) hi += 1;
+  const right = Math.min(hi, points.length - 1);
+  const left = Math.max(0, right - 1);
+  const span = points[right]!.t - points[left]!.t;
+  const mix = span <= 0 ? 0 : (t - points[left]!.t) / span;
+  return (dists[left] ?? 0) + ((dists[right] ?? 0) - (dists[left] ?? 0)) * mix;
+}
+
+/** Time when cumulative path length reaches `dist` meters. */
+export function timeAtPathDistance(
+  points: GpsPoint[],
+  dist: number,
+): number | null {
+  if (points.length < 2 || !Number.isFinite(dist)) return null;
+  const dists = pathDistancesMeters(points);
+  const end = dists[dists.length - 1] ?? 0;
+  const target = Math.min(Math.max(dist, 0), end);
+  let hi = 1;
+  while (hi < dists.length && (dists[hi] ?? 0) < target) hi += 1;
+  const right = Math.min(hi, points.length - 1);
+  const left = Math.max(0, right - 1);
+  const leftD = dists[left] ?? 0;
+  const rightD = dists[right] ?? leftD;
+  const span = rightD - leftD;
+  const mix = span <= 0 ? 0 : (target - leftD) / span;
+  return points[left]!.t + (points[right]!.t - points[left]!.t) * mix;
 }
 
 /** Progress 0..1 for the nearest sample to a lat/lon. */
@@ -144,7 +214,8 @@ export function progressNearPoint(
 
 /**
  * Time (seconds) when a lap reaches along-track distance `dist`
- * (prefers trackDist; falls back to cumulative path fraction).
+ * (prefers trackDist; falls back to cumulative path meters — never treats
+ * meters as a 0..1 fraction).
  */
 export function timeAtDistance(
   points: GpsPoint[],
@@ -166,18 +237,16 @@ export function timeAtDistance(
     const mix = span <= 0 ? 0 : (target - leftDist) / span;
     return points[left]!.t + (points[right]!.t - points[left]!.t) * mix;
   }
-  // No trackDist: use index fraction of the lap as a crude distance proxy.
-  const position = clampProgress(dist) * (points.length - 1);
-  const index = Math.min(points.length - 2, Math.floor(position));
-  const mix = position - index;
-  return points[index]!.t + (points[index + 1]!.t - points[index]!.t) * mix;
+  return timeAtPathDistance(points, dist);
 }
 
 /**
- * Time gap (seconds) at the same place on track: other.t(d_ref) − ref.t.
- * Positive ⇒ other is behind at ref's current distance.
- * For time-aligned playback both samples share elapsed t, so raw t−t is ~0 —
- * this looks up when the other car reached ref's distance instead.
+ * Time gap at shared elapsed time t (progress × duration).
+ *
+ * For the compared lap at time t, find its distance d; gap =
+ *   t_ref(d) − t
+ * Negative ⇒ compared lap is behind (ref reached that distance earlier).
+ * Never returns ≈ −elapsed from a fake trackDist=0.
  */
 export function timeGapAtProgress(
   ref: GpsPoint[],
@@ -190,26 +259,27 @@ export function timeGapAtProgress(
   },
 ): number | null {
   if (ref.length < 2 || other.length < 2) return null;
-  const refPt = sampleAtProgress(ref, progress, options);
-  const refDist = refPt.trackDist;
-  if (refDist == null || !Number.isFinite(refDist)) {
-    // Fall back to spatial proximity: nearest other sample to ref position.
-    let best = 0;
-    let bestD = Number.POSITIVE_INFINITY;
-    for (let i = 0; i < other.length; i += 1) {
-      const d =
-        (other[i]!.lat - refPt.lat) ** 2 + (other[i]!.lon - refPt.lon) ** 2;
-      if (d < bestD) {
-        bestD = d;
-        best = i;
-      }
-    }
-    const gap = other[best]!.t - refPt.t;
-    return Number.isFinite(gap) ? gap : null;
+  const otherPt = sampleAtProgress(other, progress, options);
+  const t = otherPt.t;
+  if (!Number.isFinite(t)) return null;
+
+  const bothTrack =
+    ref.some((p) => p.trackDist != null) &&
+    other.some((p) => p.trackDist != null);
+
+  let dist: number | null = null;
+  if (bothTrack && otherPt.trackDist != null && Number.isFinite(otherPt.trackDist)) {
+    dist = otherPt.trackDist;
+  } else {
+    dist = pathDistanceAtTime(other, t);
   }
-  const otherT = timeAtDistance(other, refDist);
-  if (otherT == null || !Number.isFinite(otherT)) return null;
-  return otherT - refPt.t;
+  if (dist == null || !Number.isFinite(dist)) return null;
+
+  const refT = bothTrack
+    ? timeAtDistance(ref, dist)
+    : timeAtPathDistance(ref, dist);
+  if (refT == null || !Number.isFinite(refT)) return null;
+  return refT - t;
 }
 
 /** Map a chart series index to shared 0..1 progress. */

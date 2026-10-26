@@ -80,14 +80,24 @@ export function LeaderboardPanel({
         }
       }
       if (cancelled) return;
-      const merged = new Map<string, LeaderboardRow>();
+      // Dedupe by session, then by driver+time so identical twin entries collapse.
+      const bySession = new Map<string, LeaderboardRow>();
       for (const row of [...cloud, ...local]) {
-        const key = `${row.sessionId}`;
-        const existing = merged.get(key);
-        if (!existing || row.bestMs < existing.bestMs) merged.set(key, row);
+        const existing = bySession.get(row.sessionId);
+        if (!existing || row.bestMs < existing.bestMs) {
+          bySession.set(row.sessionId, row);
+        }
+      }
+      const byDriverTime = new Map<string, LeaderboardRow>();
+      for (const row of bySession.values()) {
+        const key = `${row.driver.trim().toLowerCase()}|${row.bestMs}|${row.trackId}`;
+        const existing = byDriverTime.get(key);
+        if (!existing || (row.sessionName?.length ?? 0) > (existing.sessionName?.length ?? 0)) {
+          byDriverTime.set(key, row);
+        }
       }
       setRows(
-        [...merged.values()].sort(
+        [...byDriverTime.values()].sort(
           (a, b) => a.bestMs - b.bestMs || a.driver.localeCompare(b.driver),
         ),
       );

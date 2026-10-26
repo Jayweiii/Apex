@@ -1,10 +1,10 @@
 "use client";
 
 import {
-  advancePlaybackProgress,
   clampPlaybackProgress,
   isPlaybackSpeed,
   PLAYBACK_SPEEDS,
+  playbackProgressAtWallClock,
   scrubPlaybackProgress,
   type PlaybackSpeed,
 } from "@/lib/playback";
@@ -21,8 +21,9 @@ import {
 const UI_PROGRESS_INTERVAL_MS = 50;
 
 /**
- * Own-clock playback: RAF advances progress at `speed`; seek/scrub pause
- * and set progress. Keyboard: Space play/pause, ←/→ scrub, 1–4 speeds.
+ * Own-clock playback: absolute wall clock
+ * `progress = origin + (now - start) * speed / duration`
+ * so React setState / effect churn cannot throttle the rate.
  *
  * While playing, `progressRef` + `subscribe` update every frame (map/cursor
  * overlays). React `progress` state is throttled so charts are not
@@ -44,7 +45,11 @@ export function usePlaybackClock({
   const progressRef = useRef(0);
   const durationRef = useRef(durationMs);
   durationRef.current = durationMs;
+  const speedRef = useRef(speed);
+  speedRef.current = speed;
   const listenersRef = useRef(new Set<(progress: number) => void>());
+  /** Absolute clock origin — rebased on play / scrub / speed change. */
+  const originRef = useRef<{ progress: number; ms: number } | null>(null);
 
   const notify = useCallback((next: number) => {
     progressRef.current = next;
@@ -57,15 +62,27 @@ export function usePlaybackClock({
       const clamped = clampPlaybackProgress(next);
       notify(clamped);
       setProgressState(clamped);
+      if (originRef.current) {
+        originRef.current = { progress: clamped, ms: performance.now() };
+      }
     },
     [notify],
   );
 
   const setSpeed = useCallback((next: number) => {
-    if (isPlaybackSpeed(next)) setSpeedState(next);
+    if (!isPlaybackSpeed(next)) return;
+    // Rebase absolute clock so rate changes don't jump.
+    originRef.current = {
+      progress: progressRef.current,
+      ms: performance.now(),
+    };
+    setSpeedState(next);
   }, []);
 
-  const pause = useCallback(() => setPlaying(false), []);
+  const pause = useCallback(() => {
+    originRef.current = null;
+    setPlaying(false);
+  }, []);
 
   const play = useCallback(() => {
     setPlaying((was) => {
@@ -73,17 +90,28 @@ export function usePlaybackClock({
         notify(0);
         setProgressState(0);
       }
+      originRef.current = {
+        progress: progressRef.current >= 1 ? 0 : progressRef.current,
+        ms: performance.now(),
+      };
       return true;
     });
   }, [notify]);
 
   const toggle = useCallback(() => {
     setPlaying((was) => {
-      if (was) return false;
+      if (was) {
+        originRef.current = null;
+        return false;
+      }
       if (progressRef.current >= 1) {
         notify(0);
         setProgressState(0);
       }
+      originRef.current = {
+        progress: progressRef.current >= 1 ? 0 : progressRef.current,
+        ms: performance.now(),
+      };
       return true;
     });
   }, [notify]);
@@ -97,30 +125,42 @@ export function usePlaybackClock({
   }, []);
 
   useEffect(() => {
-    if (!playing || !enabled) return;
+    if (!playing || !enabled) {
+      originRef.current = null;
+      return;
+    }
+    if (!originRef.current) {
+      originRef.current = {
+        progress: progressRef.current,
+        ms: performance.now(),
+      };
+    }
     let raf = 0;
-    let last = performance.now();
     let lastUi = 0;
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
-      const dt = (now - last) / 1000;
-      last = now;
-      const next = advancePlaybackProgress(
-        progressRef.current,
-        dt,
-        durationRef.current,
-        speed,
-      );
+      const origin = originRef.current;
+      if (!origin) return;
+      const next = playbackProgressAtWallClock({
+        originProgress: origin.progress,
+        originMs: origin.ms,
+        nowMs: now,
+        durationMs: durationRef.current,
+        speed: speedRef.current,
+      });
       notify(next);
       if (now - lastUi >= UI_PROGRESS_INTERVAL_MS || next >= 1) {
         lastUi = now;
         setProgressState(next);
       }
-      if (next >= 1) setPlaying(false);
+      if (next >= 1) {
+        originRef.current = null;
+        setPlaying(false);
+      }
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [playing, enabled, speed, notify]);
+  }, [playing, enabled, notify]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -153,25 +193,27 @@ export function usePlaybackClock({
       }
       if (event.key === "ArrowLeft") {
         event.preventDefault();
+        originRef.current = null;
         setPlaying(false);
         setProgress(scrubPlaybackProgress(progressRef.current, -1));
         return;
       }
       if (event.key === "ArrowRight") {
         event.preventDefault();
+        originRef.current = null;
         setPlaying(false);
         setProgress(scrubPlaybackProgress(progressRef.current, 1));
         return;
       }
       if (event.key >= "1" && event.key <= "4") {
         const next = PLAYBACK_SPEEDS[Number(event.key) - 1];
-        if (next != null) setSpeedState(next);
+        if (next != null) setSpeed(next);
       }
     };
 
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [enabled, rootRef, setProgress, toggle]);
+  }, [enabled, rootRef, setProgress, setSpeed, toggle]);
 
   return {
     progress,

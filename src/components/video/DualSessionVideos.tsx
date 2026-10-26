@@ -14,9 +14,9 @@ import {
 } from "@/lib/dual-video-sync";
 import { formatLapTime } from "@/lib/format";
 import {
-  advancePlaybackProgress,
   isPlaybackSpeed,
   PLAYBACK_SPEEDS,
+  playbackProgressAtWallClock,
   scrubPlaybackProgress,
   type PlaybackSpeed,
 } from "@/lib/playback";
@@ -146,8 +146,14 @@ export function DualSessionVideos({
   const playersRef = useRef<(VideoPlayerHandle | null)[]>([]);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [playing, setPlaying] = useState(false);
-  const [speed, setSpeed] = useState<PlaybackSpeed>(1);
+  const [speed, setSpeedState] = useState<PlaybackSpeed>(1);
   const listenersRef = useRef(new Set<(progress: number) => void>());
+  /** Absolute clock: progress = origin + (now − start) × speed / duration. */
+  const clockOriginRef = useRef<{ progress: number; ms: number } | null>(null);
+  const speedRef = useRef(speed);
+  speedRef.current = speed;
+  const onProgressRef = useRef(onProgress);
+  onProgressRef.current = onProgress;
 
   useEffect(() => {
     onPlayingChange?.(playing);
@@ -156,14 +162,25 @@ export function DualSessionVideos({
   const authorityRef = useRef<SyncAuthority>("clock");
   const playingRef = useRef(playing);
   playingRef.current = playing;
-  // While playing, RAF / video notify own progressRef. Syncing from the
-  // throttled React prop every render rewound the clock (~1s media / 4s wall).
+  // While playing, RAF owns progressRef. Syncing from the throttled React
+  // prop every render rewound the clock (~1s media / 4s wall).
   if (!playing) {
     progressRef.current = progress ?? 0;
+    clockOriginRef.current = null;
   }
   const suppress = useRef(createSyncSuppress());
   const lapMs = resolved.map((side) => side.lap.lapTimeMs);
   const sharedMs = sharedCompareDurationMs(...lapMs);
+  const sharedMsRef = useRef(sharedMs);
+  sharedMsRef.current = sharedMs;
+
+  const setSpeed = useCallback((next: PlaybackSpeed) => {
+    clockOriginRef.current = {
+      progress: progressRef.current,
+      ms: performance.now(),
+    };
+    setSpeedState(next);
+  }, []);
 
   const notify = useCallback((next: number) => {
     progressRef.current = next;
@@ -240,35 +257,51 @@ export function DualSessionVideos({
   useEffect(() => {
     if (!playing) {
       if (authorityRef.current === "clock") driveAll("pause");
+      clockOriginRef.current = null;
       return;
     }
     if (authorityRef.current !== "clock") return;
     driveAll("play");
-    driveAll("rate", speed);
+    driveAll("rate", speedRef.current);
+    clockOriginRef.current = {
+      progress: progressRef.current,
+      ms: performance.now(),
+    };
     let raf = 0;
-    let last = performance.now();
     let lastUi = 0;
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
       if (authorityRef.current !== "clock") return;
-      const dt = (now - last) / 1000;
-      last = now;
-      const next = advancePlaybackProgress(
-        progressRef.current,
-        dt,
-        sharedMs,
-        speed,
-      );
+      const origin = clockOriginRef.current;
+      if (!origin) return;
+      const next = playbackProgressAtWallClock({
+        originProgress: origin.progress,
+        originMs: origin.ms,
+        nowMs: now,
+        durationMs: sharedMsRef.current,
+        speed: speedRef.current,
+      });
       notify(next);
       if (now - lastUi >= UI_PROGRESS_INTERVAL_MS || next >= 1) {
         lastUi = now;
-        onProgress(next);
+        onProgressRef.current(next);
       }
-      if (next >= 1) setPlaying(false);
+      if (next >= 1) {
+        clockOriginRef.current = null;
+        setPlaying(false);
+      }
     };
     raf = requestAnimationFrame(tick);
+    // Do not depend on onProgress / speed — absolute clock + refs avoid
+    // React setState restarting RAF and throttling play rate.
     return () => cancelAnimationFrame(raf);
-  }, [playing, onProgress, sharedMs, speed, driveAll, notify]);
+  }, [playing, driveAll, notify]);
+
+  // Apply rate changes without restarting the absolute clock effect.
+  useEffect(() => {
+    if (!playing || authorityRef.current !== "clock") return;
+    driveAll("rate", speed);
+  }, [playing, speed, driveAll]);
 
   useEffect(() => {
     if (!playing) return;

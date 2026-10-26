@@ -305,6 +305,9 @@ export function ChaseTrackMap({
       dragRotate: false,
       pitchWithRotate: false,
       touchPitch: false,
+      // Page scroll on mobile: no wheel zoom; two-finger / click-to-scrub only.
+      scrollZoom: false,
+      cooperativeGestures: true,
     });
     mapRef.current = map;
 
@@ -587,18 +590,13 @@ export function ChaseTrackMap({
       markersRef.current.forEach((marker) => marker.remove());
       markersRef.current = [];
 
-      const followId = prefs.followId;
+      // Render ALL compared cars solid — never ghost non-follow (that hid POV).
       samples.forEach((sample, index) => {
-        const isFollow =
-          followId === "centroid" ||
-          !followId ||
-          sample.trace.id === followId ||
-          sample.trace.id === follow.trace.id;
         const el = document.createElement("div");
         el.innerHTML = markerHtml(
           sample.trace.color,
           MARKER_SHAPES[index % MARKER_SHAPES.length] ?? "filled",
-          !isFollow,
+          false,
         );
         const marker = new maplibregl.Marker({
           element: el.firstElementChild as HTMLElement,
@@ -680,7 +678,7 @@ export function ChaseTrackMap({
   return (
     <div
       ref={hostRef}
-      className={`${heightClass} w-full touch-none overflow-hidden rounded-xl cursor-pointer [&_.maplibregl-canvas]:cursor-pointer [&_.maplibregl-ctrl-attrib]:bg-zinc-950/80 [&_.maplibregl-ctrl-attrib]:text-[10px] [&_.maplibregl-ctrl-attrib]:text-zinc-400`}
+      className={`${heightClass} w-full overflow-hidden rounded-xl cursor-pointer [&_.maplibregl-canvas]:cursor-pointer [&_.maplibregl-ctrl-attrib]:bg-zinc-950/80 [&_.maplibregl-ctrl-attrib]:text-[10px] [&_.maplibregl-ctrl-attrib]:text-zinc-400`}
       data-apex-map="chase"
       data-apex-pov="1"
       data-apex-map-hover={hoverPreviewEnabled ? "1" : "0"}

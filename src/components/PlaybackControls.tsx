@@ -72,8 +72,10 @@ export function PlaybackControls({
             type="button"
             disabled={disabled}
             onClick={onTogglePlay}
-            className={`apex-btn apex-btn--primary ${
-              compact ? "min-h-8 px-2.5 py-1 text-xs" : "apex-btn--cta"
+            className={`apex-btn apex-btn--primary inline-flex justify-center ${
+              compact
+                ? "min-h-8 min-w-[4.75rem] px-2.5 py-1 text-xs"
+                : "apex-btn--cta min-w-[5.5rem]"
             }`}
             aria-label={playing ? "Pause" : "Play"}
           >

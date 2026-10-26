@@ -1,9 +1,10 @@
 /**
- * Map gap label: time delta at the same distance (not t−t under time sync).
+ * Map gap label: at shared time t, gap = t_ref(d_other) − t (not −elapsed).
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
+  pathDistanceAtTime,
   sampleAtProgress,
   timeAtDistance,
   timeGapAtProgress,
@@ -21,7 +22,7 @@ const ref: GpsPoint[] = [
   { t: 40, speed: 70, lat: 39.534, lon: -122.334, trackDist: 800 },
 ];
 
-// Other is 2s behind at every distance (reaches 200m at t=12, etc.).
+// Other is slower — reaches each distance ~20% later.
 const other: GpsPoint[] = [
   { t: 0, speed: 70, lat: 39.53, lon: -122.33, trackDist: 0 },
   { t: 12, speed: 90, lat: 39.531, lon: -122.331, trackDist: 200 },
@@ -37,15 +38,45 @@ assert(Math.abs((mid.trackDist ?? 0) - 400) < 1e-6, "ref mid dist 400");
 const otherAt400 = timeAtDistance(other, 400);
 assert(otherAt400 != null && Math.abs(otherAt400 - 24) < 1e-6, "other @400m = 24s");
 
+const otherMid = sampleAtProgress(other, 0.5, { basis: "time", durationSec });
+assert(Math.abs(otherMid.t - 20) < 1e-6, "other mid t=20");
+// At t=20 other is between 200@12 and 400@24 → dist ≈ 333.33m
+assert(
+  Math.abs((otherMid.trackDist ?? 0) - (200 + 200 * (8 / 12))) < 1e-6,
+  `other mid dist, got ${otherMid.trackDist}`,
+);
+
 const gap = timeGapAtProgress(ref, other, 0.5, {
   basis: "time",
   durationSec,
 });
-assert(gap != null && Math.abs(gap - 4) < 1e-6, `gap at mid should be +4s, got ${gap}`);
+// gap = t_ref(d_other) − t → ref reached ~333m at ~16.67s → ≈ −3.33s (behind)
+assert(
+  gap != null && Math.abs(gap - (10 + 10 * (8 / 12) - 20)) < 1e-6,
+  `gap at mid should be ≈-3.33s, got ${gap}`,
+);
+assert(gap! < 0, "slower car is behind (negative)");
 
-// Naive t−t under time sync is ~0 — that was the production bug.
-const naive = sampleAtProgress(other, 0.5, { basis: "time", durationSec }).t - mid.t;
+// Must NOT equal −elapsed (the production bug when trackDist invented as 0).
+assert(Math.abs(gap! + 20) > 1, "gap is not −elapsed");
+
+// Naive t−t under time sync is ~0.
+const naive = otherMid.t - mid.t;
 assert(Math.abs(naive) < 1e-6, "naive same-progress t delta is 0");
+
+// No trackDist: path-distance fallback must still give a real gap (not −t).
+const refRaw: GpsPoint[] = ref.map(({ trackDist: _td, ...p }) => p);
+const otherRaw: GpsPoint[] = other.map(({ trackDist: _td, ...p }) => p);
+const rawGap = timeGapAtProgress(refRaw, otherRaw, 0.5, {
+  basis: "time",
+  durationSec,
+});
+assert(rawGap != null && Number.isFinite(rawGap), "raw gap finite");
+assert(Math.abs(rawGap! + 20) > 1, "raw gap is not −elapsed");
+assert(
+  pathDistanceAtTime(otherRaw, 20) > 50,
+  "path distance at mid is real meters",
+);
 
 const root = resolve(import.meta.dirname, "..");
 const chase = readFileSync(
@@ -64,4 +95,4 @@ assert(
   "leaflet dropped naive t−t",
 );
 
-console.log("verify-time-gap ok", { gap });
+console.log("verify-time-gap ok", { gap, rawGap });

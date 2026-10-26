@@ -39,10 +39,16 @@ assert(
 const compare = read("src/components/LapCompare.tsx");
 assert(compare.includes("data-apex-compare-chart"), "compare charts tagged");
 assert(
-  compare.includes("min-h-[200px]") || compare.includes("h-[200px]"),
+  compare.includes("min-h-[220px]") ||
+    compare.includes("h-[220px]") ||
+    compare.includes("min-h-[200px]") ||
+    compare.includes("h-[200px]"),
   "compare plot min ≥200px on mobile",
 );
-assert(compare.includes("minHeight={200}"), "ResponsiveContainer minHeight 200");
+assert(
+  compare.includes("minHeight={200}") || compare.includes("height={200}"),
+  "ResponsiveContainer height ≥200",
+);
 assert(
   compare.includes("Comparing (") || compare.includes("lapPicker"),
   "laps picker always visible",

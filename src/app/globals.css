@@ -218,17 +218,18 @@ button[aria-busy="true"],
 
 @media (hover: hover) and (pointer: fine) {
   .apex-btn:hover:not(:disabled) {
-    border-color: rgb(161 161 170);
+    border-color: rgb(212 212 216);
     color: rgb(255 255 255);
-    background: rgb(63 63 70);
+    background: rgb(82 82 91);
+    transform: scale(1.04);
   }
 }
 
 .apex-btn:active:not(:disabled) {
-  transform: translateY(1px);
-  background: rgb(82 82 91);
-  border-color: rgb(212 212 216);
-  color: rgb(255 255 255);
+  transform: scale(0.96);
+  background: rgb(249 115 22 / 0.35);
+  border-color: rgb(251 146 60);
+  color: rgb(255 237 213);
 }
 
 .apex-btn:focus-visible {
@@ -315,24 +316,27 @@ button[aria-busy="true"],
 
 .apex-btn--pressed,
 .apex-btn[aria-pressed="true"] {
-  border-color: rgb(249 115 22 / 0.75);
-  background: rgb(249 115 22 / 0.28);
-  color: rgb(255 237 213);
+  border-color: rgb(249 115 22);
+  background: rgb(249 115 22 / 0.45);
+  color: rgb(255 255 255);
+  box-shadow: inset 0 0 0 1px rgb(249 115 22 / 0.5);
 }
 
 @media (hover: hover) and (pointer: fine) {
   .apex-btn--pressed:hover:not(:disabled),
   .apex-btn[aria-pressed="true"]:hover:not(:disabled) {
-    border-color: rgb(251 146 60);
-    background: rgb(249 115 22 / 0.4);
+    border-color: rgb(253 186 116);
+    background: rgb(249 115 22 / 0.65);
     color: rgb(255 255 255);
+    transform: scale(1.04);
   }
 }
 
 .apex-btn--pressed:active:not(:disabled),
 .apex-btn[aria-pressed="true"]:active:not(:disabled) {
-  background: rgb(234 88 12 / 0.55);
-  border-color: rgb(253 186 116);
+  background: rgb(234 88 12);
+  border-color: rgb(255 237 213);
+  transform: scale(0.96);
 }
 
 /* Header nav links — clear hover / active (not just color nudge). */
@@ -342,30 +346,34 @@ button[aria-busy="true"],
   -webkit-tap-highlight-color: transparent;
   transition:
     color 0.12s ease,
-    background-color 0.12s ease;
+    background-color 0.12s ease,
+    border-color 0.12s ease,
+    transform 0.1s ease;
 }
 
 @media (hover: hover) and (pointer: fine) {
   .apex-nav-link:hover {
-    color: rgb(250 250 250);
-    background-color: rgb(39 39 42);
+    color: rgb(255 255 255);
+    background-color: rgb(63 63 70);
+    transform: translateY(-1px);
   }
 }
 
 .apex-nav-link:active {
-  color: rgb(255 255 255);
-  background-color: rgb(63 63 70);
+  color: rgb(255 237 213);
+  background-color: rgb(249 115 22 / 0.35);
+  transform: scale(0.97);
 }
 
 .apex-nav-link--active {
-  color: rgb(253 186 116);
-  background-color: rgb(249 115 22 / 0.12);
+  color: rgb(254 215 170);
+  background-color: rgb(249 115 22 / 0.22);
 }
 
 @media (hover: hover) and (pointer: fine) {
   .apex-nav-link--active:hover {
-    color: rgb(254 215 170);
-    background-color: rgb(249 115 22 / 0.2);
+    color: rgb(255 255 255);
+    background-color: rgb(249 115 22 / 0.4);
   }
 }
 

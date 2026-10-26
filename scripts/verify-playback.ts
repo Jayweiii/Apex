@@ -9,6 +9,7 @@ import {
   isPlaybackSpeed,
   nextPlaybackSpeed,
   PLAYBACK_SPEEDS,
+  playbackProgressAtWallClock,
   scrubPlaybackProgress,
 } from "../src/lib/playback";
 
@@ -37,6 +38,25 @@ assert(
   `0.25x 100s of 100s → 0.25, got ${quarter}`,
 );
 
+// Absolute wall clock (RAF must use this — never accumulate dt).
+const abs = playbackProgressAtWallClock({
+  originProgress: 0.1,
+  originMs: 1_000,
+  nowMs: 1_000 + 2_500,
+  durationMs: 100_000,
+  speed: 1,
+});
+assert(Math.abs(abs - 0.125) < 1e-9, `abs 2.5s @1x from 0.1 → 0.125, got ${abs}`);
+
+const abs2x = playbackProgressAtWallClock({
+  originProgress: 0,
+  originMs: 0,
+  nowMs: 1_000,
+  durationMs: 100_000,
+  speed: 2,
+});
+assert(Math.abs(abs2x - 0.02) < 1e-9, `abs 1s @2x → 0.02, got ${abs2x}`);
+
 assert(scrubPlaybackProgress(0.5, -1) < 0.5, "scrub left");
 assert(scrubPlaybackProgress(0.5, 1) > 0.5, "scrub right");
 
@@ -45,8 +65,11 @@ const dual = readFileSync(
   "utf8",
 );
 assert(dual.includes("PlaybackControls"), "compare uses PlaybackControls");
-assert(dual.includes("advancePlaybackProgress"), "compare uses own clock");
-assert(dual.includes("performance.now"), "wall-clock RAF deltas");
+assert(
+  dual.includes("playbackProgressAtWallClock"),
+  "compare uses absolute wall clock",
+);
+assert(dual.includes("performance.now"), "wall-clock RAF origin");
 assert(
   dual.includes("authorityRef.current === \"clock\" && playingRef.current"),
   "clock keeps authority while playing",
@@ -56,6 +79,19 @@ assert(
   "do not rewind progressRef from throttled prop while playing",
 );
 assert(dual.includes("ArrowLeft"), "keyboard scrub");
+
+const clockHook = readFileSync(
+  resolve(import.meta.dirname, "../src/components/usePlaybackClock.ts"),
+  "utf8",
+);
+assert(
+  clockHook.includes("playbackProgressAtWallClock"),
+  "session clock uses absolute wall time",
+);
+assert(
+  !clockHook.includes("advancePlaybackProgress"),
+  "session clock does not accumulate dt",
+);
 
 const synced = readFileSync(
   resolve(import.meta.dirname, "../src/components/video/SyncedLapView.tsx"),
@@ -72,5 +108,6 @@ const controls = readFileSync(
 );
 assert(controls.includes("PLAYBACK_SPEEDS"), "uses PLAYBACK_SPEEDS");
 assert(controls.includes("type=\"range\""), "scrub bar");
+assert(controls.includes("min-w-["), "fixed play/pause width");
 
 console.log("verify-playback ok");

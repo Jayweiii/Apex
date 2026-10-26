@@ -274,7 +274,14 @@ export function CloudCompareView({
         }));
 
         if (!cancelled) {
-          setCompareSessions(cloudOptions);
+          // URL session first so LapCompare seeds its best lap, not a peer's.
+          const ordered = [...cloudOptions];
+          const primaryIdx = ordered.findIndex((option) => option.id === id);
+          if (primaryIdx > 0) {
+            const [primary] = ordered.splice(primaryIdx, 1);
+            if (primary) ordered.unshift(primary);
+          }
+          setCompareSessions(ordered);
           setSessionsReady(true);
         }
       } catch (err) {
@@ -361,6 +368,7 @@ export function CloudCompareView({
         <LapCompare
           laps={currentLaps}
           sessions={compareSessions}
+          primarySessionId={id}
           initialRef={initialRef}
           initialOther={initialOther}
           initialOtherSession={initialOtherSession}

@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 import {
   compareManyByTime,
   sharedCompareDurationMs,
+  valueAt,
   valueAtTime,
   withDistance,
 } from "../src/lib/compare";
@@ -19,39 +20,51 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
-function lap(scale: number, n = 40): TelemetryPoint[] {
+function lap(opts: {
+  durationSec: number;
+  n?: number;
+  /** Meters per second along track (constant). */
+  speedMps: number;
+}): TelemetryPoint[] {
+  const n = opts.n ?? 40;
   const points: TelemetryPoint[] = [];
   for (let i = 0; i < n; i += 1) {
+    const t = (i / (n - 1)) * opts.durationSec;
+    const dist = opts.speedMps * t;
     points.push({
-      t: i * scale,
-      speed: 80 + i,
-      lat: 39.5 + i * 0.0001,
-      lon: -122.3 + i * 0.0001,
-      trackDist: i * 10 * scale,
+      t,
+      speed: opts.speedMps * 3.6,
+      lat: 39.5 + dist * 1e-5,
+      lon: -122.3 + dist * 1e-5,
+      trackDist: dist,
     });
   }
   return points;
 }
 
-const fast = lap(2.0); // 78s
-const slow = lap(2.2); // 85.8s
-const shared = sharedCompareDurationMs(78_000, 85_800);
-assert(shared === 85_800, `max duration ${shared}`);
+const fast = lap({ durationSec: 80, speedMps: 40 }); // 3200m
+const slow = lap({ durationSec: 88, speedMps: 34 }); // slower → behind
+const shared = sharedCompareDurationMs(80_000, 88_000);
+assert(shared === 88_000, `max duration ${shared}`);
 
 const series = compareManyByTime(fast, [slow], 41, shared);
 assert(series.length === 41, "steps");
 assert(series[0]!.t === 0, "starts at 0");
-assert(Math.abs((series[40]!.t as number) - 85.8) < 1e-6, "ends at max");
+assert(Math.abs((series[40]!.t as number) - 88) < 1e-6, "ends at max");
 
-// At identical elapsed t, speeds come from each lap's own sample — not same dist.
+// At identical elapsed t, delta = t_ref(d_other) − t (time gap, not meters).
 const midT = series[20]!.t as number;
 const fastDist = withDistance(fast);
 const slowDist = withDistance(slow);
-const expectedDelta =
-  valueAtTime(slowDist, midT, "dist") - valueAtTime(fastDist, midT, "dist");
+const otherDist = valueAtTime(slowDist, midT, "dist");
+const expectedDelta = valueAt(fastDist, otherDist, "t") - midT;
 assert(
   Math.abs((series[20]!.delta1 as number) - expectedDelta) < 1e-6,
-  "delta = dist gap at same t",
+  `delta = time gap at other's distance, got ${series[20]!.delta1} want ${expectedDelta}`,
+);
+assert(
+  (series[20]!.delta1 as number) < -0.5,
+  `slower car behind (neg gap), got ${series[20]!.delta1}`,
 );
 
 const video: SessionVideo = {
@@ -66,7 +79,7 @@ const sideFast = {
   lap: lapAsSyncLap({
     id: "f",
     lap_number: 1,
-    lap_time_ms: 78_000,
+    lap_time_ms: 80_000,
     start_offset_sec: 0,
     telemetry: fast,
   }),
@@ -77,7 +90,7 @@ const sideSlow = {
   lap: lapAsSyncLap({
     id: "s",
     lap_number: 2,
-    lap_time_ms: 85_800,
+    lap_time_ms: 88_000,
     start_offset_sec: 0,
     telemetry: slow,
   }),
@@ -119,6 +132,6 @@ console.log(
     clock: "max lap_time_ms",
     chartDefault: "time",
     mapBasis: "time",
-    deltaAtTime: "meters gap",
+    deltaAtTime: "time gap at distance",
   }),
 );

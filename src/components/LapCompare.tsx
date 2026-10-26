@@ -63,6 +63,7 @@ import {
   progressFromTimeSec,
   timeSecFromProgress,
 } from "@/lib/playback-timebase";
+import { timeGapAtProgress, type GpsPoint } from "@/lib/scrub";
 import { channelLabel } from "@/lib/telemetry-channels";
 import { getTrack } from "@/lib/tracks";
 import { pickSessionVideoForLap } from "@/lib/pick-session-video";
@@ -152,10 +153,13 @@ function seedSlots(args: {
     }));
   }
 
-  const primary = args.sessions[0];
+  // Always prefer the URL / primary session — never a stale peer first.
+  const primary =
+    args.sessions.find((session) => session.id === args.baseSessionId) ??
+    args.sessions[0];
   if (!primary?.laps.length) return [];
 
-  // Prefer fastest two from primary; fill from peers if needed.
+  // Best valid lap (+ next best) from primary only; no stale peer L10/L11.
   const ids = defaultLapIds(primary.laps, 2);
   const slots: SlotState[] = ids.map((lapId) => ({
     key: newSlotKey(),
@@ -213,6 +217,7 @@ function seedSlots(args: {
 export function LapCompare({
   laps,
   sessions,
+  primarySessionId,
   initialRef,
   initialOther,
   initialOtherSession,
@@ -227,6 +232,8 @@ export function LapCompare({
   laps: LapRow[];
   /** Sessions available for cross-session compare (own / friends / public / local). */
   sessions?: CompareSessionOption[];
+  /** URL session — selector + default laps must start here (not a peer). */
+  primarySessionId?: string;
   initialRef?: string;
   initialOther?: string;
   initialOtherSession?: string;
@@ -244,17 +251,30 @@ export function LapCompare({
   extraToolTabs?: SessionToolTab[];
 }) {
   const allSessions = useMemo<CompareSessionOption[]>(() => {
-    if (sessions?.length) return sessions;
-    return [
-      {
-        id: laps[0]?.session_id ?? "current",
-        name: "This session",
-        laps,
-      },
-    ];
-  }, [sessions, laps]);
+    const list = sessions?.length
+      ? [...sessions]
+      : [
+          {
+            id: laps[0]?.session_id ?? "current",
+            name: "This session",
+            laps,
+          },
+        ];
+    const preferred =
+      primarySessionId ?? laps[0]?.session_id ?? list[0]?.id ?? null;
+    if (!preferred) return list;
+    const idx = list.findIndex((session) => session.id === preferred);
+    if (idx <= 0) return list;
+    const next = [...list];
+    const [primary] = next.splice(idx, 1);
+    return primary ? [primary, ...next] : list;
+  }, [sessions, laps, primarySessionId]);
 
-  const baseSessionId = allSessions[0]?.id ?? "current";
+  const baseSessionId =
+    primarySessionId ??
+    laps[0]?.session_id ??
+    allSessions[0]?.id ??
+    "current";
 
   const trackOptions = useMemo(() => {
     const ids = [
@@ -321,8 +341,22 @@ export function LapCompare({
 
   /** Session currently shown in the always-visible lap list (selections persist). */
   const [browseSessionId, setBrowseSessionId] = useState(
-    () => filteredSessions[0]?.id ?? baseSessionId,
+    () =>
+      filteredSessions.find((session) => session.id === baseSessionId)?.id ??
+      filteredSessions[0]?.id ??
+      baseSessionId,
   );
+
+  // Keep browse selector on the URL session when peers load later.
+  useEffect(() => {
+    if (userTouchedSlotsRef.current) return;
+    if (!filteredSessions.some((session) => session.id === baseSessionId)) {
+      return;
+    }
+    setBrowseSessionId((prev) =>
+      prev === baseSessionId ? prev : baseSessionId,
+    );
+  }, [filteredSessions, baseSessionId]);
 
   // Keep slots valid when session list / filter changes (bail if unchanged).
   // Never overwrite after the user has clicked — late session loads used to
@@ -903,15 +937,46 @@ export function LapCompare({
                 vs reference
               </p>
               <p className="font-mono text-lg text-zinc-50 sm:text-xl">
-                {ordered
-                  .slice(1)
-                  .map((item) =>
-                    formatGap(
-                      (item.lap.lap_time_ms - ordered[0].lap.lap_time_ms) /
-                        1000,
-                    ),
-                  )
-                  .join(" · ")}
+                {(() => {
+                  const p = previewProgress ?? progress ?? 0;
+                  const refPts = mapTraces[0]?.points as GpsPoint[] | undefined;
+                  if (!refPts || refPts.length < 2) {
+                    return ordered
+                      .slice(1)
+                      .map((item) =>
+                        formatGap(
+                          (item.lap.lap_time_ms - ordered[0].lap.lap_time_ms) /
+                            1000,
+                        ),
+                      )
+                      .join(" · ");
+                  }
+                  return ordered
+                    .slice(1)
+                    .map((item, index) => {
+                      const otherPts = mapTraces[index + 1]?.points as
+                        | GpsPoint[]
+                        | undefined;
+                      if (!otherPts || otherPts.length < 2) {
+                        return formatGap(
+                          (item.lap.lap_time_ms - ordered[0].lap.lap_time_ms) /
+                            1000,
+                        );
+                      }
+                      const gap = timeGapAtProgress(refPts, otherPts, p, {
+                        basis: "time",
+                        durationSec: sharedSec,
+                      });
+                      return gap == null
+                        ? formatGap(
+                            (item.lap.lap_time_ms -
+                              ordered[0].lap.lap_time_ms) /
+                              1000,
+                          )
+                        : formatGap(gap);
+                    })
+                    .join(" · ");
+                })()}
               </p>
             </div>
             <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-zinc-400">
@@ -1049,7 +1114,7 @@ export function LapCompare({
                   }
                   scrub={chartScrub}
                 >
-                  <ResponsiveContainer width="100%" height="100%" minHeight={200}>
+                  <ResponsiveContainer width="100%" height={200} minHeight={200}>
                     <LineChart
                       data={speedSeries}
                       syncId="compare"
@@ -1105,14 +1170,14 @@ export function LapCompare({
                   title="Delta"
                   hint={
                     chartAxis === "time"
-                      ? "Meters ahead of ref at same elapsed time"
+                      ? "Time gap at each car's distance (neg = behind)"
                       : analysisMode === "snapped"
                         ? "Snapped · positive means behind reference"
                         : "Raw · positive means behind reference"
                   }
                   scrub={chartScrub}
                 >
-                  <ResponsiveContainer width="100%" height="100%" minHeight={200}>
+                  <ResponsiveContainer width="100%" height={200} minHeight={200}>
                     <LineChart
                       data={series}
                       syncId="compare"
@@ -1158,7 +1223,7 @@ export function LapCompare({
 
               {stackedChannels.includes("throttleBrake") ? (
                 <ChartCard title={channelLabel("throttleBrake")} hint="0–100%" scrub={chartScrub}>
-                  <ResponsiveContainer width="100%" height="100%" minHeight={200}>
+                  <ResponsiveContainer width="100%" height={200} minHeight={200}>
                     <LineChart
                       data={series}
                       syncId="compare"
@@ -1216,7 +1281,7 @@ export function LapCompare({
 
               {stackedChannels.includes("steering") ? (
                 <ChartCard title={channelLabel("steering")} hint="degrees" scrub={chartScrub}>
-                  <ResponsiveContainer width="100%" height="100%" minHeight={200}>
+                  <ResponsiveContainer width="100%" height={200} minHeight={200}>
                     <LineChart
                       data={series}
                       syncId="compare"
@@ -1261,7 +1326,7 @@ export function LapCompare({
 
               {stackedChannels.includes("g") ? (
                 <ChartCard title="G" hint="Combined acceleration" scrub={chartScrub}>
-                  <ResponsiveContainer width="100%" height="100%" minHeight={200}>
+                  <ResponsiveContainer width="100%" height={200} minHeight={200}>
                     <LineChart
                       data={series}
                       syncId="compare"
@@ -1306,7 +1371,7 @@ export function LapCompare({
 
               {stackedChannels.includes("gearRpm") ? (
                 <ChartCard title={channelLabel("gearRpm")} scrub={chartScrub}>
-                  <ResponsiveContainer width="100%" height="100%" minHeight={200}>
+                  <ResponsiveContainer width="100%" height={200} minHeight={200}>
                     <LineChart
                       data={series}
                       syncId="compare"
@@ -1351,7 +1416,7 @@ export function LapCompare({
 
               {stackedChannels.includes("heading") ? (
                 <ChartCard title={channelLabel("heading")} hint="degrees" scrub={chartScrub}>
-                  <ResponsiveContainer width="100%" height="100%" minHeight={200}>
+                  <ResponsiveContainer width="100%" height={200} minHeight={200}>
                     <LineChart
                       data={series}
                       syncId="compare"
@@ -1565,12 +1630,12 @@ function ChartCard({
       </div>
       <div
         ref={plotRef}
-        className="relative h-[200px] min-h-[200px] touch-none sm:h-[220px] sm:min-h-[220px]"
+        className="relative h-[220px] min-h-[220px] touch-none sm:h-[240px] sm:min-h-[240px]"
         data-apex-chart-plot="compare"
-        style={{ minHeight: 200 }}
+        style={{ minHeight: 220, height: 220 }}
         {...scrub}
       >
-        <div className="absolute inset-0 min-h-0">{children}</div>
+        <div className="absolute inset-0 min-h-[200px]">{children}</div>
         <HoverCursorLine plotRef={plotRef} />
         <PlaybackCursorLine plotRef={plotRef} />
       </div>

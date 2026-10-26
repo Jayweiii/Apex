@@ -468,8 +468,8 @@ export function compareMany(
 
 /**
  * Time-aligned multi-lap compare: same elapsed seconds from each lap start.
- * At time t, each series shows where that car was — map gap is spatial.
- * delta{i} = dist_other(t) − dist_ref(t) (meters; negative = behind on track).
+ * At time t, each series shows speed/G where that car was.
+ * delta{i} = t_ref(d_other(t)) − t  (seconds; negative = behind reference).
  */
 export function compareManyByTime(
   reference: TelemetryPoint[],
@@ -521,8 +521,9 @@ export function compareManyByTime(
       row[`latG${idx}`] = valueAtTime(alt, t, "latG");
       row[`lonG${idx}`] = valueAtTime(alt, t, "lonG");
       row[`dist${idx}`] = otherDist;
-      // Meters ahead of ref at the same elapsed time (negative = behind).
-      row[`delta${idx}`] = otherDist - refDist;
+      // Time gap at other's distance: when ref was there minus now.
+      const refTAtOtherDist = valueAt(ref, otherDist, "t");
+      row[`delta${idx}`] = refTAtOtherDist - t;
       for (const key of optionalKeys) {
         row[`${key}${idx}`] = valueAtTime(alt, t, key);
       }

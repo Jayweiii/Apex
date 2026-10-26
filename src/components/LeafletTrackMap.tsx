@@ -456,7 +456,10 @@ export function LeafletTrackMap({
       setHoverPos(null);
     };
 
-    // Touch drag seeks (no separate hover on touch). Skip while editing SF.
+    // Single-finger touch must NOT capture page scroll. Scrub only on tap
+    // (touchend without much move) or two-finger drag.
+    let touchScrubbing = false;
+    let touchStart: { x: number; y: number; t: number } | null = null;
     const scrubFromTouch = (event: TouchEvent) => {
       if (sfEditingRef.current) return;
       const touch = event.touches[0] ?? event.changedTouches[0];
@@ -472,14 +475,48 @@ export function LeafletTrackMap({
     };
 
     const onTouchStart = (event: TouchEvent) => {
+      if (event.touches.length >= 2) {
+        touchScrubbing = true;
+        scrubFromTouch(event);
+        return;
+      }
       if (event.touches.length !== 1) return;
-      scrubFromTouch(event);
+      const touch = event.touches[0]!;
+      touchStart = { x: touch.clientX, y: touch.clientY, t: Date.now() };
+      touchScrubbing = false;
     };
     const onTouchMove = (event: TouchEvent) => {
-      if (event.touches.length !== 1) return;
-      if (sfEditingRef.current) return;
-      event.preventDefault();
-      scrubFromTouch(event);
+      if (event.touches.length >= 2) {
+        touchScrubbing = true;
+        if (sfEditingRef.current) return;
+        event.preventDefault();
+        scrubFromTouch(event);
+        return;
+      }
+      // One finger: let the page scroll — never preventDefault.
+      if (touchStart && event.touches[0]) {
+        const dx = event.touches[0].clientX - touchStart.x;
+        const dy = event.touches[0].clientY - touchStart.y;
+        if (Math.hypot(dx, dy) > 12) touchStart = null; // became a scroll
+      }
+    };
+    const onTouchEnd = (event: TouchEvent) => {
+      if (touchScrubbing) {
+        touchScrubbing = false;
+        touchStart = null;
+        return;
+      }
+      // Tap-to-scrub (no drag) so page scroll stays free.
+      if (touchStart && event.changedTouches[0]) {
+        const touch = event.changedTouches[0];
+        const dt = Date.now() - touchStart.t;
+        const dist = Math.hypot(
+          touch.clientX - touchStart.x,
+          touch.clientY - touchStart.y,
+        );
+        if (dt < 450 && dist < 14) scrubFromTouch(event);
+      }
+      touchStart = null;
     };
 
     map.on("mousemove", onMove);
@@ -489,6 +526,7 @@ export function LeafletTrackMap({
     container.addEventListener("mouseleave", onLeave);
     container.addEventListener("touchstart", onTouchStart, { passive: true });
     container.addEventListener("touchmove", onTouchMove, { passive: false });
+    container.addEventListener("touchend", onTouchEnd, { passive: true });
 
     const onResize = () => {
       map.invalidateSize();
@@ -514,6 +552,7 @@ export function LeafletTrackMap({
       container.removeEventListener("mouseleave", onLeave);
       container.removeEventListener("touchstart", onTouchStart);
       container.removeEventListener("touchmove", onTouchMove);
+      container.removeEventListener("touchend", onTouchEnd);
       map.off("mousemove", onMove);
       map.off("click", onClick);
       map.remove();
@@ -964,7 +1003,7 @@ export function LeafletTrackMap({
             : compact
               ? MAP_HEIGHT.compact
               : MAP_HEIGHT.default
-        } w-full ${sfEditing ? "touch-manipulation" : "touch-none"} overflow-hidden rounded-xl [&_.apex-sf-handle]:bg-transparent [&_.apex-sf-handle__btn]:flex [&_.apex-sf-handle__btn]:h-7 [&_.apex-sf-handle__btn]:w-7 [&_.apex-sf-handle__btn]:cursor-pointer [&_.apex-sf-handle__btn]:items-center [&_.apex-sf-handle__btn]:justify-center [&_.apex-sf-handle__btn]:rounded-full [&_.apex-sf-handle__btn]:border-2 [&_.apex-sf-handle__btn]:border-orange-400 [&_.apex-sf-handle__btn]:bg-zinc-950 [&_.apex-sf-handle__btn]:text-[10px] [&_.apex-sf-handle__btn]:font-bold [&_.apex-sf-handle__btn]:text-orange-300 [&_.apex-sf-handle__btn]:shadow-md [&_.leaflet-control-attribution]:bg-zinc-950/80 [&_.leaflet-control-attribution]:text-[10px] [&_.leaflet-control-attribution]:text-zinc-400 ${sfEditing ? "[&_.leaflet-container]:cursor-pointer" : "[&_.leaflet-container]:cursor-crosshair"}`}
+        } w-full touch-manipulation overflow-hidden rounded-xl [&_.apex-sf-handle]:bg-transparent [&_.apex-sf-handle__btn]:flex [&_.apex-sf-handle__btn]:h-7 [&_.apex-sf-handle__btn]:w-7 [&_.apex-sf-handle__btn]:cursor-pointer [&_.apex-sf-handle__btn]:items-center [&_.apex-sf-handle__btn]:justify-center [&_.apex-sf-handle__btn]:rounded-full [&_.apex-sf-handle__btn]:border-2 [&_.apex-sf-handle__btn]:border-orange-400 [&_.apex-sf-handle__btn]:bg-zinc-950 [&_.apex-sf-handle__btn]:text-[10px] [&_.apex-sf-handle__btn]:font-bold [&_.apex-sf-handle__btn]:text-orange-300 [&_.apex-sf-handle__btn]:shadow-md [&_.leaflet-control-attribution]:bg-zinc-950/80 [&_.leaflet-control-attribution]:text-[10px] [&_.leaflet-control-attribution]:text-zinc-400 ${sfEditing ? "[&_.leaflet-container]:cursor-pointer" : "[&_.leaflet-container]:cursor-crosshair"}`}
         data-apex-sf-editing={sfEditing ? "1" : "0"}
       >
         <div

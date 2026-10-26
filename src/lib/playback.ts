@@ -12,8 +12,31 @@ export function clampPlaybackProgress(progress: number): number {
 }
 
 /**
+ * Absolute wall-clock progress (preferred).
+ * `t = t0 + (now - start) * speed` — never accumulate per-frame deltas.
+ */
+export function playbackProgressAtWallClock(args: {
+  originProgress: number;
+  originMs: number;
+  nowMs: number;
+  durationMs: number;
+  speed?: number;
+}): number {
+  const durationSec = Math.max(0.001, args.durationMs / 1000);
+  const rate =
+    Number.isFinite(args.speed) && (args.speed as number) > 0
+      ? (args.speed as number)
+      : 1;
+  const elapsedSec = Math.max(0, (args.nowMs - args.originMs) / 1000);
+  return clampPlaybackProgress(
+    args.originProgress + (elapsedSec * rate) / durationSec,
+  );
+}
+
+/**
  * Advance shared lap progress by wall-clock delta at the given speed.
- * `durationMs` is the shared timeline length (usually the lap / shortest lap).
+ * Prefer {@link playbackProgressAtWallClock} for RAF loops so React
+ * setState / effect restarts cannot throttle the clock.
  */
 export function advancePlaybackProgress(
   progress: number,
