@@ -81,7 +81,7 @@ export function AppHeader({ email }: { email?: string }) {
   const signedIn = Boolean(sessionEmail) || guest;
 
   return (
-    <header className="sticky top-0 z-20 border-b border-zinc-900/90 bg-zinc-950/85 backdrop-blur">
+    <header className="sticky top-0 z-40 border-b border-zinc-900/90 bg-zinc-950/85 backdrop-blur">
       <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-2 px-4 py-2.5 sm:gap-3 sm:px-6 sm:py-3.5">
         <div className="flex min-w-0 items-center gap-3 sm:gap-6">
           <Link href="/" className="flex min-h-10 shrink-0 items-baseline gap-2">

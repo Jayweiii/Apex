@@ -342,9 +342,13 @@ export function LeafletTrackMap({
   const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(
     null,
   );
+  /** Uncontrolled hover preview for embeds (home/track) without parent state. */
+  const [localPreview, setLocalPreview] = useState<number | null>(null);
   const [speedUnit] = useSpeedUnit();
   const activeBasemap = onBasemapChange ? basemap : localBasemap;
   const setActiveBasemap = onBasemapChange ?? setLocalBasemap;
+  const controlledPreview = onPreviewProgress != null;
+  const resolvedPreview = controlledPreview ? previewProgress : localPreview;
 
   onProgressRef.current = onProgress;
   onPreviewProgressRef.current = onPreviewProgress;
@@ -352,11 +356,18 @@ export function LeafletTrackMap({
   onSfEndpointMoveRef.current = onSfEndpointMove;
   sfEditingRef.current = sfEditing;
 
+  const clearHoverPreview = () => {
+    setHoverPos(null);
+    setLocalPreview(null);
+    onPreviewProgressRef.current?.(null);
+  };
+  const clearHoverPreviewRef = useRef(clearHoverPreview);
+  clearHoverPreviewRef.current = clearHoverPreview;
+
   // Drop any lingering ghost/tooltip when playback starts.
   useEffect(() => {
     if (hoverPreviewEnabled) return;
-    setHoverPos(null);
-    onPreviewProgressRef.current?.(null);
+    clearHoverPreviewRef.current();
   }, [hoverPreviewEnabled]);
 
   const drawable = useMemo(
@@ -440,7 +451,8 @@ export function LeafletTrackMap({
       if (!hoverPreviewEnabledRef.current) return;
       const progress = progressAt(event.latlng);
       if (progress == null) return;
-      onPreviewProgressRef.current?.(progress);
+      if (onPreviewProgressRef.current) onPreviewProgressRef.current(progress);
+      else setLocalPreview(progress);
       setTooltipPos(event.originalEvent.clientX, event.originalEvent.clientY);
     };
 
@@ -449,14 +461,13 @@ export function LeafletTrackMap({
       if (sfEditingRef.current) return;
       const progress = progressAt(event.latlng);
       if (progress == null) return;
-      onPreviewProgressRef.current?.(null);
+      clearHoverPreviewRef.current();
       onProgressRef.current?.(progress);
       setTooltipPos(event.originalEvent.clientX, event.originalEvent.clientY);
     };
 
     const onLeave = () => {
-      onPreviewProgressRef.current?.(null);
-      setHoverPos(null);
+      clearHoverPreviewRef.current();
     };
 
     // Single-finger touch must NOT capture page scroll. Scrub only on tap
@@ -472,7 +483,9 @@ export function LeafletTrackMap({
       const latlng = map.containerPointToLatLng(point);
       const progress = progressAt(latlng);
       if (progress == null) return;
-      onPreviewProgressRef.current?.(null);
+      // Touch scrub seeks — drop hover ghost first.
+      if (onPreviewProgressRef.current) onPreviewProgressRef.current(null);
+      else setLocalPreview(null);
       onProgressRef.current?.(progress);
       setTooltipPos(touch.clientX, touch.clientY);
     };
@@ -507,6 +520,8 @@ export function LeafletTrackMap({
       if (touchScrubbing) {
         touchScrubbing = false;
         touchStart = null;
+        // Finger up — clear any hover ghost/tooltip left from the gesture.
+        onLeave();
         return;
       }
       // Tap-to-scrub (no drag) so page scroll stays free.
@@ -520,16 +535,21 @@ export function LeafletTrackMap({
         if (dt < 450 && dist < 14) scrubFromTouch(event);
       }
       touchStart = null;
+      // Hover preview is mouse-only; touch end always clears ghost/tooltip.
+      onLeave();
     };
 
     map.on("mousemove", onMove);
     map.on("click", onClick);
     const container = map.getContainer();
-    // Prefer container mouseleave — Leaflet mouseout fires when crossing polylines.
+    // Prefer container leave — Leaflet mouseout fires when crossing polylines.
+    // pointerleave + mouseleave cover mouse/pen; touchend/cancel covers touch.
     container.addEventListener("mouseleave", onLeave);
+    container.addEventListener("pointerleave", onLeave);
     container.addEventListener("touchstart", onTouchStart, { passive: true });
     container.addEventListener("touchmove", onTouchMove, { passive: false });
     container.addEventListener("touchend", onTouchEnd, { passive: true });
+    container.addEventListener("touchcancel", onLeave, { passive: true });
 
     const onResize = () => {
       map.invalidateSize();
@@ -553,9 +573,11 @@ export function LeafletTrackMap({
       window.removeEventListener("resize", onResize);
       ro?.disconnect();
       container.removeEventListener("mouseleave", onLeave);
+      container.removeEventListener("pointerleave", onLeave);
       container.removeEventListener("touchstart", onTouchStart);
       container.removeEventListener("touchmove", onTouchMove);
       container.removeEventListener("touchend", onTouchEnd);
+      container.removeEventListener("touchcancel", onLeave);
       map.off("mousemove", onMove);
       map.off("click", onClick);
       map.remove();
@@ -904,14 +926,14 @@ export function LeafletTrackMap({
       }
     };
 
-    if (progressSubscribe && !(hoverPreviewEnabled && previewProgress != null)) {
+    if (progressSubscribe && !(hoverPreviewEnabled && resolvedPreview != null)) {
       return progressSubscribe((progress) => {
         placeAt(progress, false);
       });
     }
     if (activeProgress != null) placeAt(activeProgress, false);
     const ghost =
-      hoverPreviewEnabled && previewProgress != null ? previewProgress : null;
+      hoverPreviewEnabled && resolvedPreview != null ? resolvedPreview : null;
     if (
       ghost != null &&
       (activeProgress == null || Math.abs(ghost - activeProgress) > 0.002)
@@ -921,7 +943,7 @@ export function LeafletTrackMap({
   }, [
     // While progressSubscribe is set, ignore activeProgress identity churn.
     progressSubscribe ? null : activeProgress,
-    previewProgress,
+    resolvedPreview,
     hoverPreviewEnabled,
     drawKey,
     sampleOpts,
@@ -932,7 +954,7 @@ export function LeafletTrackMap({
   if (!drawable.length) return null;
 
   const tooltipProgress =
-    (hoverPreviewEnabled ? previewProgress : null) ?? activeProgress;
+    (hoverPreviewEnabled ? resolvedPreview : null) ?? activeProgress;
   const tooltipMarkers =
     tooltipProgress == null
       ? []
@@ -942,15 +964,18 @@ export function LeafletTrackMap({
         }));
 
   const shellClass = embedded
-    ? "relative flex flex-col"
+    ? "relative z-0 flex isolate flex-col"
     : panel
-      ? "relative flex flex-col overflow-hidden rounded-xl border border-zinc-800/80 bg-zinc-950/40 p-2"
-      : "relative overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950/40 p-4";
+      ? "relative z-0 flex isolate flex-col overflow-hidden rounded-xl border border-zinc-800/80 bg-zinc-950/40 p-2"
+      : "relative z-0 isolate overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950/40 p-4";
 
   return (
     <div
       className={shellClass}
+      data-apex-map-stack="1"
       data-apex-map-hover={hoverPreviewEnabled ? "1" : "0"}
+      onMouseLeave={() => clearHoverPreview()}
+      onPointerLeave={() => clearHoverPreview()}
     >
       <div
         className={`flex flex-wrap items-center justify-between gap-2 ${
@@ -1021,7 +1046,7 @@ export function LeafletTrackMap({
         the map paints black (lost tiles).
       */}
       <div
-        className={`${
+        className={`relative z-0 isolate ${
           panel
             ? MAP_HEIGHT.panel
             : compact
@@ -1029,16 +1054,17 @@ export function LeafletTrackMap({
               : MAP_HEIGHT.default
         } w-full touch-manipulation overflow-hidden rounded-xl [&_.apex-sf-handle]:bg-transparent [&_.apex-sf-handle__btn]:flex [&_.apex-sf-handle__btn]:h-7 [&_.apex-sf-handle__btn]:w-7 [&_.apex-sf-handle__btn]:cursor-pointer [&_.apex-sf-handle__btn]:items-center [&_.apex-sf-handle__btn]:justify-center [&_.apex-sf-handle__btn]:rounded-full [&_.apex-sf-handle__btn]:border-2 [&_.apex-sf-handle__btn]:border-orange-400 [&_.apex-sf-handle__btn]:bg-zinc-950 [&_.apex-sf-handle__btn]:text-[10px] [&_.apex-sf-handle__btn]:font-bold [&_.apex-sf-handle__btn]:text-orange-300 [&_.apex-sf-handle__btn]:shadow-md [&_.leaflet-control-attribution]:bg-zinc-950/80 [&_.leaflet-control-attribution]:text-[10px] [&_.leaflet-control-attribution]:text-zinc-400 ${sfEditing ? "[&_.leaflet-container]:cursor-pointer" : "[&_.leaflet-container]:cursor-crosshair"}`}
         data-apex-sf-editing={sfEditing ? "1" : "0"}
+        data-apex-map-stack="1"
       >
         <div
           ref={containerRef}
-          className="h-full w-full"
+          className="relative z-0 h-full w-full isolate"
           data-apex-map="fixed-scrub"
         />
       </div>
       {tooltipMarkers.length ? (
         <div
-          className="pointer-events-none absolute z-[500] min-w-36 rounded-xl border border-zinc-800 bg-zinc-950/95 px-3 py-2 text-xs text-zinc-100 shadow-lg"
+          className="pointer-events-none absolute z-[10] min-w-36 rounded-xl border border-zinc-800 bg-zinc-950/95 px-3 py-2 text-xs text-zinc-100 shadow-lg"
           style={{
             left: hoverPos
               ? `clamp(12px, ${hoverPos.x + 12}px, calc(100% - 160px))`
@@ -1049,6 +1075,7 @@ export function LeafletTrackMap({
               : "64px",
           }}
           data-apex-scrub-tooltip="1"
+          data-apex-hover-tooltip={hoverPos != null ? "1" : "0"}
         >
           {tooltipMarkers.map((marker) => (
             <div key={marker.trace.id} className="mt-1 first:mt-0">

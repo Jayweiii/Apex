@@ -537,7 +537,17 @@ export function SyncedLapView({
   useEffect(() => {
     if (hoverEnabled) return;
     setPreviewProgress(null);
-  }, [hoverEnabled]);
+    hoverController.leave();
+  }, [hoverEnabled, hoverController]);
+
+  /** Map leave/clear must also drop chart hover line + readout. */
+  const setMapPreviewProgress = useCallback(
+    (next: number | null) => {
+      setPreviewProgress(next);
+      if (next == null) hoverController.leave();
+    },
+    [hoverController],
+  );
 
   /** Playback window in chart time (trim window or full lap). */
   const playbackWindow = useMemo(() => {
@@ -803,7 +813,7 @@ export function SyncedLapView({
       durationMs={durationMs}
       progressSubscribe={clock.playing ? clock.subscribe : undefined}
       previewProgress={hoverEnabled ? previewProgress : null}
-      onPreviewProgress={hoverEnabled ? setPreviewProgress : undefined}
+      onPreviewProgress={hoverEnabled ? setMapPreviewProgress : undefined}
       hoverPreviewEnabled={hoverEnabled}
       onProgress={setProgressFromUi}
       compact={workspace}
