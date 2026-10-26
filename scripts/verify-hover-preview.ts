@@ -93,6 +93,24 @@ assert(
   compare.includes("userTouchedSlotsRef"),
   "compare selection ignores late reseed after user clicks",
 );
+assert(
+  compare.includes("prev.length <= 1") && !compare.includes("prev.length <= 2"),
+  "compare allows toggle/remove down to one chip (not stuck at two)",
+);
+assert(
+  compare.includes("data-apex-compare-remove") && compare.includes("×"),
+  "compare chips expose an × remove control",
+);
+assert(
+  compare.includes("data-apex-compare-set-ref"),
+  "compare chips can change the reference",
+);
+
+const drive = read("src/components/drive/DriveGame.tsx");
+assert(
+  drive.includes("viewW < 640 ? 58") && !drive.includes("viewH - size - pad - (viewW < 640 ? 120"),
+  "drive minimap anchors top-right on mobile (not above brake/gas)",
+);
 
 const guide = read("src/components/video/LapVideoSyncGuide.tsx");
 assert(guide.includes("Sync here"), "sync-here still present");

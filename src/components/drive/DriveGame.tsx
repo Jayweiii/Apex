@@ -348,8 +348,10 @@ export function DriveGame({ trackId }: Props) {
     ) {
       const size = Math.max(96, Math.min(148, Math.floor(viewW * 0.22)));
       const pad = 10;
+      // Top-right: mobile BRAKE/GAS sit bottom-right and used to cover the
+      // old bottom-anchored minimap even with a 120px lift.
       const left = viewW - size - pad;
-      const top = viewH - size - pad - (viewW < 640 ? 120 : 8);
+      const top = pad + (viewW < 640 ? 58 : 8);
       const bw = maxX - minX + worldPad * 2;
       const bh = maxY - minY + worldPad * 2;
       const scale = (size * 0.86) / Math.max(bw, bh);

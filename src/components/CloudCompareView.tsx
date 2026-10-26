@@ -234,6 +234,23 @@ export function CloudCompareView({
     [compareSessions, fetchLapTelemetry],
   );
 
+  // Seed URL once on mount / session id change — do NOT re-fetch when LapCompare
+  // writes `?laps=` via router.replace (that used to wipe telemetry and fight toggles).
+  const seedRef = useRef({
+    initialRef,
+    initialOther,
+    initialOtherSession,
+    initialLaps,
+  });
+  useEffect(() => {
+    seedRef.current = {
+      initialRef,
+      initialOther,
+      initialOtherSession,
+      initialLaps,
+    };
+  }, [initialRef, initialOther, initialOtherSession, initialLaps]);
+
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -361,24 +378,25 @@ export function CloudCompareView({
         setSessionsReady(true);
 
         // Prefetch telemetry for seeded slots only (not every peer lap).
+        const seed = seedRef.current;
         const primaryLaps =
           ordered.find((option) => option.id === id)?.laps ?? [];
         const rankedPrimary = [...primaryLaps]
           .filter((lap) => !lap.excluded)
           .sort((a, b) => a.lap_time_ms - b.lap_time_ms);
         const urlLapIds = seedLapIdsFromUrl({
-          initialRef,
-          initialOther,
-          initialLaps,
+          initialRef: seed.initialRef,
+          initialOther: seed.initialOther,
+          initialLaps: seed.initialLaps,
         });
         const prefetchIds = [
           ...rankedPrimary.slice(0, 2).map((lap) => lap.id),
           ...urlLapIds,
         ];
-        if (initialOtherSession) {
+        if (seed.initialOtherSession) {
           const peer =
-            ordered.find((option) => option.id === initialOtherSession)?.laps ??
-            [];
+            ordered.find((option) => option.id === seed.initialOtherSession)
+              ?.laps ?? [];
           const rankedPeer = [...peer]
             .filter((lap) => !lap.excluded)
             .sort((a, b) => a.lap_time_ms - b.lap_time_ms);
@@ -399,14 +417,7 @@ export function CloudCompareView({
     return () => {
       cancelled = true;
     };
-  }, [
-    id,
-    initialRef,
-    initialOther,
-    initialOtherSession,
-    initialLaps,
-    fetchLapTelemetry,
-  ]);
+  }, [id, fetchLapTelemetry]);
 
   const currentLaps = useMemo(() => {
     const match = compareSessions.find((option) => option.id === id);

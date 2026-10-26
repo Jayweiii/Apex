@@ -147,7 +147,9 @@ function seedSlots(args: {
     ),
   );
 
-  if (parsed.length >= 2) {
+  // Honor explicit `laps=` even when only one remains (user deselected down to
+  // a single chip). Falling through to defaultLapIds here used to re-add L3/etc.
+  if (parsed.length >= 2 || (parsed.length === 1 && args.initialLaps)) {
     return parsed.map((slot) => ({
       key: newSlotKey(),
       sessionId: slot.sessionId,
@@ -383,7 +385,8 @@ export function LapCompare({
         const kept = prev
           .map((slot) => (findLap(slot.sessionId, slot.lapId) ? slot : null))
           .filter((slot): slot is SlotState => slot != null);
-        return kept.length >= 2 ? kept.slice(0, MAX_COMPARE_LAPS) : prev;
+        // Keep a single user-chosen chip; never reseed defaults after a click.
+        return kept.length >= 1 ? kept.slice(0, MAX_COMPARE_LAPS) : prev;
       }
 
       const next = prev
@@ -395,8 +398,12 @@ export function LapCompare({
         .filter((slot): slot is SlotState => slot != null);
 
       const seedPool = filteredSessions.length ? filteredSessions : allSessions;
+      // Don't call seedSlots when one URL/default slot is still valid — that
+      // path used to pad back to two via defaultLapIds and re-add the deselected lap.
+      const honorSingle =
+        next.length === 1 && Boolean(initialLaps || userTouchedSlotsRef.current);
       const resolvedSlots =
-        next.length >= 2
+        next.length >= 2 || honorSingle
           ? next.slice(0, MAX_COMPARE_LAPS)
           : seedSlots({
               sessions: seedPool,
@@ -472,10 +479,12 @@ export function LapCompare({
   const router = useRouter();
   const pathname = usePathname();
   // Persist cross-session selections in the URL (`laps=session:lap,...`).
+  // Write even at 1 slot so a soft navigation / remount cannot revive a
+  // deselected lap from a stale two-lap query string.
   useEffect(() => {
     if (readOnly) return;
     if (!userTouchedSlotsRef.current && !initialLaps) return;
-    if (slots.length < 2) return;
+    if (slots.length < 1) return;
     const refLapId =
       slots[refIndex]?.lapId ?? slots[0]?.lapId ?? undefined;
     const qs = serializeCompareSlots(
@@ -809,14 +818,16 @@ export function LapCompare({
   function removeSlot(key: string) {
     userTouchedSlotsRef.current = true;
     setSlots((prev) => {
-      if (prev.length <= 2) return prev;
+      // Allow down to one chip so the other can be replaced; compare UI
+      // already handles ordered.length < 2.
+      if (prev.length <= 1) return prev;
       const index = prev.findIndex((slot) => slot.key === key);
       if (index < 0) return prev;
       const next = prev.filter((slot) => slot.key !== key);
       setRefIndex((r) => {
         if (index === r) return 0;
         if (index < r) return Math.max(0, r - 1);
-        return r;
+        return Math.min(r, next.length - 1);
       });
       return next;
     });
@@ -831,13 +842,13 @@ export function LapCompare({
         (slot) => slot.sessionId === sessionId && slot.lapId === lapId,
       );
       if (existing >= 0) {
-        // Toggle off — keep at least two compare slots.
-        if (prev.length <= 2) return prev;
+        // Toggle off — keep at least one slot (ref can stay alone until another pick).
+        if (prev.length <= 1) return prev;
         const next = prev.filter((_, i) => i !== existing);
         setRefIndex((r) => {
           if (existing === r) return 0;
           if (existing < r) return Math.max(0, r - 1);
-          return r;
+          return Math.min(r, next.length - 1);
         });
         return next;
       }
@@ -940,10 +951,11 @@ export function LapCompare({
                   </span>
                 ) : null}
                 {!readOnly ? (
-                  <span className="ml-auto flex gap-0.5">
+                  <span className="ml-auto flex items-center gap-0.5">
                     {!isRef ? (
                       <button
                         type="button"
+                        data-apex-compare-set-ref={`${slot.sessionId}:${slot.lapId}`}
                         onClick={() => {
                           userTouchedSlotsRef.current = true;
                           setRefIndex(index);
@@ -953,14 +965,15 @@ export function LapCompare({
                         Set ref
                       </button>
                     ) : null}
-                    {slots.length > 2 ? (
+                    {slots.length > 1 ? (
                       <button
                         type="button"
+                        aria-label={`Remove L${lap?.lap_number ?? ""} from compare`}
                         data-apex-compare-remove={`${slot.sessionId}:${slot.lapId}`}
                         onClick={() => removeSlot(slot.key)}
-                        className="apex-pressable apex-pressable--muted rounded px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-zinc-500"
+                        className="apex-pressable apex-pressable--muted inline-flex h-5 w-5 items-center justify-center rounded text-zinc-500 hover:text-zinc-200"
                       >
-                        Remove
+                        ×
                       </button>
                     ) : null}
                   </span>

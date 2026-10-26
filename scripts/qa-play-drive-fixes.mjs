@@ -172,7 +172,7 @@ const browser = await chromium.launch({ headless: true });
   await page.close();
 }
 
-// ---------- 2) Compare lap toggle-off ----------
+// ---------- 2) Compare lap toggle-off (from default 2 chips) ----------
 {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   await withShare(page);
@@ -180,108 +180,137 @@ const browser = await chromium.launch({ headless: true });
     waitUntil: "domcontentloaded",
     timeout: 120000,
   });
-  await page.waitForTimeout(7000);
+  await page.waitForSelector('[role="option"]', { timeout: 60000 });
+  await page.waitForTimeout(2500);
 
-  // Ensure L3 is selected, then add more until ≥3 chips.
-  const ensureL3 = async () => {
-    const state = await page.evaluate(() => {
-      const rows = [...document.querySelectorAll('[role="option"]')];
-      const idx = rows.findIndex((el) => {
-        const label = el.querySelector("span")?.textContent?.trim() || "";
-        return label === "L3";
-      });
-      if (idx < 0) return { idx: -1, selected: false };
-      return {
-        idx,
-        selected: rows[idx]?.getAttribute("aria-selected") === "true",
-      };
-    });
-    if (state.idx >= 0 && !state.selected) {
-      await page.locator('[role="option"]').nth(state.idx).click();
+  const chipCount = async () =>
+    page.evaluate(
+      () => document.querySelectorAll("[data-apex-compare-chip]").length,
+    );
+  const selectedLabels = async () =>
+    page.evaluate(() =>
+      [
+        ...document.querySelectorAll('[role="option"][aria-selected="true"]'),
+      ].map((el) => el.querySelector("span")?.textContent?.trim() || ""),
+    );
+  const chipTexts = async () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll("[data-apex-compare-chip]")].map((el) =>
+        (el.textContent || "").replace(/\s+/g, " ").trim(),
+      ),
+    );
+
+  // Trim to exactly two chips if a prior URL left more.
+  for (let i = 0; i < 4; i += 1) {
+    const n = await chipCount();
+    if (n <= 2) break;
+    const x = page.locator("[data-apex-compare-remove]").last();
+    if ((await x.count()) === 0) break;
+    await x.click();
+    await page.waitForTimeout(350);
+  }
+
+  // Ensure L3 is one of the two (reported default pair is L6 ref + L3).
+  const labelsBeforeEnsure = await selectedLabels();
+  if (!labelsBeforeEnsure.includes("L3")) {
+    const l3 = page.locator('[role="option"]').filter({ hasText: /^L3\b/ });
+    if ((await l3.count()) > 0) {
+      // If already at 2, remove a non-ref first via × then add L3.
+      if ((await chipCount()) >= 2) {
+        const nonRefX = page.locator(
+          "[data-apex-compare-chip]:not(:has-text('Ref')) [data-apex-compare-remove]",
+        );
+        if ((await nonRefX.count()) > 0) await nonRefX.first().click();
+        await page.waitForTimeout(350);
+      }
+      await l3.first().click();
       await page.waitForTimeout(400);
     }
-  };
-  await ensureL3();
-  for (let i = 0; i < 6; i += 1) {
-    const count = await page.evaluate(() =>
-      document.querySelectorAll("[data-apex-compare-chip]").length,
-    );
-    if (count >= 3) break;
-    const unselected = page.locator('[role="option"][aria-selected="false"]');
-    if ((await unselected.count()) === 0) break;
-    await unselected.nth(0).click();
-    await page.waitForTimeout(400);
   }
-  await ensureL3();
 
-  const beforeChips = await page.evaluate(() =>
-    [...document.querySelectorAll("[data-apex-compare-chip]")].map((el) =>
-      el.getAttribute("data-apex-compare-chip"),
-    ),
-  );
+  const beforeChips = await chipCount();
+  const beforeSelected = await selectedLabels();
+  const beforeTexts = await chipTexts();
 
-  // Specifically toggle off L3 row when selected (the reported failure).
-  let removedKey = null;
-  const l3Selected = await page.evaluate(() => {
-    const rows = [
-      ...document.querySelectorAll('[role="option"][aria-selected="true"]'),
-    ];
-    return rows.findIndex((el) => {
-      const label = el.querySelector("span")?.textContent?.trim() || "";
-      return label === "L3";
-    });
-  });
-  if (l3Selected >= 0 && beforeChips.length > 2) {
-    removedKey = "L3-row";
-    await page
-      .locator('[role="option"][aria-selected="true"]')
-      .nth(l3Selected)
-      .click();
-  } else {
-    const removeBtn = page.locator("[data-apex-compare-remove]").first();
-    if ((await removeBtn.count()) > 0 && beforeChips.length > 2) {
-      removedKey = await removeBtn.getAttribute("data-apex-compare-remove");
-      await removeBtn.click();
-    } else {
-      const selected = page.locator('[role="option"][aria-selected="true"]');
-      const n = await selected.count();
-      if (n > 2) {
-        await selected.nth(n - 1).click();
-        removedKey = "last-selected-row";
-      }
-    }
-  }
-  await page.waitForTimeout(800);
-  const afterChips = await page.evaluate(() =>
-    [...document.querySelectorAll("[data-apex-compare-chip]")].map((el) =>
-      el.getAttribute("data-apex-compare-chip"),
-    ),
+  // Click the selected L3 row — must deselect even when only 2/4.
+  const l3Row = page
+    .locator('[role="option"][aria-selected="true"]')
+    .filter({ hasText: /^L3\b/ });
+  ok(
+    "2-compare-l3-selected-before",
+    (await l3Row.count()) === 1 && beforeChips === 2,
+    { beforeChips, beforeSelected, beforeTexts },
   );
+  await l3Row.first().click();
+  await page.waitForTimeout(900);
+  let afterSelected = await selectedLabels();
+  let afterChips = await chipCount();
+  let afterTexts = await chipTexts();
+  const l3Gone =
+    !afterSelected.includes("L3") &&
+    afterChips === beforeChips - 1 &&
+    !afterTexts.some((t) => /\bL3\b/.test(t));
+
+  // Stays deselected after settle (URL/default must not re-add).
+  await page.waitForTimeout(1500);
+  afterSelected = await selectedLabels();
+  afterChips = await chipCount();
+  afterTexts = await chipTexts();
+  const stayedOff =
+    !afterSelected.includes("L3") &&
+    afterChips === 1 &&
+    !afterTexts.some((t) => /\bL3\b/.test(t));
   await page.screenshot({
     path: resolve(OUT, "qa-compare-toggle-off.png"),
     fullPage: false,
   });
-
-  const afterSelected = await page.evaluate(() =>
-    [...document.querySelectorAll('[role="option"][aria-selected="true"]')].map(
-      (el) => {
-        const label = el.querySelector("span")?.textContent?.trim() || "";
-        const rest = (el.textContent || "").replace(/\s+/g, " ").trim();
-        return `${label}|${rest.slice(0, 40)}`;
-      },
-    ),
-  );
-  const l3StillSelected = afterSelected.some((t) => t.startsWith("L3|"));
-  const removed =
-    beforeChips.length >= 3 &&
-    afterChips.length === beforeChips.length - 1 &&
-    (removedKey !== "L3-row" || !l3StillSelected);
-  ok("2-compare-toggle-off", removed, {
-    before: beforeChips,
-    after: afterChips,
+  ok("2-compare-toggle-off", l3Gone && stayedOff, {
+    beforeChips,
+    beforeSelected,
+    afterChips,
     afterSelected,
-    removedKey,
-    l3StillSelected,
+    afterTexts,
+    l3Gone,
+    stayedOff,
+    url: page.url(),
+  });
+
+  // Chip × remove + Set ref
+  // Re-add L3, then set it as ref, then × remove the other.
+  const l3Opt = page.locator('[role="option"]').filter({ hasText: /^L3\b/ });
+  if ((await l3Opt.count()) > 0) {
+    await l3Opt.first().click();
+    await page.waitForTimeout(400);
+  }
+  const setRef = page.locator("[data-apex-compare-set-ref]").first();
+  let refChanged = false;
+  if ((await setRef.count()) > 0) {
+    const key = await setRef.getAttribute("data-apex-compare-set-ref");
+    await setRef.click();
+    await page.waitForTimeout(400);
+    const refChip = await page.evaluate((k) => {
+      const chip = document.querySelector(
+        `[data-apex-compare-chip="${k}"]`,
+      );
+      return (chip?.textContent || "").includes("Ref");
+    }, key);
+    refChanged = Boolean(refChip);
+  }
+  const removeBtn = page.locator("[data-apex-compare-remove]").first();
+  const chipsBeforeX = await chipCount();
+  if ((await removeBtn.count()) > 0 && chipsBeforeX > 1) {
+    await removeBtn.click();
+    await page.waitForTimeout(500);
+  }
+  const chipsAfterX = await chipCount();
+  await page.screenshot({
+    path: resolve(OUT, "qa-compare-chip-x-ref.png"),
+    fullPage: false,
+  });
+  ok("2-compare-chip-x-and-ref", refChanged && chipsAfterX === chipsBeforeX - 1, {
+    refChanged,
+    chipsBeforeX,
+    chipsAfterX,
   });
   await page.close();
 }
@@ -345,32 +374,52 @@ const browser = await chromium.launch({ headless: true });
     { topCarPx, topBlob },
   );
 
-  // Minimap: dark rounded panel with track in corner — sample pixels near BR
+  // Minimap: dark rounded panel top-right (moved off brake/gas).
   const minimap = await page.evaluate(() => {
     const canvas = document.querySelector("canvas");
     if (!canvas) return null;
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
     const { width, height } = canvas;
-    const x0 = Math.floor(width * 0.78);
-    const y0 = Math.floor(height * 0.72);
-    const data = ctx.getImageData(x0, y0, width - x0, height - y0).data;
-    let dark = 0;
-    let asphalt = 0;
-    let orange = 0;
-    for (let i = 0; i < data.length; i += 16) {
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-      if (r < 40 && g < 40 && b < 45) dark += 1;
-      if (r > 60 && r < 120 && Math.abs(r - g) < 25 && b < 120) asphalt += 1;
-      if (r > 180 && g > 60 && g < 170 && b < 80) orange += 1;
-    }
-    return { dark, asphalt, orange, w: width - x0, h: height - y0 };
+    const sample = (x0, y0, x1, y1) => {
+      const data = ctx.getImageData(x0, y0, x1 - x0, y1 - y0).data;
+      let dark = 0;
+      let asphalt = 0;
+      let orange = 0;
+      for (let i = 0; i < data.length; i += 16) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        if (r < 40 && g < 40 && b < 45) dark += 1;
+        if (r > 60 && r < 120 && Math.abs(r - g) < 25 && b < 120) asphalt += 1;
+        if (r > 180 && g > 60 && g < 170 && b < 80) orange += 1;
+      }
+      return { dark, asphalt, orange, w: x1 - x0, h: y1 - y0 };
+    };
+    return {
+      topRight: sample(
+        Math.floor(width * 0.78),
+        Math.floor(height * 0.02),
+        width,
+        Math.floor(height * 0.32),
+      ),
+      bottomRight: sample(
+        Math.floor(width * 0.78),
+        Math.floor(height * 0.72),
+        width,
+        height,
+      ),
+    };
   });
   ok(
     "6-minimap-present",
-    (minimap?.dark ?? 0) > 80 &&
-      ((minimap?.asphalt ?? 0) > 20 || (minimap?.orange ?? 0) > 0),
+    (minimap?.topRight?.dark ?? 0) > 80 &&
+      ((minimap?.topRight?.asphalt ?? 0) > 20 ||
+        (minimap?.topRight?.orange ?? 0) > 0),
+    minimap,
+  );
+  ok(
+    "6-minimap-not-bottom-right",
+    (minimap?.bottomRight?.dark ?? 0) < (minimap?.topRight?.dark ?? 0) * 0.5,
     minimap,
   );
 
@@ -494,6 +543,54 @@ const browser = await chromium.launch({ headless: true });
     "3-car-visible-mobile",
     (mobileBlob?.w ?? 0) >= 14 && (mobileBlob?.h ?? 0) >= 14,
     mobileBlob,
+  );
+
+  // Measure: minimap top-right must not overlap Brake/Gas hit boxes.
+  const layout = await mobile.evaluate(() => {
+    const canvas = document.querySelector("canvas");
+    const buttons = [...document.querySelectorAll("button")].filter((b) =>
+      /^(Brake|Gas)$/i.test((b.textContent || "").trim()),
+    );
+    if (!canvas || buttons.length < 2) {
+      return { ok: false, reason: "missing canvas or buttons" };
+    }
+    const c = canvas.getBoundingClientRect();
+    const btnBoxes = buttons.map((b) => {
+      const r = b.getBoundingClientRect();
+      return { label: b.textContent.trim(), x: r.x, y: r.y, r: r.right, b: r.bottom };
+    });
+    // Expected minimap: ~size 96–148, pad 10, top ≈ 68 on mobile width.
+    const size = Math.max(96, Math.min(148, Math.floor(c.width * 0.22)));
+    const mini = {
+      x: c.right - size - 10,
+      y: c.top + 10 + 58,
+      r: c.right - 10,
+      b: c.top + 10 + 58 + size,
+    };
+    const overlaps = btnBoxes.some(
+      (b) => !(b.r < mini.x || b.x > mini.r || b.b < mini.y || b.y > mini.b),
+    );
+    // Minimap dark panel should be in top-right of canvas pixels.
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    const { width, height } = canvas;
+    const x0 = Math.floor(width * 0.72);
+    const y0 = Math.floor(height * 0.05);
+    const y1 = Math.floor(height * 0.38);
+    const data = ctx.getImageData(x0, y0, width - x0, y1 - y0).data;
+    let dark = 0;
+    for (let i = 0; i < data.length; i += 16) {
+      if (data[i] < 40 && data[i + 1] < 40 && data[i + 2] < 45) dark += 1;
+    }
+    return { ok: true, overlaps, mini, btnBoxes, dark, size };
+  });
+  await mobile.screenshot({
+    path: resolve(OUT, "qa-drive-mobile-minimap-top.png"),
+    fullPage: false,
+  });
+  ok(
+    "6-mobile-minimap-clear-of-pedals",
+    layout.ok && !layout.overlaps && (layout.dark ?? 0) > 40,
+    layout,
   );
   ok(
     "5-mobile-no-critical-console",
