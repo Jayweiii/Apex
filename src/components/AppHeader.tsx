@@ -105,36 +105,35 @@ export function AppHeader({ email }: { email?: string }) {
           </nav>
         </div>
         <div className="flex shrink-0 items-center gap-1.5 sm:gap-3">
-          <SpeedUnitToggle className="hidden sm:inline-flex" />
-          {signedIn ? (
-            <>
-              <Link
-                href="/account"
-                className="apex-btn apex-btn--ghost hidden min-h-10 sm:inline-flex"
-              >
-                My Sessions
-              </Link>
-              <span className="hidden max-w-[180px] truncate text-xs text-zinc-500 lg:block">
-                {sessionEmail ?? (guest ? "Guest" : "")}
-              </span>
-              {guest ? (
+          {/* Wrapper hides desktop chrome on phones — .apex-btn {display:inline-flex}
+              would override Tailwind `hidden` if applied on the same node. */}
+          <div className="hidden items-center gap-1.5 sm:flex sm:gap-3">
+            <SpeedUnitToggle />
+            {signedIn ? (
+              <>
                 <Link
-                  href="/login"
-                  className="apex-btn apex-btn--accent hidden sm:inline-flex"
+                  href="/account"
+                  className="apex-btn apex-btn--ghost min-h-10"
                 >
-                  Keep sessions
+                  My Sessions
                 </Link>
-              ) : (
-                <span className="hidden sm:inline-flex">
-                  <SignOutButton />
+                <span className="hidden max-w-[180px] truncate text-xs text-zinc-500 lg:block">
+                  {sessionEmail ?? (guest ? "Guest" : "")}
                 </span>
-              )}
-            </>
-          ) : (
-            <Link href="/login" className="apex-btn hidden sm:inline-flex">
-              Sign in
-            </Link>
-          )}
+                {guest ? (
+                  <Link href="/login" className="apex-btn apex-btn--accent">
+                    Keep sessions
+                  </Link>
+                ) : (
+                  <SignOutButton />
+                )}
+              </>
+            ) : (
+              <Link href="/login" className="apex-btn">
+                Sign in
+              </Link>
+            )}
+          </div>
           <button
             type="button"
             className="apex-btn apex-btn--icon md:hidden"

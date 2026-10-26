@@ -67,6 +67,10 @@ assert(
   "compare dashed ReferenceLine hidden while playing",
 );
 assert(
+  compare.includes("cursor={false}"),
+  "compare Recharts Tooltip has no default dashed cursor",
+);
+assert(
   compare.includes("userTouchedSlotsRef"),
   "compare selection ignores late reseed after user clicks",
 );

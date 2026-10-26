@@ -1072,6 +1072,7 @@ export function LapCompare({
                         width={48}
                       />
                       <Tooltip
+                        cursor={false}
                         content={<CompareTooltip mode="speed" speedUnit={speedUnit} axis={chartAxis} />}
                       />
                       <Legend />
@@ -1128,7 +1129,7 @@ export function LapCompare({
                         fontSize={11}
                       />
                       <YAxis stroke="#71717a" fontSize={11} unit=" s" width={48} />
-                      <Tooltip content={<CompareTooltip mode="delta" axis={chartAxis} />} />
+                      <Tooltip cursor={false} content={<CompareTooltip mode="delta" axis={chartAxis} />} />
                       <Legend />
                       {hoverAt != null ? (
                         <ReferenceLine
@@ -1174,7 +1175,7 @@ export function LapCompare({
                         fontSize={11}
                       />
                       <YAxis stroke="#71717a" fontSize={11} width={48} />
-                      <Tooltip />
+                      <Tooltip  cursor={false} />
                       <Legend />
                       {hoverAt != null ? (
                         <ReferenceLine
@@ -1232,7 +1233,7 @@ export function LapCompare({
                         fontSize={11}
                       />
                       <YAxis stroke="#71717a" fontSize={11} width={48} />
-                      <Tooltip />
+                      <Tooltip  cursor={false} />
                       <Legend />
                       {hoverAt != null ? (
                         <ReferenceLine
@@ -1277,7 +1278,7 @@ export function LapCompare({
                         fontSize={11}
                       />
                       <YAxis stroke="#71717a" fontSize={11} width={40} />
-                      <Tooltip content={<CompareTooltip mode="g" axis={chartAxis} />} />
+                      <Tooltip cursor={false} content={<CompareTooltip mode="g" axis={chartAxis} />} />
                       <Legend />
                       {hoverAt != null ? (
                         <ReferenceLine
@@ -1322,7 +1323,7 @@ export function LapCompare({
                         fontSize={11}
                       />
                       <YAxis stroke="#71717a" fontSize={11} width={48} />
-                      <Tooltip />
+                      <Tooltip  cursor={false} />
                       <Legend />
                       {hoverAt != null ? (
                         <ReferenceLine
@@ -1367,7 +1368,7 @@ export function LapCompare({
                         fontSize={11}
                       />
                       <YAxis stroke="#71717a" fontSize={11} width={48} />
-                      <Tooltip />
+                      <Tooltip  cursor={false} />
                       <Legend />
                       {hoverAt != null ? (
                         <ReferenceLine
