@@ -72,15 +72,16 @@ export function PlaybackControls({
             type="button"
             disabled={disabled}
             onClick={onTogglePlay}
-            className={`apex-btn apex-btn--primary inline-flex box-border justify-center ${
+            className={`apex-btn apex-btn--primary inline-flex box-border flex-none justify-center overflow-hidden ${
               compact ? "min-h-8 px-2 py-1 text-xs" : "apex-btn--cta"
             }`}
             aria-label={playing ? "Pause" : "Play"}
             data-apex-play-toggle
             style={{
-              width: compact ? 84 : 96,
-              minWidth: compact ? 84 : 96,
-              maxWidth: compact ? 84 : 96,
+              width: 96,
+              minWidth: 96,
+              maxWidth: 96,
+              flex: "0 0 96px",
             }}
           >
             {playing ? "Pause" : "Play"}
