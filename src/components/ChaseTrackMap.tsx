@@ -120,15 +120,20 @@ function applyBasemapTiles(
 }
 
 /** Publish camera on the host for Playwright / QA. */
-function syncCameraAttrs(host: HTMLElement | null, map: MapLibreMap) {
-  if (!host) return;
-  host.dataset.apexPitch = String(Math.round(map.getPitch() * 10) / 10);
-  host.dataset.apexZoom = String(Math.round(map.getZoom() * 100) / 100);
-  host.dataset.apexBearing = String(Math.round(map.getBearing() * 10) / 10);
-  host.dataset.apexBasemap =
-    (map.getPaintProperty(SAT_LAYER_ID, "raster-opacity") as number) > 0.5
-      ? "satellite"
-      : "street";
+function syncCameraAttrs(
+  host: HTMLElement | null,
+  map: MapLibreMap | null,
+  basemap?: BasemapMode,
+) {
+  if (!host || !map) return;
+  try {
+    host.dataset.apexPitch = String(Math.round(map.getPitch() * 10) / 10);
+    host.dataset.apexZoom = String(Math.round(map.getZoom() * 100) / 100);
+    host.dataset.apexBearing = String(Math.round(map.getBearing() * 10) / 10);
+    if (basemap) host.dataset.apexBasemap = basemap;
+  } catch {
+    // Map may be mid-remove during unmount.
+  }
 }
 
 export { POV_DEFAULT_ZOOM, POV_PITCH_DEG };
@@ -275,6 +280,9 @@ export function ChaseTrackMap({
   );
   const sampleOptsRef = useRef(sampleOpts);
   sampleOptsRef.current = sampleOpts;
+  const appliedBasemapRef = useRef<BasemapMode | null>(null);
+  const basemapRef = useRef(basemap);
+  basemapRef.current = basemap;
 
   // Create map once (both basemaps; later swaps via opacity only).
   useEffect(() => {
@@ -283,15 +291,6 @@ export function ChaseTrackMap({
       container: hostRef.current,
       style: {
         version: 8,
-        // Sky/horizon makes chase pitch obvious on flat OSM cartography.
-        sky: {
-          "sky-color": "#0b1220",
-          "horizon-color": "#1e293b",
-          "fog-color": "#0b1220",
-          "sky-horizon-blend": 0.35,
-          "horizon-fog-blend": 0.75,
-          "fog-ground-blend": 0,
-        },
         sources: basemapStyleSources(),
         layers: basemapStyleLayers(basemap),
       },
@@ -310,6 +309,19 @@ export function ChaseTrackMap({
 
     map.on("load", () => {
       map.resize();
+      // Sky/horizon makes chase pitch obvious on flat OSM cartography.
+      try {
+        map.setSky({
+          "sky-color": "#0b1220",
+          "horizon-color": "#1e293b",
+          "fog-color": "#0b1220",
+          "sky-horizon-blend": 0.35,
+          "horizon-fog-blend": 0.75,
+          "fog-ground-blend": 0,
+        });
+      } catch {
+        // Older style parsers — sky is optional visual polish.
+      }
       // Re-assert pitch after first tiles (guards against style init clamps).
       map.jumpTo({
         center: map.getCenter(),
@@ -317,9 +329,11 @@ export function ChaseTrackMap({
         bearing: map.getBearing(),
         pitch,
       });
-      syncCameraAttrs(hostRef.current, map);
+      syncCameraAttrs(hostRef.current, map, basemapRef.current);
     });
-    map.on("moveend", () => syncCameraAttrs(hostRef.current, map));
+    map.on("moveend", () =>
+      syncCameraAttrs(hostRef.current, map, basemapRef.current),
+    );
 
     const ro =
       typeof ResizeObserver !== "undefined"
@@ -397,7 +411,6 @@ export function ChaseTrackMap({
   }, []);
 
   // Swap Street ↔ Satellite via opacity (keeps chase camera + lap layers).
-  const appliedBasemapRef = useRef<BasemapMode | null>(null);
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -410,7 +423,7 @@ export function ChaseTrackMap({
     const swap = () => {
       applyBasemapTiles(map, basemap, pitch);
       appliedBasemapRef.current = basemap;
-      syncCameraAttrs(hostRef.current, map);
+      syncCameraAttrs(hostRef.current, map, basemap);
     };
     if (map.isStyleLoaded()) swap();
     else map.once("load", swap);
@@ -568,7 +581,7 @@ export function ChaseTrackMap({
         bearing: nextBearing,
         pitch,
       });
-      syncCameraAttrs(hostRef.current, map);
+      syncCameraAttrs(hostRef.current, map, basemapRef.current);
 
       markersRef.current.forEach((marker) => marker.remove());
       markersRef.current = [];
