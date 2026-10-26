@@ -110,6 +110,9 @@ export function PlaybackControls({
             className={`font-mono text-zinc-300 ${
               compact ? "text-xs" : "text-sm"
             }`}
+            data-apex-playback-clock
+            data-apex-playback-at={atSec.toFixed(1)}
+            data-apex-playback-total={durationSec.toFixed(1)}
           >
             {formatClock(atSec)}
             <span className="text-zinc-600">

@@ -40,10 +40,20 @@ const PATH_LEN_FRAC = 0.7;
  * circuit must not top the leaderboard).
  */
 export const TRACK_LEN_FRAC = 0.9;
-/** Single hop above this is a GPS jump (meters). */
-const GPS_JUMP_M = 80;
-/** Implied speed above this between samples is a jump (m/s ≈ 288 km/h). */
-const GPS_JUMP_SPEED_MS = 80;
+/**
+ * Single hop above this is a GPS jump (meters).
+ * Tuned above typical GoPro multipath blips (~50–120 m) so flying laps like
+ * a 1:34.7 with one noisy sample are not false-flagged.
+ */
+const GPS_JUMP_M = 200;
+/**
+ * Only treat implied speed as a jump when the hop itself is large.
+ * High-rate GPS (dt ≈ 0.04–0.25 s) turns ordinary sample noise into
+ * absurd m/s — that must not flag every mid-session lap.
+ */
+const GPS_JUMP_SPEED_MIN_DIST_M = 120;
+/** Implied speed above this between large hops is a jump (m/s ≈ 360 km/h). */
+const GPS_JUMP_SPEED_MS = 100;
 
 export function isLapExcluded(
   lap: { excluded?: boolean | null } | null | undefined,
@@ -140,8 +150,18 @@ export function bestLapTimeMs(
   trackId?: string | null,
 ): number | null {
   const eligible = lapsEligibleForBest(laps, trackId);
-  if (!eligible.length) return null;
-  return Math.min(...eligible.map((lap) => lap.lap_time_ms));
+  if (eligible.length) {
+    return Math.min(...eligible.map((lap) => lap.lap_time_ms));
+  }
+  // GPS/partial flags wiped eligibility — still surface a duration-plausible
+  // session best so the UI badge is never blank on a clean flying lap.
+  const included = laps.filter((lap) => !isLapExcluded(lap));
+  const med = sessionMedianLapMs(included);
+  const byDuration = included.filter((lap) =>
+    isPlausibleFullLapMs(lap.lap_time_ms, med),
+  );
+  if (!byDuration.length) return null;
+  return Math.min(...byDuration.map((lap) => lap.lap_time_ms));
 }
 
 /**
@@ -257,7 +277,12 @@ function hasBigGpsJump(points: TelemetryPoint[]): boolean {
       const dist = haversineMeters(prev.lat, prev.lon, point.lat, point.lon);
       if (dist >= GPS_JUMP_M) return true;
       const dt = Math.max(0.001, (point.t ?? 0) - (prev.t ?? 0));
-      if (dist / dt >= GPS_JUMP_SPEED_MS) return true;
+      if (
+        dist >= GPS_JUMP_SPEED_MIN_DIST_M &&
+        dist / dt >= GPS_JUMP_SPEED_MS
+      ) {
+        return true;
+      }
     }
     prev = point;
   }

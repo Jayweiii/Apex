@@ -10,6 +10,10 @@ import {
 import { type PlotPad } from "@/components/hover-cursor";
 import { useSpeedUnit } from "@/components/useSpeedUnit";
 import {
+  SPEED_CHART_COMPACT_MIN_HEIGHT,
+  SPEED_CHART_COMPACT_MIN_HEIGHT_SM,
+  STACKED_SPEED_BODY_HEIGHT,
+  STACKED_SPEED_BODY_HEIGHT_SM,
   STACKED_SPEED_MIN_HEIGHT,
   STACKED_SPEED_MIN_HEIGHT_SM,
 } from "@/lib/chart-height-contract";
@@ -145,11 +149,12 @@ export function SpeedChart({
   // Explicit px heights — `h-full`/`flex-1` inside a min-height-only flex
   // parent collapses ResponsiveContainer to 0×0 (empty speed chart on prod).
   // Class strings must be static so Tailwind JIT keeps them.
+  // Body floors leave ≥200px cartesian plot after axis chrome.
   const bodyHeight = fill
-    ? "h-[124px] min-h-[124px] sm:h-[160px] sm:min-h-[160px]"
+    ? "h-[220px] min-h-[220px] sm:h-[240px] sm:min-h-[240px]"
     : compact
-      ? "h-[100px] min-h-[100px] sm:h-[120px]"
-      : "h-[200px] sm:h-[260px]";
+      ? "h-[240px] min-h-[240px] sm:h-[260px] sm:min-h-[260px]"
+      : "h-[260px] min-h-[260px] sm:h-[300px] sm:min-h-[300px]";
 
   const tAtClientX = useCallback(
     (clientX: number) => {
@@ -190,15 +195,20 @@ export function SpeedChart({
   const firstT = points[0]?.t ?? 0;
   const lastT = points[points.length - 1]?.t ?? 1;
 
-  // Keep literal classes in sync with STACKED_SPEED_MIN_HEIGHT / _SM (160 / 200).
+  // Keep literal classes in sync with chart-height-contract floors.
   if (
     process.env.NODE_ENV !== "production" &&
-    (STACKED_SPEED_MIN_HEIGHT !== 160 || STACKED_SPEED_MIN_HEIGHT_SM !== 200)
+    (STACKED_SPEED_MIN_HEIGHT !== 260 ||
+      STACKED_SPEED_MIN_HEIGHT_SM !== 280 ||
+      STACKED_SPEED_BODY_HEIGHT !== 220 ||
+      STACKED_SPEED_BODY_HEIGHT_SM !== 240 ||
+      SPEED_CHART_COMPACT_MIN_HEIGHT !== 240 ||
+      SPEED_CHART_COMPACT_MIN_HEIGHT_SM !== 260)
   ) {
     throw new Error("SpeedChart fill heights drifted from chart-height-contract");
   }
   const fillShell = fill
-    ? "h-[160px] min-h-[160px] sm:h-[200px] sm:min-h-[200px]"
+    ? "h-[260px] min-h-[260px] sm:h-[280px] sm:min-h-[280px]"
     : "";
 
   return (

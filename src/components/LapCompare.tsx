@@ -581,7 +581,7 @@ export function LapCompare({
     }));
   }, [ordered, matchedByLapId, gpsMode, centerline]);
 
-  const [progress, setProgress] = useState<number | null>(null);
+  const [progress, setProgress] = useState<number | null>(0);
   const [previewProgress, setPreviewProgress] = useState<number | null>(null);
   const [playing, setPlaying] = useState(false);
   const [progressSubscribe, setProgressSubscribe] = useState<
@@ -1122,7 +1122,7 @@ export function LapCompare({
                   }
                   scrub={chartScrub}
                 >
-                  <ResponsiveContainer width="100%" height="100%" minHeight={280}>
+                  <ResponsiveContainer width="100%" height="100%" minHeight={300}>
                     <LineChart
                       data={speedSeries}
                       syncId="compare"
@@ -1185,7 +1185,7 @@ export function LapCompare({
                   }
                   scrub={chartScrub}
                 >
-                  <ResponsiveContainer width="100%" height="100%" minHeight={280}>
+                  <ResponsiveContainer width="100%" height="100%" minHeight={300}>
                     <LineChart
                       data={series}
                       syncId="compare"
@@ -1231,7 +1231,7 @@ export function LapCompare({
 
               {stackedChannels.includes("throttleBrake") ? (
                 <ChartCard title={channelLabel("throttleBrake")} hint="0–100%" scrub={chartScrub}>
-                  <ResponsiveContainer width="100%" height="100%" minHeight={280}>
+                  <ResponsiveContainer width="100%" height="100%" minHeight={300}>
                     <LineChart
                       data={series}
                       syncId="compare"
@@ -1289,7 +1289,7 @@ export function LapCompare({
 
               {stackedChannels.includes("steering") ? (
                 <ChartCard title={channelLabel("steering")} hint="degrees" scrub={chartScrub}>
-                  <ResponsiveContainer width="100%" height="100%" minHeight={280}>
+                  <ResponsiveContainer width="100%" height="100%" minHeight={300}>
                     <LineChart
                       data={series}
                       syncId="compare"
@@ -1334,7 +1334,7 @@ export function LapCompare({
 
               {stackedChannels.includes("g") ? (
                 <ChartCard title="G" hint="Combined acceleration" scrub={chartScrub}>
-                  <ResponsiveContainer width="100%" height="100%" minHeight={280}>
+                  <ResponsiveContainer width="100%" height="100%" minHeight={300}>
                     <LineChart
                       data={series}
                       syncId="compare"
@@ -1379,7 +1379,7 @@ export function LapCompare({
 
               {stackedChannels.includes("gearRpm") ? (
                 <ChartCard title={channelLabel("gearRpm")} scrub={chartScrub}>
-                  <ResponsiveContainer width="100%" height="100%" minHeight={280}>
+                  <ResponsiveContainer width="100%" height="100%" minHeight={300}>
                     <LineChart
                       data={series}
                       syncId="compare"
@@ -1424,7 +1424,7 @@ export function LapCompare({
 
               {stackedChannels.includes("heading") ? (
                 <ChartCard title={channelLabel("heading")} hint="degrees" scrub={chartScrub}>
-                  <ResponsiveContainer width="100%" height="100%" minHeight={280}>
+                  <ResponsiveContainer width="100%" height="100%" minHeight={300}>
                     <LineChart
                       data={series}
                       syncId="compare"
@@ -1640,12 +1640,12 @@ function ChartCard({
       </div>
       <div
         ref={plotRef}
-        className="relative h-[300px] min-h-[300px] touch-none sm:h-[320px] sm:min-h-[320px]"
+        className="relative h-[320px] min-h-[320px] touch-none sm:h-[340px] sm:min-h-[340px]"
         data-apex-chart-plot="compare"
-        style={{ minHeight: 300, height: 300 }}
+        style={{ minHeight: 320, height: 320 }}
         {...scrub}
       >
-        <div className="absolute inset-0 min-h-[280px]">{children}</div>
+        <div className="absolute inset-0 min-h-[300px]">{children}</div>
         <HoverCursorLine plotRef={plotRef} />
         <PlaybackCursorLine plotRef={plotRef} />
       </div>

@@ -125,6 +125,50 @@ assert(byId.get("jump")!.reasons.includes("gps_jump"), "gps_jump reason");
 assert(!byId.has("good1"), "clean lap not flagged");
 assert(!byId.has("good2"), "clean lap 2 not flagged");
 
+// High-rate GPS jitter (short dt, small hop) must NOT look like a jump.
+const jittery: TelemetryPoint[] = [];
+for (let i = 0; i < 40; i += 1) {
+  jittery.push({
+    t: i * 0.05,
+    speed: 40,
+    lat: 39.54 + i * 0.00002 + (i % 3 === 0 ? 0.00003 : 0),
+    lon: -122.34 + i * 0.00002,
+  });
+}
+const jitterFlags = flagSuspiciousLaps([
+  {
+    id: "jitter",
+    lap_number: 1,
+    lap_time_ms: 95_000,
+    telemetry: jittery,
+  },
+  {
+    id: "peer",
+    lap_number: 2,
+    lap_time_ms: 96_000,
+    telemetry: ovalLap(96),
+  },
+]);
+assert(
+  !jitterFlags.some((f) => f.lapId === "jitter" && f.reasons.includes("gps_jump")),
+  "short-dt GPS jitter is not a GPS jump",
+);
+
+// ~100 m single blip (typical GoPro multipath) should not flag a flying lap.
+const mildBlip = ovalLap(95);
+mildBlip[20] = {
+  ...mildBlip[20]!,
+  lat: (mildBlip[20]!.lat ?? 0) + 0.0009, // ~100 m
+};
+const mildFlags = flagSuspiciousLaps([
+  { id: "mild", lap_number: 1, lap_time_ms: 95_000, telemetry: mildBlip },
+  { id: "peer2", lap_number: 2, lap_time_ms: 96_000, telemetry: ovalLap(96) },
+]);
+assert(
+  !mildFlags.some((f) => f.lapId === "mild" && f.reasons.includes("gps_jump")),
+  "≈100 m single blip is not a GPS jump",
+);
+
 // Auto-flag never mutates excluded
 assert(
   qualityLaps.every((lap) => !lap.excluded),
