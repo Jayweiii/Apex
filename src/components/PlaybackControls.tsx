@@ -72,19 +72,18 @@ export function PlaybackControls({
             type="button"
             disabled={disabled}
             onClick={onTogglePlay}
-            className={`apex-btn apex-btn--primary inline-flex justify-center ${
-              compact ? "min-h-8 px-0 py-1 text-xs" : "apex-btn--cta px-0"
+            className={`apex-btn apex-btn--primary inline-flex box-border justify-center ${
+              compact ? "min-h-8 px-2 py-1 text-xs" : "apex-btn--cta"
             }`}
             aria-label={playing ? "Pause" : "Play"}
+            data-apex-play-toggle
+            style={{
+              width: compact ? 84 : 96,
+              minWidth: compact ? 84 : 96,
+              maxWidth: compact ? 84 : 96,
+            }}
           >
-            {/* Fixed slot so Play→Pause never shifts speed buttons. */}
-            <span
-              className="inline-grid place-items-center font-semibold"
-              style={{ width: compact ? "4.5rem" : "5rem" }}
-              aria-hidden={false}
-            >
-              <span className="col-start-1 row-start-1">{playing ? "Pause" : "Play"}</span>
-            </span>
+            {playing ? "Pause" : "Play"}
           </button>
           <div
             className="flex items-center gap-0.5"
