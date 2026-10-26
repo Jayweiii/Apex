@@ -7,8 +7,14 @@ import { decimatePolyline, polylineToLocal } from "../src/lib/drive/coords";
 import {
   buildSfGate,
   crossedStartFinishRobust,
+  LAP_FINISH_COVER_FRAC,
+  lapCoverFraction,
 } from "../src/lib/drive/lap-timing";
-import { spawnAtStart, stepCar } from "../src/lib/drive/physics";
+import {
+  DRIVE_PHYSICS,
+  spawnAtStart,
+  stepCar,
+} from "../src/lib/drive/physics";
 import { projectOnRibbon, isOnTrack } from "../src/lib/drive/ribbon";
 
 function assert(cond: unknown, msg: string): asserts cond {
@@ -114,5 +120,59 @@ assert(
   !crossedStartFinishRobust(gate, next, prev),
   "backward SF crossing ignored",
 );
+
+assert(LAP_FINISH_COVER_FRAC >= 0.7, "finish requires most of a lap");
+assert(
+  Math.abs(lapCoverFraction(80, 10, 100) - 0.7) < 1e-9,
+  "lap cover wraps along ribbon",
+);
+assert(lapCoverFraction(5, 10, 100) > 0.9, "cover wraps past start");
+
+assert(DRIVE_PHYSICS.maxSpeedOff <= 5, "grass speed hard-capped low");
+assert(DRIVE_PHYSICS.offDrag >= 20, "grass coast drag is heavy");
+
+// Grass: throttle-off dumps speed; throttle-on always crawls off zero.
+let grassy = {
+  ...car0,
+  x: car0.x + 10_000,
+  y: car0.y + 10_000,
+  speed: 20,
+  onTrack: false,
+};
+for (let i = 0; i < 90; i += 1) {
+  grassy = stepCar(
+    grassy,
+    { throttle: 0, brake: 0, steer: 0 },
+    1 / 60,
+    closed,
+    6,
+  ).car;
+}
+assert(grassy.speed < 3, `grass coast should dump speed (got ${grassy.speed})`);
+assert(
+  grassy.speed * 2.23694 < 12,
+  `grass coast mph should be low (got ${grassy.speed * 2.23694})`,
+);
+
+let stuck = { ...grassy, speed: 0 };
+for (let i = 0; i < 30; i += 1) {
+  stuck = stepCar(
+    stuck,
+    { throttle: 1, brake: 0, steer: 0 },
+    1 / 60,
+    closed,
+    6,
+  ).car;
+}
+assert(stuck.speed > 1.5, `throttle on grass must crawl (got ${stuck.speed})`);
+assert(
+  stuck.speed <= DRIVE_PHYSICS.maxSpeedOff + 0.05,
+  `grass throttle capped (got ${stuck.speed})`,
+);
+
+const game = read("src/components/drive/DriveGame.tsx");
+assert(game.includes("drawMinimap"), "minimap rendered");
+assert(game.includes("LAP_FINISH_COVER_FRAC"), "coverage-gated finish");
+assert(game.includes("Math.max(22, 4.6 * pxPerM)"), "car has screen-space size");
 
 console.log("verify-drive-minigame: ok");
