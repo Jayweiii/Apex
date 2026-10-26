@@ -297,31 +297,37 @@ export function DriveGame({ trackId }: Props) {
       c.save();
       c.translate(x, y);
       c.rotate(heading);
-      // World meters → screen px; enforce a readable minimum at both cameras.
+      // World meters → screen px; enforce a clearly visible minimum at both cams.
       const pxPerM = Math.max(scale, 0.001);
-      const L = Math.max(22, 4.6 * pxPerM);
-      const W = Math.max(12, 2.1 * pxPerM);
+      const L = Math.max(44, 9.5 * pxPerM);
+      const W = Math.max(24, 4.4 * pxPerM);
       c.fillStyle = color;
       c.strokeStyle = "#09090b";
-      c.lineWidth = Math.max(1.5, L * 0.06);
+      c.lineWidth = Math.max(2, L * 0.07);
       // Nose points along heading (up in chase cam after rotation).
       c.beginPath();
-      c.moveTo(0, -L * 0.55);
-      c.lineTo(W * 0.5, L * 0.42);
-      c.lineTo(W * 0.18, L * 0.28);
-      c.lineTo(-W * 0.18, L * 0.28);
-      c.lineTo(-W * 0.5, L * 0.42);
+      c.moveTo(0, -L * 0.58);
+      c.lineTo(W * 0.52, L * 0.4);
+      c.lineTo(W * 0.2, L * 0.26);
+      c.lineTo(-W * 0.2, L * 0.26);
+      c.lineTo(-W * 0.52, L * 0.4);
       c.closePath();
       c.fill();
       c.stroke();
-      // Cabin hint so the silhouette reads as a car, not a dot.
-      c.fillStyle = "rgba(9,9,11,0.35)";
+      // Cabin + nose stripe so silhouette reads as a car with heading.
+      c.fillStyle = "rgba(9,9,11,0.4)";
       c.beginPath();
-      c.moveTo(0, -L * 0.12);
-      c.lineTo(W * 0.22, L * 0.05);
-      c.lineTo(-W * 0.22, L * 0.05);
+      c.moveTo(0, -L * 0.18);
+      c.lineTo(W * 0.24, L * 0.02);
+      c.lineTo(-W * 0.24, L * 0.02);
       c.closePath();
       c.fill();
+      c.strokeStyle = "#fafafa";
+      c.lineWidth = Math.max(1.5, L * 0.04);
+      c.beginPath();
+      c.moveTo(0, -L * 0.5);
+      c.lineTo(0, -L * 0.15);
+      c.stroke();
       c.restore();
     }
 

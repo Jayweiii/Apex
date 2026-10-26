@@ -54,26 +54,31 @@ async function readClock(page) {
 }
 
 async function orangeBlobSize(page) {
+  // Sample the playfield only (skip HUD top + touch controls / minimap bottom).
   return page.evaluate(() => {
     const canvas = document.querySelector("canvas");
     if (!canvas) return null;
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
     if (!ctx) return null;
     const { width, height } = canvas;
+    const y0 = Math.floor(height * 0.18);
+    const y1 = Math.floor(height * 0.72);
+    const x0 = Math.floor(width * 0.15);
+    const x1 = Math.floor(width * 0.85);
     const data = ctx.getImageData(0, 0, width, height).data;
     let minX = width;
     let minY = height;
     let maxX = 0;
     let maxY = 0;
     let count = 0;
-    for (let y = 0; y < height; y += 2) {
-      for (let x = 0; x < width; x += 2) {
+    for (let y = y0; y < y1; y += 2) {
+      for (let x = x0; x < x1; x += 2) {
         const i = (y * width + x) * 4;
         const r = data[i];
         const g = data[i + 1];
         const b = data[i + 2];
         // orange car #f97316 ≈ rgb(249,115,22)
-        if (r > 180 && g > 60 && g < 170 && b < 80) {
+        if (r > 200 && g > 70 && g < 160 && b < 70) {
           count += 1;
           minX = Math.min(minX, x);
           minY = Math.min(minY, y);
@@ -82,7 +87,7 @@ async function orangeBlobSize(page) {
         }
       }
     }
-    if (!count) return { count: 0 };
+    if (!count) return { count: 0, region: { x0, x1, y0, y1 } };
     return {
       count,
       w: maxX - minX,
@@ -91,6 +96,7 @@ async function orangeBlobSize(page) {
       minY,
       maxX,
       maxY,
+      region: { x0, x1, y0, y1 },
     };
   });
 }
@@ -194,22 +200,26 @@ const browser = await chromium.launch({ headless: true });
     ),
   );
 
-  // Prefer Remove on a non-ref chip; else toggle a selected row off.
-  const removeBtn = page.locator("[data-apex-compare-remove]").first();
+  // Specifically toggle off L3 row when selected (the reported failure).
   let removedKey = null;
-  if ((await removeBtn.count()) > 0 && beforeChips.length > 2) {
-    removedKey = await removeBtn.getAttribute("data-apex-compare-remove");
-    await removeBtn.click();
+  const l3 = page.locator('[role="option"][aria-selected="true"]').filter({
+    hasText: /^L3\b/,
+  });
+  if ((await l3.count()) > 0 && beforeChips.length > 2) {
+    removedKey = "L3-row";
+    await l3.first().click();
   } else {
-    const selected = page.locator('[role="option"][aria-selected="true"]');
-    const n = await selected.count();
-    if (n > 2) {
-      // Click last selected (likely not ref)
-      await selected.nth(n - 1).click();
-      removedKey = await selected.nth(n - 1).evaluate((el) => {
-        const label = el.textContent || "";
-        return label.trim().slice(0, 40);
-      });
+    const removeBtn = page.locator("[data-apex-compare-remove]").first();
+    if ((await removeBtn.count()) > 0 && beforeChips.length > 2) {
+      removedKey = await removeBtn.getAttribute("data-apex-compare-remove");
+      await removeBtn.click();
+    } else {
+      const selected = page.locator('[role="option"][aria-selected="true"]');
+      const n = await selected.count();
+      if (n > 2) {
+        await selected.nth(n - 1).click();
+        removedKey = "last-selected-row";
+      }
     }
   }
   await page.waitForTimeout(800);
@@ -223,16 +233,22 @@ const browser = await chromium.launch({ headless: true });
     fullPage: false,
   });
 
+  const afterSelected = await page.evaluate(() =>
+    [...document.querySelectorAll('[role="option"][aria-selected="true"]')].map(
+      (el) => (el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 48),
+    ),
+  );
+  const l3StillSelected = afterSelected.some((t) => /^L3\b/.test(t));
   const removed =
     beforeChips.length >= 3 &&
     afterChips.length === beforeChips.length - 1 &&
-    (!removedKey ||
-      !afterChips.includes(removedKey) ||
-      afterChips.length < beforeChips.length);
+    (removedKey !== "L3-row" || !l3StillSelected);
   ok("2-compare-toggle-off", removed, {
     before: beforeChips,
     after: afterChips,
+    afterSelected,
     removedKey,
+    l3StillSelected,
   });
   await page.close();
 }
@@ -277,12 +293,12 @@ const browser = await chromium.launch({ headless: true });
 
   ok(
     "3-car-visible-chase",
-    (chaseBlob?.w ?? 0) >= 16 && (chaseBlob?.h ?? 0) >= 16,
+    (chaseBlob?.w ?? 0) >= 28 && (chaseBlob?.h ?? 0) >= 28,
     chaseBlob,
   );
   ok(
     "3-car-visible-top",
-    (topBlob?.w ?? 0) >= 14 && (topBlob?.h ?? 0) >= 14,
+    (topBlob?.w ?? 0) >= 24 && (topBlob?.h ?? 0) >= 24,
     topBlob,
   );
 
@@ -315,27 +331,39 @@ const browser = await chromium.launch({ headless: true });
     minimap,
   );
 
-  // Grass: steer hard off track while throttling, then release and re-throttle
+  // Grass: lock full left steer + throttle until HUD reports Grass.
   await page.keyboard.press("KeyC"); // back to chase
+  await page.keyboard.down("ArrowUp");
   await page.keyboard.down("ArrowLeft");
-  await page.waitForTimeout(3500);
+  let onGrass = 0;
+  let grassMphWhileThrottle = 0;
+  for (let i = 0; i < 40; i += 1) {
+    await page.waitForTimeout(250);
+    onGrass = await page.locator("[data-apex-drive-on-track='0']").count();
+    grassMphWhileThrottle = Number(
+      (await page
+        .locator("[data-apex-drive-speed]")
+        .getAttribute("data-apex-drive-mph")) || "0",
+    );
+    if (onGrass > 0) break;
+  }
   await page.keyboard.up("ArrowLeft");
-  await page.waitForTimeout(800);
-  const onGrass = await page.locator("[data-apex-drive-on-track='0']").count();
-  const grassMphWhileThrottle = Number(
+  // Hold throttle on grass briefly to sample capped speed.
+  await page.waitForTimeout(700);
+  grassMphWhileThrottle = Number(
     (await page
       .locator("[data-apex-drive-speed]")
       .getAttribute("data-apex-drive-mph")) || "0",
   );
   await page.keyboard.up("ArrowUp");
-  await page.waitForTimeout(1200);
+  await page.waitForTimeout(1100);
   const coastMph = Number(
     (await page
       .locator("[data-apex-drive-speed]")
       .getAttribute("data-apex-drive-mph")) || "0",
   );
   await page.keyboard.down("ArrowUp");
-  await page.waitForTimeout(900);
+  await page.waitForTimeout(1000);
   const crawlMph = Number(
     (await page
       .locator("[data-apex-drive-speed]")
@@ -349,9 +377,7 @@ const browser = await chromium.launch({ headless: true });
 
   ok(
     "4-grass-cap-low",
-    onGrass > 0
-      ? grassMphWhileThrottle <= 14 && coastMph <= 8
-      : coastMph <= 12,
+    onGrass > 0 && grassMphWhileThrottle <= 12 && coastMph <= 6,
     {
       onGrass,
       grassMphWhileThrottle,
@@ -359,7 +385,7 @@ const browser = await chromium.launch({ headless: true });
       crawlMph,
     },
   );
-  ok("4-grass-can-drive-off", crawlMph >= 3 || onGrass === 0, {
+  ok("4-grass-can-drive-off", onGrass > 0 && crawlMph >= 3 && crawlMph <= 12, {
     crawlMph,
     onGrass,
   });

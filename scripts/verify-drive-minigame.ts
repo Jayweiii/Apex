@@ -173,6 +173,6 @@ assert(
 const game = read("src/components/drive/DriveGame.tsx");
 assert(game.includes("drawMinimap"), "minimap rendered");
 assert(game.includes("LAP_FINISH_COVER_FRAC"), "coverage-gated finish");
-assert(game.includes("Math.max(22, 4.6 * pxPerM)"), "car has screen-space size");
+assert(game.includes("Math.max(44, 9.5 * pxPerM)"), "car has screen-space size");
 
 console.log("verify-drive-minigame: ok");
