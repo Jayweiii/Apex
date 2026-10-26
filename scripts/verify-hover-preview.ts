@@ -40,6 +40,25 @@ assert(
   leaflet.includes("hoverPreviewEnabledRef.current"),
   "map mousemove respects hoverPreviewEnabled",
 );
+assert(leaflet.includes('"mouseleave"'), "map clears hover on mouseleave");
+assert(leaflet.includes('"pointerleave"'), "map clears hover on pointerleave");
+assert(leaflet.includes('"touchend"'), "map clears hover on touchend");
+assert(leaflet.includes('"touchcancel"'), "map clears hover on touchcancel");
+assert(leaflet.includes("clearHoverPreview"), "map leave clears preview helper");
+assert(leaflet.includes("data-apex-map-stack"), "map stacking containment");
+assert(leaflet.includes("isolate"), "map isolation contains leaflet panes");
+
+const chase = read("src/components/ChaseTrackMap.tsx");
+assert(chase.includes('"pointerleave"'), "chase map pointerleave clear");
+assert(chase.includes('"touchend"'), "chase map touchend clear");
+assert(chase.includes("data-apex-map-stack"), "chase map stacking containment");
+assert(chase.includes("clearHoverPreview"), "chase leave clears preview");
+
+const header = read("src/components/AppHeader.tsx");
+assert(
+  header.includes("sticky top-0 z-40") || header.includes("z-40"),
+  "sticky header above map panes",
+);
 
 const synced = read("src/components/video/SyncedLapView.tsx");
 assert(synced.includes("previewProgress"), "session preview state");
@@ -80,6 +99,19 @@ assert(guide.includes("Sync here"), "sync-here still present");
 
 const globals = read("src/app/globals.css");
 assert(globals.includes("apex-car-marker__dot--ghost"), "ghost marker CSS");
+assert(globals.includes("[data-apex-map-stack]"), "map stack CSS containment");
+assert(globals.includes("isolation: isolate"), "map stack isolation");
+
+assert(
+  synced.includes("setMapPreviewProgress") ||
+    synced.includes("hoverController.leave"),
+  "session map leave clears chart hover",
+);
+assert(
+  compare.includes("setMapPreviewProgress") ||
+    compare.includes("hoverController.leave"),
+  "compare map leave clears chart hover",
+);
 
 const satellite = read("scripts/verify-satellite-map.ts");
 assert(satellite.includes("mousemove"), "satellite verify still expects mousemove");

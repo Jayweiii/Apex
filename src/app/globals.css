@@ -483,6 +483,16 @@ video {
   max-width: none !important;
 }
 
+/*
+ * Contain Leaflet / MapLibre pane + control z-indexes so sticky AppHeader
+ * (z-40) stays above maps when scrolling. Pair with data-apex-map-stack.
+ */
+[data-apex-map-stack] {
+  position: relative;
+  z-index: 0;
+  isolation: isolate;
+}
+
 .apex-car-marker {
   background: transparent !important;
   border: none !important;

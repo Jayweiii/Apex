@@ -103,6 +103,14 @@ export function LapCharts({
     hoverController.setPlaybackIndex(indexNearestTime(chartPoints, targetT));
   }, [progress, chartPoints, durationSec, t0, hoverController]);
 
+  const setMapPreviewProgress = useCallback(
+    (next: number | null) => {
+      setPreviewProgress(next);
+      if (next == null) hoverController.leave();
+    },
+    [hoverController],
+  );
+
   const previewFromChart = useCallback(
     (next: number | null) => {
       if (next == null || chartPoints.length < 2) {
@@ -154,9 +162,10 @@ export function LapCharts({
       progressBasis="time"
       durationMs={durationMs}
       previewProgress={previewProgress}
-      onPreviewProgress={setPreviewProgress}
+      onPreviewProgress={setMapPreviewProgress}
       onProgress={(next) => {
         setPreviewProgress(null);
+        hoverController.leave();
         setProgress(next);
       }}
       centerline={centerline}

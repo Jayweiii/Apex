@@ -647,7 +647,17 @@ export function LapCompare({
   useEffect(() => {
     if (hoverEnabled) return;
     setPreviewProgress(null);
-  }, [hoverEnabled]);
+    hoverController.leave();
+  }, [hoverEnabled, hoverController]);
+
+  /** Map leave/clear must also drop chart hover line + readout. */
+  const setMapPreviewProgress = useCallback(
+    (next: number | null) => {
+      setPreviewProgress(next);
+      if (next == null) hoverController.leave();
+    },
+    [hoverController],
+  );
 
   const draftKey = resolved
     .map((item) => `${item.session.id}:${item.lap.id}:${item.isRef ? "r" : ""}`)
@@ -1101,7 +1111,7 @@ export function LapCompare({
                   }
                   previewProgress={hoverEnabled ? previewProgress : null}
                   onPreviewProgress={
-                    hoverEnabled ? setPreviewProgress : undefined
+                    hoverEnabled ? setMapPreviewProgress : undefined
                   }
                   hoverPreviewEnabled={hoverEnabled}
                   onProgress={(next) => {

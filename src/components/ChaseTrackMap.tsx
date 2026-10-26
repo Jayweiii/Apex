@@ -27,7 +27,7 @@ import {
 } from "@/lib/track-bearing";
 import type { TelemetryPoint } from "@/lib/types";
 import maplibregl, { type Map as MapLibreMap, type Marker } from "maplibre-gl";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import "maplibre-gl/dist/maplibre-gl.css";
 
 export type ChaseTrace = {
@@ -251,13 +251,24 @@ export function ChaseTrackMap({
   const onProgressRef = useRef(onProgress);
   const onPreviewProgressRef = useRef(onPreviewProgress);
   const hoverPreviewEnabledRef = useRef(hoverPreviewEnabled);
+  /** Uncontrolled hover preview when parent does not pass onPreviewProgress. */
+  const [localPreview, setLocalPreview] = useState<number | null>(null);
+  const controlledPreview = onPreviewProgress != null;
+  const resolvedPreview = controlledPreview ? previewProgress : localPreview;
   onProgressRef.current = onProgress;
   onPreviewProgressRef.current = onPreviewProgress;
   hoverPreviewEnabledRef.current = hoverPreviewEnabled;
 
+  const clearHoverPreview = () => {
+    setLocalPreview(null);
+    onPreviewProgressRef.current?.(null);
+  };
+  const clearHoverPreviewRef = useRef(clearHoverPreview);
+  clearHoverPreviewRef.current = clearHoverPreview;
+
   useEffect(() => {
     if (hoverPreviewEnabled) return;
-    onPreviewProgressRef.current?.(null);
+    clearHoverPreviewRef.current();
   }, [hoverPreviewEnabled]);
 
   const drawable = useMemo(
@@ -377,7 +388,7 @@ export function ChaseTrackMap({
         event.originalEvent.clientY,
       );
       if (progress == null) return;
-      onPreviewProgressRef.current?.(null);
+      clearHoverPreviewRef.current();
       onProgressRef.current?.(progress);
     };
     const onMove = (event: maplibregl.MapMouseEvent) => {
@@ -387,26 +398,34 @@ export function ChaseTrackMap({
       );
       if (progress == null) return;
       if (event.originalEvent.buttons === 1) {
-        onPreviewProgressRef.current?.(null);
+        clearHoverPreviewRef.current();
         onProgressRef.current?.(progress);
         return;
       }
       // While playing, hover preview is disabled; drag-seek still works above.
       if (!hoverPreviewEnabledRef.current) return;
-      onPreviewProgressRef.current?.(progress);
+      if (onPreviewProgressRef.current) onPreviewProgressRef.current(progress);
+      else setLocalPreview(progress);
     };
     const onLeave = () => {
-      onPreviewProgressRef.current?.(null);
+      clearHoverPreviewRef.current();
     };
     map.on("click", onClick);
     map.on("mousemove", onMove);
     const container = map.getContainer();
+    // pointerleave + mouseleave for mouse/pen; touchend/cancel for touch.
     container.addEventListener("mouseleave", onLeave);
+    container.addEventListener("pointerleave", onLeave);
+    container.addEventListener("touchend", onLeave, { passive: true });
+    container.addEventListener("touchcancel", onLeave, { passive: true });
     container.style.cursor = "pointer";
 
     return () => {
       ro?.disconnect();
       container.removeEventListener("mouseleave", onLeave);
+      container.removeEventListener("pointerleave", onLeave);
+      container.removeEventListener("touchend", onLeave);
+      container.removeEventListener("touchcancel", onLeave);
       markersRef.current.forEach((marker) => marker.remove());
       markersRef.current = [];
       annotMarkersRef.current.forEach((marker) => marker.remove());
@@ -555,7 +574,7 @@ export function ChaseTrackMap({
 
     const place = (clockProgress: number) => {
       const progress =
-        (hoverPreviewEnabled ? previewProgress : null) ?? clockProgress;
+        (hoverPreviewEnabled ? resolvedPreview : null) ?? clockProgress;
       const zoom = clampChaseZoom(prefs.chaseZoom || POV_DEFAULT_ZOOM);
 
       const samples = drawable.map((trace) => {
@@ -671,14 +690,14 @@ export function ChaseTrackMap({
       }
     };
 
-    if (progressSubscribe && !previewProgress) {
+    if (progressSubscribe && resolvedPreview == null) {
       return progressSubscribe((p) => place(p));
     }
     place(activeProgress ?? 0);
   }, [
     // While progressSubscribe owns the clock, skip activeProgress churn.
     progressSubscribe ? null : activeProgress,
-    previewProgress,
+    resolvedPreview,
     hoverPreviewEnabled,
     drawable,
     prefs.chaseZoom,
@@ -700,10 +719,13 @@ export function ChaseTrackMap({
   return (
     <div
       ref={hostRef}
-      className={`${heightClass} w-full overflow-hidden rounded-xl cursor-pointer [&_.maplibregl-canvas]:cursor-pointer [&_.maplibregl-ctrl-attrib]:bg-zinc-950/80 [&_.maplibregl-ctrl-attrib]:text-[10px] [&_.maplibregl-ctrl-attrib]:text-zinc-400`}
+      className={`relative z-0 isolate ${heightClass} w-full cursor-pointer overflow-hidden rounded-xl [&_.maplibregl-canvas]:cursor-pointer [&_.maplibregl-ctrl-attrib]:bg-zinc-950/80 [&_.maplibregl-ctrl-attrib]:text-[10px] [&_.maplibregl-ctrl-attrib]:text-zinc-400`}
       data-apex-map="chase"
+      data-apex-map-stack="1"
       data-apex-pov="1"
       data-apex-map-hover={hoverPreviewEnabled ? "1" : "0"}
+      onMouseLeave={() => clearHoverPreview()}
+      onPointerLeave={() => clearHoverPreview()}
     />
   );
 }
