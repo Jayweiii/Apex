@@ -146,6 +146,8 @@ export function CloudCompareView({
   const [compareSessions, setCompareSessions] = useState<CompareSessionOption[]>(
     [],
   );
+  /** True after the first sessions+laps fetch finishes (even if empty). */
+  const [sessionsReady, setSessionsReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<ComparisonDraftSnapshot | null>(null);
   const onDraftChange = useCallback((next: ComparisonDraftSnapshot) => {
@@ -158,6 +160,7 @@ export function CloudCompareView({
       if (!hasSupabaseConfig()) {
         if (!cancelled) {
           setSession(null);
+          setSessionsReady(true);
           setError("Supabase is not configured.");
         }
         return;
@@ -188,10 +191,12 @@ export function CloudCompareView({
         if (sessionError) {
           setError(sessionError.message);
           setSession(null);
+          setSessionsReady(true);
           return;
         }
         if (!row) {
           setSession(null);
+          setSessionsReady(true);
           setError("not-found");
           return;
         }
@@ -208,7 +213,10 @@ export function CloudCompareView({
           80,
         );
         if (sameTrack.error) {
-          if (!cancelled) setError(sameTrack.error);
+          if (!cancelled) {
+            setError(sameTrack.error);
+            setSessionsReady(true);
+          }
           return;
         }
 
@@ -239,7 +247,10 @@ export function CloudCompareView({
           .in("session_id", ids)
           .order("lap_number", { ascending: true });
         if (lapsError) {
-          if (!cancelled) setError(lapsError.message);
+          if (!cancelled) {
+            setError(lapsError.message);
+            setSessionsReady(true);
+          }
           return;
         }
 
@@ -264,10 +275,12 @@ export function CloudCompareView({
 
         if (!cancelled) {
           setCompareSessions(cloudOptions);
+          setSessionsReady(true);
         }
       } catch (err) {
         if (!cancelled) {
           setSession(null);
+          setSessionsReady(true);
           setError(err instanceof Error ? err.message : "Could not load");
         }
       }
@@ -283,7 +296,7 @@ export function CloudCompareView({
     return match?.laps ?? [];
   }, [compareSessions, id]);
 
-  if (session === undefined) {
+  if (session === undefined || (session && !sessionsReady)) {
     return (
       <>
         <AppHeader email={email} />

@@ -236,6 +236,15 @@ export function trackEquivalentIds(
 ): string[] {
   if (!trackId) return [];
   const ids = new Set<string>([trackId]);
+  // Builtin ↔ custom-<slug> twin even before sharedTracksCache loads — otherwise
+  // /tracks/thunderhill-west misses public sessions stored as custom-thunderhill-west.
+  if (builtinTrack(trackId)) {
+    ids.add(`custom-${trackId}`);
+  }
+  if (trackId.startsWith("custom-")) {
+    const slug = trackId.slice("custom-".length);
+    if (builtinTrack(slug)) ids.add(slug);
+  }
   const track = getTrack(trackId) ?? resolveCanonicalTrack(trackId);
   if (track) {
     ids.add(track.id);
@@ -247,7 +256,10 @@ export function trackEquivalentIds(
     }
   }
   const alias = resolveBuiltinAlias(trackId);
-  if (alias) ids.add(alias);
+  if (alias) {
+    ids.add(alias);
+    if (builtinTrack(alias)) ids.add(`custom-${alias}`);
+  }
   const canonical = resolveCanonicalTrack(trackId);
   if (canonical) ids.add(canonical.id);
   return [...ids];

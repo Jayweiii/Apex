@@ -114,6 +114,12 @@ assert(equiv.includes("thunderhill-west"), "equiv includes builtin");
 assert(equiv.includes("custom-thunderhill-west"), "equiv includes community");
 
 setSharedTracksCache([]);
+// Even with an empty shared cache, builtin URLs must still match custom-* sessions.
+const equivCold = trackEquivalentIds("thunderhill-west");
+assert(
+  equivCold.includes("custom-thunderhill-west"),
+  "equiv includes custom twin without cache",
+);
 
 console.log("verify-track-dedupe ok", {
   westListId: westRows[0].id,

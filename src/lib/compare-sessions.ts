@@ -52,24 +52,36 @@ export function labelForAccessibleSession(
   return { name: parts.join(" · "), kind };
 }
 
-/** Compact picker label: track · date · driver/name. */
+/** Compact picker label: title · time · lap count (disambiguates same-day twins). */
 export function formatSessionPickerLabel(
   session: Pick<
     CompareSessionOption,
-    "name" | "title" | "trackId" | "driverName" | "createdAt" | "car" | "kind"
+    | "name"
+    | "title"
+    | "trackId"
+    | "driverName"
+    | "createdAt"
+    | "car"
+    | "kind"
+    | "laps"
   >,
 ): string {
-  const track = session.trackId
-    ? (getTrack(session.trackId)?.name ?? session.trackId)
-    : null;
-  const date = formatSessionPickerDate(session.createdAt);
-  const who =
-    session.driverName?.trim() ||
+  const title =
     session.title?.trim() ||
     session.name.split(" · ")[0]?.trim() ||
     session.name;
-  const parts = [track, date, who].filter(Boolean) as string[];
-  if (session.car && who && !who.includes(session.car)) {
+  const when = formatSessionPickerDateTime(session.createdAt);
+  const lapCount = session.laps?.length;
+  const lapsLabel =
+    lapCount != null && lapCount > 0
+      ? `${lapCount} lap${lapCount === 1 ? "" : "s"}`
+      : null;
+  const who = session.driverName?.trim() || null;
+  const parts = [title, when, lapsLabel].filter(Boolean) as string[];
+  if (who && who !== title && !title.includes(who)) {
+    parts.push(who);
+  }
+  if (session.car && title && !title.includes(session.car)) {
     parts.push(session.car);
   }
   if (!parts.length) return session.name;
@@ -87,6 +99,25 @@ export function formatSessionPickerDate(
     day: "numeric",
     year: "numeric",
   });
+}
+
+/** Date + time of day so same-name sessions on one day stay distinct. */
+export function formatSessionPickerDateTime(
+  createdAt: string | null | undefined,
+): string | null {
+  if (!createdAt) return null;
+  const ms = Date.parse(createdAt);
+  if (!Number.isFinite(ms)) return null;
+  const d = new Date(ms);
+  const date = d.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+  const time = d.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  return `${date} ${time}`;
 }
 
 export function groupLapsBySession(

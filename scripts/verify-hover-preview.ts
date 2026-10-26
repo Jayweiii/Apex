@@ -62,6 +62,14 @@ assert(compare.includes("previewProgress"), "compare preview state");
 assert(compare.includes("onChartMouseMove"), "compare chart mouse move");
 assert(compare.includes("setPreviewProgress(null)"), "compare leave clears preview");
 assert(compare.includes("isSeekPointer"), "compare seek vs preview");
+assert(
+  compare.includes("!hoverEnabled") && compare.includes("previewProgress == null"),
+  "compare dashed ReferenceLine hidden while playing",
+);
+assert(
+  compare.includes("userTouchedSlotsRef"),
+  "compare selection ignores late reseed after user clicks",
+);
 
 const guide = read("src/components/video/LapVideoSyncGuide.tsx");
 assert(guide.includes("Sync here"), "sync-here still present");

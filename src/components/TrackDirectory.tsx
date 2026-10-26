@@ -373,8 +373,9 @@ export function TrackDetail({ id }: { id: string }) {
               {loading ? (
                 <p className="text-sm text-zinc-500">Loading sessions…</p>
               ) : groups.length === 0 ? (
-                <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-8 text-center text-sm text-zinc-500">
-                  No local sessions yet — upload one.
+                <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-6 text-center text-sm text-zinc-500">
+                  No sessions saved in this browser — public cloud sessions for
+                  this track appear above when available.
                 </p>
               ) : (
                 groups.map((group) => (

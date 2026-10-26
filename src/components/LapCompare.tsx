@@ -305,6 +305,8 @@ export function LapCompare({
       baseSessionId,
     }),
   );
+  /** Once the user toggles laps, never reseed from URL/defaults. */
+  const userTouchedSlotsRef = useRef(false);
   /** Index into `slots` that is the reference (delta baseline). */
   const [refIndex, setRefIndex] = useState(() => {
     if (
@@ -323,18 +325,32 @@ export function LapCompare({
   );
 
   // Keep slots valid when session list / filter changes (bail if unchanged).
+  // Never overwrite after the user has clicked — late session loads used to
+  // reseed L10/L11 from URL and clobber early picker clicks.
   useEffect(() => {
     setSlots((prev) => {
       if (!filteredSessions.length) return prev;
+
+      if (userTouchedSlotsRef.current) {
+        // Remap only when a chosen lap still exists; never fall back to laps[0].
+        const kept = prev
+          .map((slot) => {
+            const session = filteredSessions.find((s) => s.id === slot.sessionId);
+            if (!session) return null;
+            const lap = session.laps.find((item) => item.id === slot.lapId);
+            if (!lap) return null;
+            return slot;
+          })
+          .filter((slot): slot is SlotState => slot != null);
+        return kept.length >= 2 ? kept.slice(0, MAX_COMPARE_LAPS) : prev;
+      }
+
       const next = prev
         .map((slot) => {
-          const session =
-            filteredSessions.find((s) => s.id === slot.sessionId) ??
-            filteredSessions[0];
+          const session = filteredSessions.find((s) => s.id === slot.sessionId);
           if (!session) return null;
-          const lap =
-            session.laps.find((item) => item.id === slot.lapId) ??
-            session.laps[0];
+          const lap = session.laps.find((item) => item.id === slot.lapId);
+          // Do not substitute laps[0] — that races URL preselection.
           if (!lap) return null;
           return { ...slot, sessionId: session.id, lapId: lap.id };
         })
@@ -538,8 +554,6 @@ export function LapCompare({
     ((listener: (progress: number) => void) => () => void) | null
   >(null);
   const hoverEnabled = !playing;
-  const displayProgress =
-    (hoverEnabled ? previewProgress : null) ?? progress;
 
   const hoverController = useMemo(() => createHoverCursorController(), []);
   useEffect(() => () => hoverController.dispose(), [hoverController]);
@@ -593,15 +607,20 @@ export function LapCompare({
     [series, chartAxis, sharedSec],
   );
 
+  // Dashed Recharts ReferenceLine is hover-only. While playing, the solid
+  // PlaybackCursorLine is the sole cursor — using progress here drew a stray
+  // second dashed line beside it.
   const hoverAt =
-    displayProgress == null || series.length < 2
+    !hoverEnabled ||
+    previewProgress == null ||
+    series.length < 2
       ? null
       : chartAxis === "time"
         ? indexNearestTime(
             series.map((row) => ({ t: typeof row.t === "number" ? row.t : 0 })),
-            timeSecFromProgress(displayProgress, sharedSec, 0),
+            timeSecFromProgress(previewProgress, sharedSec, 0),
           )
-        : Math.round(displayProgress * (series.length - 1));
+        : Math.round(previewProgress * (series.length - 1));
 
   // Drive DOM playback cursor from shared progress (throttled React or rAF subscribe).
   useEffect(() => {
@@ -686,6 +705,7 @@ export function LapCompare({
 
   function removeSlot(key: string) {
     if (slots.length <= 2) return;
+    userTouchedSlotsRef.current = true;
     const index = slots.findIndex((slot) => slot.key === key);
     setSlots((prev) => prev.filter((slot) => slot.key !== key));
     if (index >= 0 && index === refIndex) setRefIndex(0);
@@ -695,6 +715,7 @@ export function LapCompare({
   /** Tap a lap in the browse list to add/remove it from the comparison set. */
   function toggleComparedLap(sessionId: string, lapId: string) {
     if (readOnly) return;
+    userTouchedSlotsRef.current = true;
     const existing = slots.findIndex(
       (slot) => slot.sessionId === sessionId && slot.lapId === lapId,
     );
@@ -759,7 +780,8 @@ export function LapCompare({
           Comparing ({slots.length}/{MAX_COMPARE_LAPS})
           {readOnly ? " · read-only" : ""}
         </p>
-        <div className="flex flex-wrap gap-1.5">
+        {/* Fixed min-height so chip wrap on iPhone doesn't shift Play/controls. */}
+        <div className="flex min-h-[2.75rem] flex-wrap content-start gap-1.5">
           {slots.map((slot, index) => {
             const session =
               filteredSessions.find((s) => s.id === slot.sessionId) ?? null;
@@ -798,7 +820,10 @@ export function LapCompare({
                     {!isRef ? (
                       <button
                         type="button"
-                        onClick={() => setRefIndex(index)}
+                        onClick={() => {
+                          userTouchedSlotsRef.current = true;
+                          setRefIndex(index);
+                        }}
                         className="apex-pressable apex-pressable--muted rounded px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-orange-400"
                       >
                         Set ref
@@ -1024,7 +1049,7 @@ export function LapCompare({
                   }
                   scrub={chartScrub}
                 >
-                  <ResponsiveContainer width="100%" height="100%" minHeight={120}>
+                  <ResponsiveContainer width="100%" height="100%" minHeight={200}>
                     <LineChart
                       data={speedSeries}
                       syncId="compare"
@@ -1086,7 +1111,7 @@ export function LapCompare({
                   }
                   scrub={chartScrub}
                 >
-                  <ResponsiveContainer width="100%" height="100%" minHeight={120}>
+                  <ResponsiveContainer width="100%" height="100%" minHeight={200}>
                     <LineChart
                       data={series}
                       syncId="compare"
@@ -1132,7 +1157,7 @@ export function LapCompare({
 
               {stackedChannels.includes("throttleBrake") ? (
                 <ChartCard title={channelLabel("throttleBrake")} hint="0–100%" scrub={chartScrub}>
-                  <ResponsiveContainer width="100%" height="100%" minHeight={120}>
+                  <ResponsiveContainer width="100%" height="100%" minHeight={200}>
                     <LineChart
                       data={series}
                       syncId="compare"
@@ -1190,7 +1215,7 @@ export function LapCompare({
 
               {stackedChannels.includes("steering") ? (
                 <ChartCard title={channelLabel("steering")} hint="degrees" scrub={chartScrub}>
-                  <ResponsiveContainer width="100%" height="100%" minHeight={120}>
+                  <ResponsiveContainer width="100%" height="100%" minHeight={200}>
                     <LineChart
                       data={series}
                       syncId="compare"
@@ -1235,7 +1260,7 @@ export function LapCompare({
 
               {stackedChannels.includes("g") ? (
                 <ChartCard title="G" hint="Combined acceleration" scrub={chartScrub}>
-                  <ResponsiveContainer width="100%" height="100%" minHeight={120}>
+                  <ResponsiveContainer width="100%" height="100%" minHeight={200}>
                     <LineChart
                       data={series}
                       syncId="compare"
@@ -1280,7 +1305,7 @@ export function LapCompare({
 
               {stackedChannels.includes("gearRpm") ? (
                 <ChartCard title={channelLabel("gearRpm")} scrub={chartScrub}>
-                  <ResponsiveContainer width="100%" height="100%" minHeight={120}>
+                  <ResponsiveContainer width="100%" height="100%" minHeight={200}>
                     <LineChart
                       data={series}
                       syncId="compare"
@@ -1325,7 +1350,7 @@ export function LapCompare({
 
               {stackedChannels.includes("heading") ? (
                 <ChartCard title={channelLabel("heading")} hint="degrees" scrub={chartScrub}>
-                  <ResponsiveContainer width="100%" height="100%" minHeight={120}>
+                  <ResponsiveContainer width="100%" height="100%" minHeight={200}>
                     <LineChart
                       data={series}
                       syncId="compare"
@@ -1539,9 +1564,9 @@ function ChartCard({
       </div>
       <div
         ref={plotRef}
-        className="relative h-[120px] min-h-[120px] touch-none sm:h-[140px] sm:min-h-[140px]"
+        className="relative h-[200px] min-h-[200px] touch-none sm:h-[220px] sm:min-h-[220px]"
         data-apex-chart-plot="compare"
-        style={{ minHeight: 120 }}
+        style={{ minHeight: 200 }}
         {...scrub}
       >
         <div className="absolute inset-0 min-h-0">{children}</div>

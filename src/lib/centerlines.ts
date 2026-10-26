@@ -47,8 +47,24 @@ export const THUNDERHILL_EAST_CENTERLINE: LatLon[] = ellipseLoop(
   0.22,
 );
 
+/**
+ * Thunderhill Raceway — West (~3 mi). Centered on the West timing line;
+ * elongated N–S to roughly match the West layout footprint.
+ */
+export const THUNDERHILL_WEST_CENTERLINE: LatLon[] = ellipseLoop(
+  39.53776,
+  -122.33875,
+  700,
+  520,
+  96,
+  0.2,
+);
+
 const BUILTIN: Record<string, LatLon[]> = {
   "thunderhill-east": THUNDERHILL_EAST_CENTERLINE,
+  "thunderhill-west": THUNDERHILL_WEST_CENTERLINE,
+  "custom-thunderhill-west": THUNDERHILL_WEST_CENTERLINE,
+  "custom-thunderhill-east": THUNDERHILL_EAST_CENTERLINE,
 };
 
 export function builtinCenterline(trackId: string | null | undefined): LatLon[] | null {

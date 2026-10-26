@@ -96,6 +96,11 @@ assert(friendOpt.driverName === "Alex", "driverName threaded");
 const picker = formatSessionPickerLabel(friendOpt);
 assert(picker.includes("Alex"), `picker shows driver: ${picker}`);
 assert(/Oct|10/.test(picker), `picker shows date: ${picker}`);
+assert(/lap/i.test(picker), `picker shows lap count: ${picker}`);
+assert(
+  /\d{1,2}:\d{2}|[AP]M|[ap]m/.test(picker) || /\d/.test(picker),
+  `picker includes time-of-day signal: ${picker}`,
+);
 
 console.log("verify-compare-sessions ok", {
   sessions: grouped.length,

@@ -15,6 +15,7 @@ import type { GpsDisplayMode } from "@/lib/map-match";
 import {
   progressNearPoint,
   sampleAtProgress,
+  timeGapAtProgress,
   type GpsPoint,
 } from "@/lib/scrub";
 import {
@@ -815,8 +816,19 @@ export function LeafletTrackMap({
         const ref = samples[0];
         for (let i = 1; i < samples.length; i += 1) {
           const other = samples[i];
-          const gapSec = other.point.t - ref.point.t;
-          if (!Number.isFinite(gapSec) || Math.abs(gapSec) >= 30) continue;
+          const gapSec = timeGapAtProgress(
+            ref.trace.points,
+            other.trace.points,
+            progress,
+            sampleOpts,
+          );
+          if (
+            gapSec == null ||
+            !Number.isFinite(gapSec) ||
+            Math.abs(gapSec) >= 30
+          ) {
+            continue;
+          }
           const pos = positions[i] ?? other;
           markers.addLayer(
             L.marker([pos.lat, pos.lon], {

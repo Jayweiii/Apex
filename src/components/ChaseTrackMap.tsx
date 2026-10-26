@@ -17,6 +17,7 @@ import {
 import {
   progressNearPoint,
   sampleAtProgress,
+  timeGapAtProgress,
   type GpsPoint,
 } from "@/lib/scrub";
 import {
@@ -613,8 +614,17 @@ export function ChaseTrackMap({
           samples.find((s) => s.trace.id === follow.trace.id) ?? samples[0];
         for (const other of samples) {
           if (other.trace.id === ref.trace.id) continue;
-          const gapSec = other.point.t - ref.point.t;
-          if (!Number.isFinite(gapSec) || Math.abs(gapSec) >= 30) continue;
+          // Time-aligned playback: both samples share elapsed t, so t−t ≈ 0.
+          // Gap = when other reached ref's current distance (or vice versa).
+          const gapSec = timeGapAtProgress(
+            ref.trace.points as GpsPoint[],
+            other.trace.points as GpsPoint[],
+            progress,
+            sampleOpts,
+          );
+          if (gapSec == null || !Number.isFinite(gapSec) || Math.abs(gapSec) >= 30) {
+            continue;
+          }
           const el = document.createElement("div");
           el.innerHTML = gapHtml(formatGap(gapSec));
           const marker = new maplibregl.Marker({

@@ -142,6 +142,76 @@ export function progressNearPoint(
   };
 }
 
+/**
+ * Time (seconds) when a lap reaches along-track distance `dist`
+ * (prefers trackDist; falls back to cumulative path fraction).
+ */
+export function timeAtDistance(
+  points: GpsPoint[],
+  dist: number,
+): number | null {
+  if (points.length < 2 || !Number.isFinite(dist)) return null;
+  const hasTrackDist = points.some((point) => point.trackDist != null);
+  if (hasTrackDist) {
+    const start = points[0]!.trackDist ?? 0;
+    const end = points[points.length - 1]!.trackDist ?? start;
+    const target = Math.min(Math.max(dist, start), end);
+    let hi = 1;
+    while (hi < points.length && (points[hi]!.trackDist ?? 0) < target) hi += 1;
+    const right = Math.min(hi, points.length - 1);
+    const left = Math.max(0, right - 1);
+    const leftDist = points[left]!.trackDist ?? 0;
+    const rightDist = points[right]!.trackDist ?? leftDist;
+    const span = rightDist - leftDist;
+    const mix = span <= 0 ? 0 : (target - leftDist) / span;
+    return points[left]!.t + (points[right]!.t - points[left]!.t) * mix;
+  }
+  // No trackDist: use index fraction of the lap as a crude distance proxy.
+  const position = clampProgress(dist) * (points.length - 1);
+  const index = Math.min(points.length - 2, Math.floor(position));
+  const mix = position - index;
+  return points[index]!.t + (points[index + 1]!.t - points[index]!.t) * mix;
+}
+
+/**
+ * Time gap (seconds) at the same place on track: other.t(d_ref) − ref.t.
+ * Positive ⇒ other is behind at ref's current distance.
+ * For time-aligned playback both samples share elapsed t, so raw t−t is ~0 —
+ * this looks up when the other car reached ref's distance instead.
+ */
+export function timeGapAtProgress(
+  ref: GpsPoint[],
+  other: GpsPoint[],
+  progress: number,
+  options?: {
+    basis?: "time" | "track";
+    durationSec?: number;
+    t0?: number;
+  },
+): number | null {
+  if (ref.length < 2 || other.length < 2) return null;
+  const refPt = sampleAtProgress(ref, progress, options);
+  const refDist = refPt.trackDist;
+  if (refDist == null || !Number.isFinite(refDist)) {
+    // Fall back to spatial proximity: nearest other sample to ref position.
+    let best = 0;
+    let bestD = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < other.length; i += 1) {
+      const d =
+        (other[i]!.lat - refPt.lat) ** 2 + (other[i]!.lon - refPt.lon) ** 2;
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    const gap = other[best]!.t - refPt.t;
+    return Number.isFinite(gap) ? gap : null;
+  }
+  const otherT = timeAtDistance(other, refDist);
+  if (otherT == null || !Number.isFinite(otherT)) return null;
+  return otherT - refPt.t;
+}
+
 /** Map a chart series index to shared 0..1 progress. */
 export function progressFromIndex(index: number | null, length: number) {
   if (index == null || length < 2) return null;

@@ -153,8 +153,14 @@ export function DualSessionVideos({
     onPlayingChange?.(playing);
   }, [playing, onPlayingChange]);
   const progressRef = useRef(progress ?? 0);
-  progressRef.current = progress ?? 0;
   const authorityRef = useRef<SyncAuthority>("clock");
+  const playingRef = useRef(playing);
+  playingRef.current = playing;
+  // While playing, RAF / video notify own progressRef. Syncing from the
+  // throttled React prop every render rewound the clock (~1s media / 4s wall).
+  if (!playing) {
+    progressRef.current = progress ?? 0;
+  }
   const suppress = useRef(createSyncSuppress());
   const lapMs = resolved.map((side) => side.lap.lapTimeMs);
   const sharedMs = sharedCompareDurationMs(...lapMs);
@@ -280,6 +286,9 @@ export function DualSessionVideos({
       if (!side?.video) return;
 
       if (event.type === "play") {
+        // Clock owns play/pause from PlaybackControls — ignore player play
+        // echoes (buffering resume) so wall-clock RAF keeps driving 1x.
+        if (authorityRef.current === "clock" && playingRef.current) return;
         authorityRef.current = "video";
         setPlaying(true);
         const next = dualProgressFromVideoTime(
@@ -319,6 +328,14 @@ export function DualSessionVideos({
             setPlaying(true);
             return;
           }
+        }
+        // Ignore pause echoes while the shared clock is driving playback.
+        if (
+          event.type === "pause" &&
+          authorityRef.current === "clock" &&
+          playingRef.current
+        ) {
+          return;
         }
         authorityRef.current = "video";
         setPlaying(false);

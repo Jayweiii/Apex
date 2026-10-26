@@ -46,6 +46,15 @@ const dual = readFileSync(
 );
 assert(dual.includes("PlaybackControls"), "compare uses PlaybackControls");
 assert(dual.includes("advancePlaybackProgress"), "compare uses own clock");
+assert(dual.includes("performance.now"), "wall-clock RAF deltas");
+assert(
+  dual.includes("authorityRef.current === \"clock\" && playingRef.current"),
+  "clock keeps authority while playing",
+);
+assert(
+  dual.includes("if (!playing)") && dual.includes("progressRef.current = progress"),
+  "do not rewind progressRef from throttled prop while playing",
+);
 assert(dual.includes("ArrowLeft"), "keyboard scrub");
 
 const synced = readFileSync(

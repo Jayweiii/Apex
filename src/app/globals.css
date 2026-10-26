@@ -22,6 +22,8 @@ html {
   overflow-x: clip;
   /* Solid base so fixed glow layer never leaves transparent gaps. */
   background-color: var(--background);
+  /* Reserve scrollbar gutter so Play / chip growth doesn't shift layout ~75px. */
+  scrollbar-gutter: stable;
 }
 
 body {
@@ -216,16 +218,17 @@ button[aria-busy="true"],
 
 @media (hover: hover) and (pointer: fine) {
   .apex-btn:hover:not(:disabled) {
-    border-color: rgb(82 82 91);
-    color: rgb(250 250 250);
-    background: rgb(39 39 42 / 0.9);
+    border-color: rgb(161 161 170);
+    color: rgb(255 255 255);
+    background: rgb(63 63 70);
   }
 }
 
 .apex-btn:active:not(:disabled) {
   transform: translateY(1px);
-  background: rgb(39 39 42);
-  border-color: rgb(113 113 122);
+  background: rgb(82 82 91);
+  border-color: rgb(212 212 216);
+  color: rgb(255 255 255);
 }
 
 .apex-btn:focus-visible {
@@ -312,9 +315,58 @@ button[aria-busy="true"],
 
 .apex-btn--pressed,
 .apex-btn[aria-pressed="true"] {
-  border-color: rgb(249 115 22 / 0.55);
-  background: rgb(249 115 22 / 0.16);
-  color: rgb(254 215 170);
+  border-color: rgb(249 115 22 / 0.75);
+  background: rgb(249 115 22 / 0.28);
+  color: rgb(255 237 213);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .apex-btn--pressed:hover:not(:disabled),
+  .apex-btn[aria-pressed="true"]:hover:not(:disabled) {
+    border-color: rgb(251 146 60);
+    background: rgb(249 115 22 / 0.4);
+    color: rgb(255 255 255);
+  }
+}
+
+.apex-btn--pressed:active:not(:disabled),
+.apex-btn[aria-pressed="true"]:active:not(:disabled) {
+  background: rgb(234 88 12 / 0.55);
+  border-color: rgb(253 186 116);
+}
+
+/* Header nav links — clear hover / active (not just color nudge). */
+.apex-nav-link {
+  color: rgb(113 113 122);
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    color 0.12s ease,
+    background-color 0.12s ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .apex-nav-link:hover {
+    color: rgb(250 250 250);
+    background-color: rgb(39 39 42);
+  }
+}
+
+.apex-nav-link:active {
+  color: rgb(255 255 255);
+  background-color: rgb(63 63 70);
+}
+
+.apex-nav-link--active {
+  color: rgb(253 186 116);
+  background-color: rgb(249 115 22 / 0.12);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .apex-nav-link--active:hover {
+    color: rgb(254 215 170);
+    background-color: rgb(249 115 22 / 0.2);
+  }
 }
 
 /* Sentence-case CTAs (home, login, upload) — same press/hover contract. */
