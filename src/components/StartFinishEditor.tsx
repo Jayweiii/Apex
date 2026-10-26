@@ -148,8 +148,9 @@ export function StartFinishEditor({
 
   return (
     <div
-      className="flex flex-col gap-2 rounded-xl border border-zinc-800/80 bg-zinc-950/50 px-3 py-2"
+      className="flex flex-col gap-1.5"
       data-apex-sf-editor="1"
+      data-testid="map-sf-tools"
     >
       <div className="flex flex-wrap items-center gap-2">
         {!editing && !offerResplit ? (
@@ -157,7 +158,8 @@ export function StartFinishEditor({
             type="button"
             onClick={startEdit}
             disabled={busy}
-            className="cursor-pointer rounded-lg border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-200 hover:border-orange-500/60 hover:text-orange-300 disabled:opacity-50"
+            data-testid="toolbar-sf-edit"
+            className="apex-btn"
           >
             Edit start/finish
           </button>
@@ -168,7 +170,7 @@ export function StartFinishEditor({
               type="button"
               onClick={() => void save()}
               disabled={saving || busy || !draft}
-              className="cursor-pointer rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-semibold text-black hover:bg-orange-400 disabled:opacity-50"
+              className="apex-btn apex-btn--primary"
             >
               {saving ? "Saving…" : "Save start/finish"}
             </button>
@@ -176,7 +178,7 @@ export function StartFinishEditor({
               type="button"
               onClick={cancel}
               disabled={saving}
-              className="cursor-pointer rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200"
+              className="apex-btn"
             >
               Cancel
             </button>
@@ -199,14 +201,14 @@ export function StartFinishEditor({
                 setOfferResplit(false);
               }}
               disabled={busy}
-              className="cursor-pointer rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-semibold text-black hover:bg-orange-400 disabled:opacity-50"
+              className="apex-btn apex-btn--primary"
             >
               Re-split laps
             </button>
             <button
               type="button"
               onClick={() => setOfferResplit(false)}
-              className="cursor-pointer text-xs text-zinc-500 hover:text-zinc-300"
+              className="apex-btn apex-btn--ghost"
             >
               Skip
             </button>

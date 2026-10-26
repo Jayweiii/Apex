@@ -1,5 +1,5 @@
 /**
- * Jason batch: bidirectional trim drag, explicit Save, labeled tools toolbar.
+ * Jason batch: bidirectional trim drag, explicit Save, contextual tools.
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -52,7 +52,6 @@ const range = sessionDataRange(siblings);
 assert(Math.abs(range.min - 0) < 0.01, `session min ${range.min}`);
 assert(Math.abs(range.max - 150) < 0.01, `session max ${range.max}`);
 
-// Pointer-drag both directions: start can move outward (left) and inward (right).
 const mid = { start: 50, end: 100 };
 const startOut = clampTrimDrag("start", 40, mid, range, 1);
 assert(startOut.start === 40, `start outward got ${startOut.start}`);
@@ -64,7 +63,6 @@ assert(endOut.end === 110, `end outward got ${endOut.end}`);
 const endIn = clampTrimDrag("end", 90, mid, range, 1);
 assert(endIn.end === 90, `end inward got ${endIn.end}`);
 
-// Clamp only to session + start < end
 const pastSession = clampTrimDrag("start", -10, mid, range, 1);
 assert(pastSession.start === 0, "clamp to session min");
 const crossed = clampTrimDrag("start", 99.5, mid, range, 1);
@@ -80,7 +78,6 @@ assert(
 );
 assert(chart.sessionMin === range.min && chart.sessionMax === range.max, "range");
 
-// chartTAtClientX both directions from center
 const tLeft = chartTAtClientX(10, { left: 0, width: 200 }, 0, 100);
 const tRight = chartTAtClientX(190, { left: 0, width: 200 }, 0, 100);
 assert(tLeft < 50, `left drag t=${tLeft}`);
@@ -109,39 +106,49 @@ assert(cloud.includes("markDirty"), "edits mark dirty not auto-save");
 assert(cloud.includes("saveEdits"), "explicit save");
 assert(cloud.includes("discardEdits"), "discard");
 assert(cloud.includes("onStage"), "reparse stages for save");
+assert(cloud.includes("onReparseLaps") || cloud.includes("Re-parse"), "re-parse");
+assert(cloud.includes("Edit details"), "Edit details");
+assert(cloud.includes("Share"), "Share");
 assert(
-  cloud.includes('aria-label="Session tools"') ||
-    cloud.includes("Re-parse laps"),
-  "labeled toolbar",
+  cloud.includes("Exclude") || cloud.includes("onExcludeChange"),
+  "Exclude",
 );
-assert(cloud.includes("Sync video"), "Sync video button");
-assert(cloud.includes("Edit details"), "Edit details button");
-assert(cloud.includes("Share"), "Share button");
-assert(cloud.includes("Trim"), "Trim button");
-assert(cloud.includes("Exclude"), "Exclude button");
-assert(cloud.includes("DeleteSessionControl") || cloud.includes("Delete session"), "Delete session danger");
+const synced = read("src/components/video/SyncedLapView.tsx");
+assert(synced.includes("Sync video") || synced.includes("toolbar-sync"), "Sync video");
+const detail = read("src/components/SessionLapDetail.tsx");
+assert(detail.includes("toolbar-trim") || detail.includes("Trim"), "Trim");
+assert(
+  cloud.includes("DeleteSessionControl") || cloud.includes("Delete session"),
+  "Delete session danger",
+);
+assert(
+  !cloud.includes('aria-label="Session tools"'),
+  "no grouped session tools toolbar",
+);
+assert(cloud.includes("SectionSaveHint") || cloud.includes("section-save-hint") || cloud.includes("Unsaved trim") || cloud.includes("trimDirty"), "section unsaved state");
+assert(cloud.includes("toolsShowButtons={false}"), "session page hides panel buttons");
+assert(cloud.includes("onReparseLaps"), "reparse near laps");
 
 const tools = read("src/components/SessionToolsPanel.tsx");
-assert(tools.includes('role="toolbar"'), "tools toolbar role");
-assert(tools.includes("min-h-10"), "touch-sized buttons for iPhone");
 assert(tools.includes("showButtons"), "external toolbar can hide duplicate buttons");
 assert(!tools.includes("fixed right-3 top-1/2"), "no hidden edge drawer toggle");
-assert(cloud.includes("toolsShowButtons={false}"), "session page hides panel buttons");
-assert(cloud.includes('data-testid="toolbar-reparse"'), "toolbar reparse test id");
 
-const detail = read("src/components/SessionLapDetail.tsx");
 assert(detail.includes("buildTrimChartContext"), "padded trim chart");
 assert(detail.includes("clampTrimDrag"), "free bidirectional clamp");
+assert(detail.includes('data-testid="toolbar-trim"'), "trim on chart header");
 
 const bar = read("src/components/UnsavedChangesBar.tsx");
 assert(bar.includes("beforeunload"), "navigate-away warn");
 assert(bar.includes("loading"), "skip warn while loading");
+
+const css = read("src/app/globals.css");
+assert(css.includes(".apex-btn"), "shared button styles");
 
 console.log(
   JSON.stringify({
     ok: true,
     trim: "bidirectional+padded+session-clamp",
     save: "explicit+beforeunload-when-dirty",
-    toolbar: "labeled-visible",
+    tools: "contextual-labeled",
   }),
 );

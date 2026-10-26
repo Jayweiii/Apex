@@ -70,7 +70,12 @@ assert(session.includes("useSessionLapSelection"), "lap query selection");
 assert(session.includes("LapChips"), "lap chips");
 const syncedLap = read("src/components/video/SyncedLapView.tsx");
 assert(syncedLap.includes("lg:grid-cols"), "session workspace side-by-side");
-assert(syncedLap.includes("SessionToolsPanel"), "session tools panel");
+assert(
+  syncedLap.includes("SessionToolsPanel") ||
+    syncedLap.includes("toolbar-sync"),
+  "session sync tools available",
+);
+assert(syncedLap.includes('data-testid="toolbar-sync"'), "sync on video header");
 assert(session.includes("SessionReparsePanel"), "owner re-parse laps panel");
 assert(session.includes("onReparseLaps"), "unsplit banner can open re-parse");
 assert(session.includes("UnsplitLapsBanner"), "unsplit laps banner on phone");
@@ -81,14 +86,16 @@ assert(
 );
 assert(session.includes("UnsavedChangesBar"), "explicit save bar");
 assert(
-  session.includes('aria-label="Session tools"'),
-  "obvious labeled tools toolbar",
+  !session.includes('aria-label="Session tools"'),
+  "grouped session tools toolbar removed",
 );
-assert(session.includes("Sync video"), "toolbar Sync video");
+assert(
+  session.includes('data-testid="session-details-block"'),
+  "session details block",
+);
 assert(session.includes("toolsShowButtons={false}"), "no duplicate tool buttons");
-assert(session.includes("autoStart"), "toolbar re-parse auto-starts flow");
+assert(session.includes("autoStart"), "re-parse auto-starts flow");
 const toolsPanel = read("src/components/SessionToolsPanel.tsx");
-assert(toolsPanel.includes('role="toolbar"'), "tools role=toolbar");
 assert(toolsPanel.includes("showButtons"), "can hide in-panel toolbar buttons");
 assert(!toolsPanel.includes("fixed right-3 top-1/2"), "no hidden drawer toggle");
 const lapList = read("src/components/LapList.tsx");
@@ -96,7 +103,10 @@ assert(
   !lapList.includes("ReparseLapsButton"),
   "lap list does not duplicate toolbar Re-parse",
 );
+assert(lapList.includes('data-testid="toolbar-reparse"'), "re-parse near laps");
 assert(lapList.includes("looksLikeUnsplitLaps"), "unsplit detection in list");
+const globals = read("src/app/globals.css");
+assert(globals.includes(".apex-btn"), "shared apex-btn styles");
 const lapPage = read("src/app/sessions/[id]/laps/[lapId]/page.tsx");
 assert(lapPage.includes("legacyLapRedirectHref"), "legacy lap redirect");
 assert(!lapPage.includes("CloudLapView"), "lap page no longer renders detail");

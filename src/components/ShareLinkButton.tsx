@@ -24,11 +24,7 @@ export function ShareLinkButton({
   }
 
   return (
-    <button
-      type="button"
-      onClick={copy}
-      className="inline-flex min-h-10 items-center rounded-lg border border-zinc-800 px-3 text-xs uppercase tracking-[0.16em] text-zinc-300 hover:border-zinc-600 hover:text-zinc-100"
-    >
+    <button type="button" onClick={copy} className="apex-btn">
       {copied ? "Copied" : label}
     </button>
   );

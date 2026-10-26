@@ -10,8 +10,8 @@ import {
   SessionReparsePanel,
   type ReparseStagePayload,
 } from "@/components/SessionReparsePanel";
-import type { SessionToolTab } from "@/components/SessionToolsPanel";
 import { DeleteSessionControl } from "@/components/DeleteSessionControl";
+import { SectionSaveHint } from "@/components/SectionSaveHint";
 import { ShareLinkButton } from "@/components/ShareLinkButton";
 import {
   StartFinishEditor,
@@ -19,7 +19,6 @@ import {
 } from "@/components/StartFinishEditor";
 import { UnsavedChangesBar } from "@/components/UnsavedChangesBar";
 import { videoCoverage } from "@/lib/pick-session-video";
-import { SessionVideosCard } from "@/components/SessionVideosCard";
 import { SessionVisibilityControl } from "@/components/SessionVisibilityControl";
 import { useSessionLapSelection } from "@/components/useSessionLapSelection";
 import { compareHref } from "@/lib/compare";
@@ -77,6 +76,8 @@ type CloudSession = {
   gps_quality?: GpsQuality | null;
   source_gps?: unknown;
   notes?: string | null;
+  weather?: string | null;
+  tires?: string | null;
   started_at?: string | null;
   session_date?: string | null;
   created_at: string;
@@ -109,10 +110,7 @@ export function CloudSessionView({ id }: { id: string }) {
     useState<ReparseStagePayload | null>(null);
   /** Bumps after re-parse/save so trim sliders remount from new bounds. */
   const [lapsEpoch, setLapsEpoch] = useState(0);
-  const [toolsOpenRequest, setToolsOpenRequest] = useState<{
-    tab: string;
-    nonce: number;
-  } | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [trackStartFinish, setTrackStartFinish] = useState<unknown>(null);
   const [sfMapLine, setSfMapLine] = useState<StartFinishLine | null>(null);
   const [sfEditing, setSfEditing] = useState(false);
@@ -125,12 +123,6 @@ export function CloudSessionView({ id }: { id: string }) {
   const markDirty = useCallback(() => {
     setDirty(true);
     setSaveError(null);
-  }, []);
-  const openTool = useCallback((tab: string) => {
-    setToolsOpenRequest((prev) => ({
-      tab,
-      nonce: (prev?.nonce ?? 0) + 1,
-    }));
   }, []);
   const onSfLineChange = useCallback(
     (line: StartFinishLine | null, editing: boolean) => {
@@ -475,11 +467,6 @@ export function CloudSessionView({ id }: { id: string }) {
     markDirty();
   }
 
-  function onVideosChange(next: SessionVideo[]) {
-    setVideos(next);
-    markDirty();
-  }
-
   function onExcludeChange(change: LapExcludeChange) {
     if (!session || !userId || !isSessionOwner(session.user_id, userId)) {
       return;
@@ -633,6 +620,8 @@ export function CloudSessionView({ id }: { id: string }) {
           (session.car ?? "") !== (savedSession.car ?? "") ||
           (session.driver_name ?? "") !== (savedSession.driver_name ?? "") ||
           (session.notes ?? "") !== (savedSession.notes ?? "") ||
+          (session.weather ?? "") !== (savedSession.weather ?? "") ||
+          (session.tires ?? "") !== (savedSession.tires ?? "") ||
           normalizeVisibility(session.visibility ?? DEFAULT_VISIBILITY) !==
             normalizeVisibility(
               savedSession.visibility ?? DEFAULT_VISIBILITY,
@@ -648,6 +637,8 @@ export function CloudSessionView({ id }: { id: string }) {
             car: session.car?.trim() || null,
             driver_name: session.driver_name?.trim() || null,
             notes: session.notes?.trim() || null,
+            weather: session.weather?.trim() || null,
+            tires: session.tires?.trim() || null,
             visibility,
           })
           .eq("id", session.id)
@@ -816,121 +807,128 @@ export function CloudSessionView({ id }: { id: string }) {
     ? Date.parse(session.started_at)
     : undefined;
 
-  const sessionToolTabs: SessionToolTab[] = [
-    {
-      id: "session",
-      label: "Edit details",
-      content: (
-        <div className="space-y-3">
-          {mine ? (
-            <>
-              <SessionDetailsEditor
-                value={{
-                  name: session.name,
-                  car: session.car,
-                  driver_name: session.driver_name,
-                  notes: session.notes,
-                }}
-                onChange={(next) => {
-                  setSession({
-                    ...session,
-                    name: next.name,
-                    car: next.car,
-                    driver_name: next.driver_name,
-                    notes: next.notes,
-                  });
-                  markDirty();
-                }}
-              />
-              <SessionVisibilityControl
-                value={visibility}
-                onChange={onVisibility}
-                disabled={saving}
-                compact
-              />
-              {visibilityError ? (
-                <p
-                  role="alert"
-                  className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100"
-                >
-                  {visibilityError}
-                </p>
-              ) : null}
-            </>
-          ) : (
-            <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">
-              Visibility · {visibility}
-            </p>
-          )}
-          <div>
-            <p className="mb-1.5 text-[10px] uppercase tracking-[0.16em] text-zinc-500">
-              GPS quality
-            </p>
-            <GpsQualityBadge
-              quality={session.gps_quality}
-              sourceKind={
-                session.source_kind === "gopro" ||
-                session.source_kind === "csv" ||
-                session.source_kind === "logger"
-                  ? session.source_kind
-                  : null
-              }
-            />
-          </div>
-          {excludeError ? (
-            <p
-              role="alert"
-              className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100"
-            >
-              {excludeError}
-            </p>
-          ) : null}
-          {trimError ? (
-            <p
-              role="alert"
-              className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100"
-            >
-              {trimError}
-            </p>
-          ) : null}
-        </div>
-      ),
-    },
-  ];
+  const savedSession = savedSessionRef.current;
+  const detailsDirty =
+    Boolean(savedSession) &&
+    (session.name !== savedSession!.name ||
+      (session.car ?? "") !== (savedSession!.car ?? "") ||
+      (session.driver_name ?? "") !== (savedSession!.driver_name ?? "") ||
+      (session.notes ?? "") !== (savedSession!.notes ?? "") ||
+      (session.weather ?? "") !== (savedSession!.weather ?? "") ||
+      (session.tires ?? "") !== (savedSession!.tires ?? "") ||
+      normalizeVisibility(session.visibility ?? DEFAULT_VISIBILITY) !==
+        normalizeVisibility(savedSession!.visibility ?? DEFAULT_VISIBILITY));
 
-  if (mine || videos.length > 0) {
-    sessionToolTabs.push({
-      id: "videos",
-      label: "Videos",
-      content: (
-        <SessionVideosCard
-          session={{
-            id: session.id,
-            trackId: session.track_id ?? undefined,
-            sessionDate: session.session_date ?? undefined,
-            startedAtMs: Number.isFinite(startedAtMs)
-              ? startedAtMs
-              : undefined,
-            created_at: session.created_at,
-            laps: laps.map((lap) => ({
-              id: lap.id,
-              lap_number: lap.lap_number,
-              lap_time_ms: lap.lap_time_ms,
-            })),
-          }}
-          videos={videos}
-          onChange={mine ? onVideosChange : () => {}}
-          readOnly={!mine}
-        />
-      ),
-    });
-  }
+  const excludeDirty = laps.some((lap) => {
+    const baseline = savedLapsRef.current.find((row) => row.id === lap.id);
+    if (!baseline) return Boolean(lap.excluded);
+    return (
+      Boolean(lap.excluded) !== Boolean(baseline.excluded) ||
+      (lap.exclude_reason ?? null) !== (baseline.exclude_reason ?? null)
+    );
+  });
+
+  const trimDirty = laps.some((lap) => {
+    const baseline = savedLapsRef.current.find((row) => row.id === lap.id);
+    if (!baseline) {
+      return (
+        lap.start_offset_override != null || lap.end_offset_override != null
+      );
+    }
+    return (
+      (lap.start_offset_override ?? null) !==
+        (baseline.start_offset_override ?? null) ||
+      (lap.end_offset_override ?? null) !==
+        (baseline.end_offset_override ?? null)
+    );
+  });
+
+  const videoDirty = (() => {
+    const prev = savedVideosRef.current;
+    if (prev.length !== videos.length) return true;
+    const byId = new Map(prev.map((v) => [v.id, v]));
+    for (const video of videos) {
+      const baseline = byId.get(video.id);
+      if (!baseline) return true;
+      if (
+        video.youtubeId !== baseline.youtubeId ||
+        video.offsetSec !== baseline.offsetSec ||
+        video.syncSource !== baseline.syncSource ||
+        video.lapId !== baseline.lapId
+      ) {
+        return true;
+      }
+    }
+    return false;
+  })();
 
   const unsplit = mine && looksLikeUnsplitLaps(laps);
   const openReparse = () => {
     setReparseNonce((n) => n + 1);
     setReparseOpen(true);
   };
+
+  const reparsePanelNode = reparseOpen ? (
+    <div data-testid="reparse-flow">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">
+          Re-parse laps
+        </p>
+        <button
+          type="button"
+          onClick={() => setReparseOpen(false)}
+          className="apex-btn apex-btn--ghost"
+        >
+          Close
+        </button>
+      </div>
+      <SessionReparsePanel
+        key={`reparse-${session.id}-${reparseNonce}`}
+        sessionId={session.id}
+        trackId={session.track_id}
+        sourceGps={session.source_gps}
+        storedStartFinish={trackStartFinish}
+        laps={savedLapsRef.current.length ? savedLapsRef.current : laps}
+        startedAtMs={Number.isFinite(startedAtMs) ? startedAtMs : undefined}
+        autoStart
+        onStage={onStageReparse}
+        onDone={() => {
+          setTrimError(null);
+          setReparseOpen(false);
+        }}
+      />
+      {pendingReparse ? (
+        <div className="mt-2">
+          <SectionSaveHint
+            dirty
+            saving={saving}
+            label="Unsaved re-parse"
+            onSave={() => void saveEdits()}
+            onDiscard={discardEdits}
+          />
+        </div>
+      ) : null}
+    </div>
+  ) : null;
+
+  const mapHeader =
+    mine && session.track_id ? (
+      <StartFinishEditor
+        trackId={session.track_id}
+        storedStartFinish={trackStartFinish}
+        canEdit={mine}
+        busy={saving || reparseOpen}
+        moveEndpointRef={sfMoveRef}
+        onLineChange={onSfLineChange}
+        onSaved={(line) => {
+          setTrackStartFinish(line);
+          setSfMapLine(line);
+        }}
+        onRequestResplit={() => {
+          openReparse();
+        }}
+      />
+    ) : null;
 
   const lapSidebar = (
     <div id="session-lap-list">
@@ -945,6 +943,11 @@ export function CloudSessionView({ id }: { id: string }) {
           canEdit={mine}
           onExcludeChange={mine ? onExcludeChange : undefined}
           onReparseLaps={mine ? openReparse : undefined}
+          reparsePanel={reparsePanelNode}
+          excludeDirty={mine && excludeDirty}
+          onSaveExclude={mine ? () => void saveEdits() : undefined}
+          onDiscardExclude={mine ? discardEdits : undefined}
+          saving={saving}
         />
       ) : (
         <p className="px-3 py-6 text-center text-sm text-zinc-500">
@@ -986,6 +989,8 @@ export function CloudSessionView({ id }: { id: string }) {
               {laps.length} laps
               {best != null ? ` · best ${formatLapTime(best)}` : ""}
               {session.driver_name ? ` · ${session.driver_name}` : ""}
+              {session.weather ? ` · ${session.weather}` : ""}
+              {session.tires ? ` · ${session.tires}` : ""}
               {!mine ? ` · ${visibility}` : ""}
             </p>
           </div>
@@ -993,62 +998,13 @@ export function CloudSessionView({ id }: { id: string }) {
             {href ? (
               <Link
                 href={href}
-                className="inline-flex min-h-8 items-center text-[11px] uppercase tracking-[0.16em] text-orange-400 hover:text-orange-300"
+                className="inline-flex min-h-10 items-center text-[11px] uppercase tracking-[0.16em] text-orange-400 hover:text-orange-300"
               >
                 Compare
               </Link>
             ) : null}
-          </div>
-        </div>
-
-        {mine ? (
-          <div className="mb-2 space-y-2">
-            <div
-              className="flex flex-wrap gap-1.5"
-              role="toolbar"
-              aria-label="Session tools"
-            >
-              <button
-                type="button"
-                data-testid="toolbar-reparse"
-                onClick={openReparse}
-                className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-orange-500/50 bg-orange-500/10 px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-orange-200"
-              >
-                <span aria-hidden>↻</span> Re-parse laps
-              </button>
-              <button
-                type="button"
-                data-testid="toolbar-trim"
-                onClick={() => openTool("trim")}
-                className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/80 px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-200"
-              >
-                <span aria-hidden>✂</span> Trim
-              </button>
-              <button
-                type="button"
-                data-testid="toolbar-sync"
-                onClick={() => openTool("sync")}
-                className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/80 px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-200"
-              >
-                <span aria-hidden>⏯</span> Sync video
-              </button>
-              <button
-                type="button"
-                data-testid="toolbar-exclude"
-                onClick={() => openTool("exclude")}
-                className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/80 px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-200"
-              >
-                <span aria-hidden>⊘</span> Exclude
-              </button>
-              <button
-                type="button"
-                data-testid="toolbar-details"
-                onClick={() => openTool("session")}
-                className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/80 px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-200"
-              >
-                <span aria-hidden>✎</span> Edit details
-              </button>
-              <ShareLinkButton path={`/sessions/${session.id}`} label="Share" />
+            <ShareLinkButton path={`/sessions/${session.id}`} label="Share" />
+            {mine ? (
               <DeleteSessionControl
                 variant="toolbar"
                 authUserId={userId}
@@ -1060,61 +1016,134 @@ export function CloudSessionView({ id }: { id: string }) {
                   },
                 ]}
               />
-            </div>
-            {session.track_id ? (
-              <StartFinishEditor
-                trackId={session.track_id}
-                storedStartFinish={trackStartFinish}
-                canEdit={mine}
-                busy={saving || reparseOpen}
-                moveEndpointRef={sfMoveRef}
-                onLineChange={onSfLineChange}
-                onSaved={(line) => {
-                  setTrackStartFinish(line);
-                  setSfMapLine(line);
-                }}
-                onRequestResplit={() => {
-                  openReparse();
-                }}
-              />
-            ) : null}
-            {reparseOpen ? (
-              <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/80 p-3">
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <p className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">
-                    Re-parse laps
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setReparseOpen(false)}
-                    className="rounded-md px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"
-                  >
-                    Close
-                  </button>
-                </div>
-                <SessionReparsePanel
-                  key={`reparse-${session.id}-${reparseNonce}`}
-                  sessionId={session.id}
-                  trackId={session.track_id}
-                  sourceGps={session.source_gps}
-                  storedStartFinish={trackStartFinish}
-                  laps={
-                    savedLapsRef.current.length ? savedLapsRef.current : laps
-                  }
-                  startedAtMs={
-                    Number.isFinite(startedAtMs) ? startedAtMs : undefined
-                  }
-                  autoStart
-                  onStage={onStageReparse}
-                  onDone={() => {
-                    setTrimError(null);
-                    setReparseOpen(false);
-                  }}
-                />
-              </div>
             ) : null}
           </div>
-        ) : null}
+        </div>
+
+        <div
+          className="mb-2 rounded-xl border border-zinc-800/80 bg-zinc-950/50 p-3"
+          data-testid="session-details-block"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">
+                Session details
+              </p>
+              <p className="mt-0.5 truncate text-xs text-zinc-400">
+                {visibility}
+                {session.weather ? ` · ${session.weather}` : ""}
+                {session.tires ? ` · tires ${session.tires}` : ""}
+                {session.notes ? ` · ${session.notes}` : ""}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {mine && detailsDirty ? (
+                <SectionSaveHint
+                  dirty
+                  saving={saving}
+                  label="Unsaved details"
+                  onSave={() => void saveEdits()}
+                  onDiscard={discardEdits}
+                />
+              ) : null}
+              {mine ? (
+                <button
+                  type="button"
+                  data-testid="toolbar-details"
+                  aria-pressed={detailsOpen}
+                  onClick={() => setDetailsOpen((open) => !open)}
+                  className={`apex-btn ${detailsOpen ? "apex-btn--pressed" : ""}`}
+                >
+                  <span aria-hidden>✎</span> Edit details
+                </button>
+              ) : null}
+            </div>
+          </div>
+          {detailsOpen && mine ? (
+            <div className="mt-3 space-y-3 border-t border-zinc-800/80 pt-3">
+              <SessionDetailsEditor
+                value={{
+                  name: session.name,
+                  car: session.car,
+                  driver_name: session.driver_name,
+                  notes: session.notes,
+                  weather: session.weather,
+                  tires: session.tires,
+                }}
+                onChange={(next) => {
+                  setSession({
+                    ...session,
+                    name: next.name,
+                    car: next.car,
+                    driver_name: next.driver_name,
+                    notes: next.notes,
+                    weather: next.weather,
+                    tires: next.tires,
+                  });
+                  markDirty();
+                }}
+              />
+              <SessionVisibilityControl
+                value={visibility}
+                onChange={onVisibility}
+                disabled={saving}
+                compact
+              />
+              {visibilityError ? (
+                <p
+                  role="alert"
+                  className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100"
+                >
+                  {visibilityError}
+                </p>
+              ) : null}
+              <div>
+                <p className="mb-1.5 text-[10px] uppercase tracking-[0.16em] text-zinc-500">
+                  GPS quality
+                </p>
+                <GpsQualityBadge
+                  quality={session.gps_quality}
+                  sourceKind={
+                    session.source_kind === "gopro" ||
+                    session.source_kind === "csv" ||
+                    session.source_kind === "logger"
+                      ? session.source_kind
+                      : null
+                  }
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="mt-2">
+              <GpsQualityBadge
+                quality={session.gps_quality}
+                sourceKind={
+                  session.source_kind === "gopro" ||
+                  session.source_kind === "csv" ||
+                  session.source_kind === "logger"
+                    ? session.source_kind
+                    : null
+                }
+              />
+            </div>
+          )}
+          {excludeError ? (
+            <p
+              role="alert"
+              className="mt-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100"
+            >
+              {excludeError}
+            </p>
+          ) : null}
+          {trimError ? (
+            <p
+              role="alert"
+              className="mt-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100"
+            >
+              {trimError}
+            </p>
+          ) : null}
+        </div>
 
         {unsplit && !reparseOpen ? (
           <div className="pb-2 lg:hidden">
@@ -1141,9 +1170,13 @@ export function CloudSessionView({ id }: { id: string }) {
             sessionId={session.id}
             layout="workspace"
             sidebar={lapSidebar}
-            extraToolTabs={sessionToolTabs}
-            toolsOpenRequest={toolsOpenRequest}
             toolsShowButtons={false}
+            mapHeader={mapHeader}
+            trimDirty={mine && (trimDirty || Boolean(pendingReparse))}
+            videoDirty={mine && videoDirty}
+            onSave={mine ? () => void saveEdits() : undefined}
+            onDiscard={mine ? discardEdits : undefined}
+            saving={saving}
             lap={{
               id: selectedRow.id,
               lap_number: selectedRow.lap_number,

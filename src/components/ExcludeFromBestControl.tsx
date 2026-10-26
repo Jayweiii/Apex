@@ -1,10 +1,10 @@
 "use client";
 
 /**
- * Single exclude-from-best control (replaces checkbox + duplicate Exclude button).
- * - Idle: "Exclude from best"
- * - Active: "Excluded" with undo (include again)
- * Auto-flag warning stays separate; clicking this control still one-click excludes.
+ * Single exclude/include control (one action, no duplicates).
+ * - Idle: "Exclude"
+ * - Active: "Include" (undo)
+ * Row size keeps a clear label for iPhone; icon-only is opt-in.
  */
 export function ExcludeFromBestControl({
   excluded,
@@ -18,10 +18,15 @@ export function ExcludeFromBestControl({
   busy?: boolean;
   reason?: string | null;
   onChange: (next: { excluded: boolean; exclude_reason?: string | null }) => void;
-  size?: "default" | "icon";
+  size?: "default" | "row" | "icon";
   /** Optional override for one-click exclude reason (e.g. auto-flag labels). */
   title?: string;
 }) {
+  const label = excluded ? "Include" : "Exclude";
+  const aria = excluded
+    ? "Include lap in best"
+    : title ?? "Exclude lap from best";
+
   if (size === "icon") {
     return (
       <button
@@ -30,13 +35,11 @@ export function ExcludeFromBestControl({
         title={
           excluded
             ? reason
-              ? `Excluded: ${reason} (click to undo)`
-              : "Excluded from best — click to undo"
+              ? `Excluded: ${reason} (tap to include)`
+              : "Excluded from best — tap to include"
             : title ?? "Exclude from best"
         }
-        aria-label={
-          excluded ? "Excluded from best — undo" : "Exclude from best"
-        }
+        aria-label={aria}
         aria-pressed={excluded}
         onClick={(event) => {
           event.stopPropagation();
@@ -45,13 +48,43 @@ export function ExcludeFromBestControl({
             exclude_reason: !excluded ? (title ?? "manual") : null,
           });
         }}
-        className={`inline-flex size-8 items-center justify-center rounded-md border transition disabled:opacity-50 ${
-          excluded
-            ? "border-zinc-600 bg-zinc-800 text-zinc-300"
-            : "border-zinc-800 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300"
+        className={`apex-btn apex-btn--icon ${
+          excluded ? "apex-btn--pressed" : ""
         }`}
       >
         <ExcludedIcon className="size-3.5" />
+      </button>
+    );
+  }
+
+  if (size === "row") {
+    return (
+      <button
+        type="button"
+        disabled={busy}
+        title={
+          excluded
+            ? reason
+              ? `Excluded: ${reason}`
+              : "Excluded from session best — tap to include"
+            : title ?? "Exclude from session best"
+        }
+        aria-label={aria}
+        aria-pressed={excluded}
+        data-testid="lap-exclude-toggle"
+        onClick={(event) => {
+          event.stopPropagation();
+          onChange({
+            excluded: !excluded,
+            exclude_reason: !excluded ? (title ?? "manual") : null,
+          });
+        }}
+        className={`apex-btn min-w-[4.75rem] px-2 text-[10px] tracking-[0.08em] ${
+          excluded ? "apex-btn--pressed" : ""
+        }`}
+      >
+        <ExcludedIcon className="size-3.5 shrink-0" />
+        <span>{label}</span>
       </button>
     );
   }
@@ -74,14 +107,10 @@ export function ExcludeFromBestControl({
           exclude_reason: !excluded ? (title ?? "manual") : null,
         });
       }}
-      className={`inline-flex min-h-9 items-center gap-2 rounded-lg border px-3 text-xs uppercase tracking-[0.14em] transition disabled:opacity-50 ${
-        excluded
-          ? "border-zinc-600 bg-zinc-800/80 text-zinc-200"
-          : "border-zinc-800 text-zinc-400 hover:border-zinc-600 hover:text-zinc-200"
-      }`}
+      className={`apex-btn ${excluded ? "apex-btn--pressed" : ""}`}
     >
       <ExcludedIcon className="size-3.5" />
-      {excluded ? "Excluded" : "Exclude from best"}
+      {excluded ? "Include in best" : "Exclude from best"}
     </button>
   );
 }

@@ -104,7 +104,7 @@ export function LapTrimControls({
           type="button"
           disabled={busy || !bounds.hasOverride}
           onClick={onReset}
-          className="min-h-9 rounded-lg border border-zinc-800 px-3 text-xs uppercase tracking-[0.14em] text-zinc-400 hover:border-zinc-600 disabled:opacity-40"
+          className="apex-btn"
         >
           Reset to auto
         </button>
@@ -138,7 +138,7 @@ export function LapTrimControls({
               type="button"
               disabled={busy || !canMergeNext}
               onClick={onMergeNext}
-              className="min-h-9 rounded-lg border border-zinc-800 px-3 text-xs uppercase tracking-[0.14em] text-zinc-400 hover:border-zinc-600 disabled:opacity-40"
+              className="apex-btn"
             >
               Merge with next
             </button>
@@ -148,7 +148,7 @@ export function LapTrimControls({
               type="button"
               disabled={busy || !canSplit}
               onClick={onSplit}
-              className="min-h-9 rounded-lg border border-zinc-800 px-3 text-xs uppercase tracking-[0.14em] text-zinc-400 hover:border-zinc-600 disabled:opacity-40"
+              className="apex-btn"
             >
               Split at cursor
             </button>
@@ -187,7 +187,7 @@ function BoundEditor({
           type="button"
           disabled={disabled}
           onClick={() => onNudge(-0.1)}
-          className="min-h-10 min-w-10 rounded-lg border border-zinc-800 text-sm text-zinc-300 hover:border-zinc-600 disabled:opacity-40"
+          className="apex-btn apex-btn--icon"
           aria-label={`Nudge ${label} −0.1s`}
         >
           −0.1
@@ -208,7 +208,7 @@ function BoundEditor({
           type="button"
           disabled={disabled}
           onClick={() => onNudge(0.1)}
-          className="min-h-10 min-w-10 rounded-lg border border-zinc-800 text-sm text-zinc-300 hover:border-zinc-600 disabled:opacity-40"
+          className="apex-btn apex-btn--icon"
           aria-label={`Nudge ${label} +0.1s`}
         >
           +0.1

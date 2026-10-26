@@ -90,7 +90,7 @@ function MissingYouTube({
         </p>
       ) : (
         <p className="text-[11px] text-zinc-500">
-          Paste a YouTube link in Tools → Sync
+          Paste a YouTube link under Sync video
         </p>
       )}
       {sessionId && !compact ? (
@@ -124,8 +124,17 @@ export function SyncedLapView({
   extraToolTabs,
   chartOverride,
   toolsOpenRequest,
-  /** When false, parent owns the labeled toolbar (no duplicate Trim/Sync/…). */
+  /**
+   * When false, session page uses contextual controls (video/map/chart headers)
+   * instead of a grouped tools toolbar — no duplicate Trim/Sync/Exclude.
+   */
   toolsShowButtons = true,
+  /** Contextual controls above the map (e.g. Edit start/finish). */
+  mapHeader = null,
+  /** Contextual controls above the speed chart (e.g. Trim + Save). */
+  chartHeader = null,
+  /** Open sync panel by default when video is unsynced. */
+  defaultSyncOpen,
   sfLine = null,
   sfEditing = false,
   onSfEndpointMove,
@@ -169,7 +178,7 @@ export function SyncedLapView({
   layout?: "stack" | "workspace";
   /** Lap list (or other) under the map in workspace layout. */
   sidebar?: ReactNode;
-  /** Secondary panels (trim, notes, GPS, videos) for the tools drawer. */
+  /** Secondary panels for compare / legacy tools drawer. */
   extraToolTabs?: SessionToolTab[];
   /**
    * When trimming, chart uses padded session context (grey neighbors) while
@@ -179,10 +188,13 @@ export function SyncedLapView({
     points: TelemetryPoint[];
     trimMarkers?: { startT: number; endT: number };
   } | null;
-  /** Toolbar requests opening a tools tab. */
+  /** Legacy toolbar requests opening a tools tab (compare / LocalGarage). */
   toolsOpenRequest?: { tab: string; nonce: number } | null;
-  /** When false, only the open tools panel is shown (no second button row). */
+  /** When false, contextual headers own Sync/Trim (no SessionToolsPanel buttons). */
   toolsShowButtons?: boolean;
+  mapHeader?: ReactNode;
+  chartHeader?: ReactNode;
+  defaultSyncOpen?: boolean;
   sfLine?: StartFinishLine | null;
   sfEditing?: boolean;
   onSfEndpointMove?: (which: "a" | "b", lat: number, lon: number) => void;
@@ -301,6 +313,15 @@ export function SyncedLapView({
   /** Two-way lock only after a saved sync (point-match / auto / tod). */
   void sessionStartedAtMs;
   const locked = isVideoSynced(activeVideo);
+  const [syncOpen, setSyncOpen] = useState(
+    () =>
+      defaultSyncOpen ??
+      Boolean(canEditSync && (!activeVideo || !isVideoSynced(activeVideo))),
+  );
+
+  useEffect(() => {
+    if (toolsOpenRequest?.tab === "sync") setSyncOpen(true);
+  }, [toolsOpenRequest?.nonce, toolsOpenRequest?.tab]);
 
   const handleVideoChange = useCallback(
     (next: SessionVideo) => {
@@ -830,8 +851,9 @@ export function SyncedLapView({
     />
   );
 
+  const contextual = !toolsShowButtons;
   const toolTabs: SessionToolTab[] = [];
-  if (syncPanel) {
+  if (!contextual && syncPanel) {
     toolTabs.push({
       id: "sync",
       label: "Sync video",
@@ -841,12 +863,75 @@ export function SyncedLapView({
   }
   for (const tab of extraToolTabs ?? []) toolTabs.push(tab);
 
+  const videoHeader = contextual ? (
+    <div
+      className="mb-1.5 flex flex-wrap items-center justify-between gap-2"
+      data-testid="video-tools-header"
+    >
+      <p className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">
+        Video
+      </p>
+      {syncPanel ? (
+        <button
+          type="button"
+          data-testid="toolbar-sync"
+          aria-pressed={syncOpen}
+          onClick={() => setSyncOpen((open) => !open)}
+          className={`apex-btn ${syncOpen || (activeVideo && !locked) ? "apex-btn--pressed" : ""}`}
+        >
+          <span aria-hidden>⏯</span> Sync video
+          {activeVideo && !locked ? (
+            <span className="rounded bg-black/20 px-1 font-mono text-[10px] normal-case tracking-normal">
+              !
+            </span>
+          ) : null}
+        </button>
+      ) : null}
+    </div>
+  ) : null;
+
+  const videoSection = (
+    <div>
+      {videoHeader}
+      {videoBlock}
+      {contextual && syncOpen && syncPanel ? (
+        <div
+          className="mt-2 rounded-xl border border-zinc-800/80 bg-zinc-950/80 p-3"
+          data-testid="video-sync-panel"
+        >
+          {syncPanel}
+        </div>
+      ) : null}
+      {metaRow}
+    </div>
+  );
+
+  const mapSection = (
+    <div className="flex min-h-[300px] flex-col gap-1.5">
+      {mapHeader ? (
+        <div className="shrink-0" data-testid="map-tools-header">
+          {mapHeader}
+        </div>
+      ) : null}
+      <div className="min-h-0 flex-1">{mapBlock}</div>
+    </div>
+  );
+
+  const chartSection = (
+    <div className="flex flex-col gap-1.5">
+      {chartHeader ? (
+        <div data-testid="chart-tools-header">{chartHeader}</div>
+      ) : null}
+      {telemetry}
+    </div>
+  );
+
   if (workspace) {
     return (
       <div ref={rootRef} tabIndex={0} className="flex flex-col gap-3 outline-none">
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(220px,0.85fr)_minmax(0,1.35fr)] lg:items-start lg:gap-3">
           <aside className="flex flex-col gap-2">
-            <div className="min-h-[300px]">{mapBlock}</div>
+            {mapSection}
             {sidebar ? (
               <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/40">
                 {sidebar}
@@ -855,16 +940,13 @@ export function SyncedLapView({
           </aside>
 
           <section className="flex flex-col gap-2">
-            <div>
-              {videoBlock}
-              {metaRow}
-            </div>
+            {videoSection}
             <div>{playbackBar}</div>
-            <div>{telemetry}</div>
+            {chartSection}
           </section>
         </div>
 
-        {toolTabs.length ? (
+        {!contextual && toolTabs.length ? (
           <SessionToolsPanel
             tabs={toolTabs}
             defaultTab="sync"
@@ -880,8 +962,7 @@ export function SyncedLapView({
     <div ref={rootRef} tabIndex={0} className="flex flex-col gap-4 outline-none">
       <div className="space-y-3">
         <div className="w-full">
-          {videoBlock}
-          {metaRow}
+          {videoSection}
           {sessionId && siblingLaps.length > 1 ? (
             <div
               className="mt-2 flex flex-wrap items-center gap-1.5"
@@ -916,21 +997,19 @@ export function SyncedLapView({
           ) : null}
         </div>
         {playbackBar}
-        <div>{mapBlock}</div>
+        {mapSection}
       </div>
 
-      {toolTabs.length ? (
+      {!contextual && toolTabs.length ? (
         <SessionToolsPanel
           tabs={toolTabs}
           defaultTab="sync"
           openRequest={toolsOpenRequest}
           showButtons={toolsShowButtons}
         />
-      ) : syncPanel ? (
-        syncPanel
       ) : null}
 
-      {telemetry}
+      {chartSection}
     </div>
   );
 }

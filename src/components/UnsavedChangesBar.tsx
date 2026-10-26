@@ -47,7 +47,7 @@ export function UnsavedChangesBar({
           type="button"
           disabled={saving || loading || !dirty}
           onClick={onDiscard}
-          className="inline-flex min-h-9 items-center rounded-lg border border-zinc-700 px-3 text-xs uppercase tracking-[0.14em] text-zinc-300 hover:border-zinc-500 disabled:opacity-40"
+          className="apex-btn"
         >
           Discard
         </button>
@@ -55,7 +55,7 @@ export function UnsavedChangesBar({
           type="button"
           disabled={saving || loading || !dirty}
           onClick={onSave}
-          className="inline-flex min-h-9 items-center rounded-lg bg-orange-500 px-3 text-xs font-semibold uppercase tracking-[0.14em] text-black shadow-[0_0_0_2px_rgba(249,115,22,0.35)] hover:bg-orange-400 disabled:opacity-40"
+          className="apex-btn apex-btn--primary"
         >
           {saving ? "Saving…" : "Save"}
         </button>

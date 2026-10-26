@@ -2,6 +2,7 @@
 
 import { ExcludeFromBestControl } from "@/components/ExcludeFromBestControl";
 import { UnsplitLapsBanner } from "@/components/ReparseLapsCallout";
+import { SectionSaveHint } from "@/components/SectionSaveHint";
 import { formatLapTime } from "@/lib/format";
 import {
   bestLapTimeMs,
@@ -67,6 +68,11 @@ export function LapList({
   excludeBusyId,
   onReparseLaps,
   reparsePanel,
+  headerActions,
+  excludeDirty = false,
+  onSaveExclude,
+  onDiscardExclude,
+  saving = false,
 }: {
   laps: LapRow[];
   /** When set with onSelect, rows select in place instead of navigating. */
@@ -78,17 +84,23 @@ export function LapList({
   syncedLapIds?: Set<string> | string[];
   /** Session-level video covers all laps. */
   sessionVideo?: boolean;
-  /** Session owner — show exclude icon per row. */
+  /** Session owner — show exclude/include per row. */
   canEdit?: boolean;
   onExcludeChange?: (change: LapExcludeChange) => void;
   excludeBusyId?: string | null;
   /**
-   * Owner unsplit callout — toolbar owns the Re-parse button; this only shows
-   * the banner when laps look unsplit (no duplicate header control).
+   * Owner unsplit callout — Re-parse lives in the laps header (no duplicate).
    */
   onReparseLaps?: () => void;
-  /** @deprecated Re-parse UI lives under the session toolbar. */
+  /** Inline re-parse panel rendered under the laps header. */
   reparsePanel?: ReactNode;
+  /** Extra controls next to the laps header (e.g. Re-parse laps). */
+  headerActions?: ReactNode;
+  /** Show Save near the table when exclude drafts are pending. */
+  excludeDirty?: boolean;
+  onSaveExclude?: () => void;
+  onDiscardExclude?: () => void;
+  saving?: boolean;
 }) {
   const fastest = bestLapTimeMs(laps);
   const flags = suspicionByLapId(laps);
@@ -101,6 +113,40 @@ export function LapList({
 
   return (
     <div className="overflow-hidden rounded-xl border-0 bg-transparent">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800/80 bg-zinc-950/60 px-2.5 py-2 sm:px-3">
+        <p className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">
+          Lap times
+        </p>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {headerActions}
+          {canEdit && onReparseLaps ? (
+            <button
+              type="button"
+              data-testid="toolbar-reparse"
+              onClick={onReparseLaps}
+              className="apex-btn apex-btn--accent"
+            >
+              <span aria-hidden>↻</span> Re-parse laps
+            </button>
+          ) : null}
+        </div>
+      </div>
+      {excludeDirty ? (
+        <div className="border-b border-zinc-800/80 px-2.5 py-1.5 sm:px-3">
+          <SectionSaveHint
+            dirty
+            saving={saving}
+            label="Unsaved exclude"
+            onSave={onSaveExclude}
+            onDiscard={onDiscardExclude}
+          />
+        </div>
+      ) : null}
+      {reparsePanel ? (
+        <div className="border-b border-zinc-800/80 bg-zinc-950/80 p-3">
+          {reparsePanel}
+        </div>
+      ) : null}
       {unsplit && onReparseLaps && !reparsePanel ? (
         <div className="border-b border-zinc-800/80 bg-zinc-950/60 px-2.5 py-2 sm:px-3">
           <UnsplitLapsBanner onClick={onReparseLaps} />
@@ -142,7 +188,7 @@ export function LapList({
                 onKeyDown={(event) => event.stopPropagation()}
               >
                 <ExcludeFromBestControl
-                  size="icon"
+                  size="row"
                   excluded={excluded}
                   busy={busy}
                   reason={lap.exclude_reason}
@@ -156,9 +202,9 @@ export function LapList({
                       lapId: lap.id,
                       excluded: next.excluded,
                       exclude_reason: next.excluded
-                        ? (suspicion && next.excluded
-                            ? suspicion.labels.join("; ")
-                            : next.exclude_reason)
+                        ? suspicion
+                          ? suspicion.labels.join("; ")
+                          : next.exclude_reason
                         : null,
                     });
                   }}

@@ -25,12 +25,9 @@ const DEFAULT_ICONS: Record<string, string> = {
 };
 
 /**
- * Clearly visible labeled toolbar on the session page — icon + text buttons
- * (Re-parse, Trim, Sync video, Exclude, Edit details, Share). Real buttons,
- * not a hidden drawer toggle. Works on iPhone widths.
- *
- * When the parent already renders a session toolbar, pass `showButtons={false}`
- * so only the open panel content appears (no duplicate Trim/Sync/Exclude).
+ * Labeled tools panel used by compare (and legacy stack layouts).
+ * Session page uses contextual controls instead — pass `showButtons={false}`
+ * so this panel never duplicates Trim / Sync / Exclude.
  */
 export function SessionToolsPanel({
   tabs,
@@ -110,10 +107,8 @@ export function SessionToolsPanel({
                 type="button"
                 aria-pressed={selected}
                 onClick={() => selectTab(tab.id)}
-                className={`inline-flex min-h-10 min-w-[4.5rem] flex-1 items-center justify-center gap-1.5 rounded-lg px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] transition sm:flex-none ${
-                  selected
-                    ? "bg-orange-500 text-black"
-                    : "border border-zinc-800 bg-zinc-900/80 text-zinc-200 hover:border-zinc-600 hover:text-zinc-50"
+                className={`apex-btn min-w-[4.5rem] flex-1 sm:flex-none ${
+                  selected ? "apex-btn--primary" : ""
                 }`}
               >
                 <span aria-hidden className="text-sm font-normal">
@@ -135,10 +130,8 @@ export function SessionToolsPanel({
                 key={action.id}
                 type="button"
                 onClick={action.onClick}
-                className={`inline-flex min-h-10 min-w-[4.5rem] flex-1 items-center justify-center gap-1.5 rounded-lg px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] transition sm:flex-none ${
-                  action.emphasize
-                    ? "bg-orange-500 text-black hover:bg-orange-400"
-                    : "border border-zinc-800 bg-zinc-900/80 text-zinc-200 hover:border-zinc-600 hover:text-zinc-50"
+                className={`apex-btn min-w-[4.5rem] flex-1 sm:flex-none ${
+                  action.emphasize ? "apex-btn--primary" : ""
                 }`}
               >
                 <span aria-hidden className="text-sm font-normal">

@@ -1,8 +1,8 @@
 "use client";
 
-import { ExcludeFromBestControl } from "@/components/ExcludeFromBestControl";
 import type { LapExcludeChange } from "@/components/LapList";
 import { LapTrimControls } from "@/components/LapTrimControls";
+import { SectionSaveHint } from "@/components/SectionSaveHint";
 import type { SessionToolTab } from "@/components/SessionToolsPanel";
 import { useSpeedUnit } from "@/components/useSpeedUnit";
 import { SyncedLapView } from "@/components/video/SyncedLapView";
@@ -14,11 +14,11 @@ import {
   resolveLapTrimBounds,
   type TrimableLap,
 } from "@/lib/lap-trim";
-import { bestLapTimeMs, suspicionByLapId } from "@/lib/lap-quality";
+import { bestLapTimeMs } from "@/lib/lap-quality";
 import { pickSessionVideoForLap } from "@/lib/pick-session-video";
 import type { StartFinishLine } from "@/lib/start-finish-line";
 import type { SessionVideo, TelemetryPoint } from "@/lib/types";
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 
 export type SessionLapDetailLap = {
   id: string;
@@ -35,6 +35,7 @@ export type SessionLapDetailLap = {
 /**
  * In-place lap panel on the session page: map (selected lap only),
  * speed/G charts, delta vs best, synced YouTube, playback clock, optional trim.
+ * Tools sit next to the surfaces they affect (map / video / chart headers).
  */
 export function SessionLapDetail({
   sessionId,
@@ -46,8 +47,8 @@ export function SessionLapDetail({
   sessionStartedAtMs,
   onVideoChange,
   canEdit = false,
-  onExcludeChange,
-  excludeBusy = false,
+  onExcludeChange: _onExcludeChange,
+  excludeBusy: _excludeBusy = false,
   onTrimChange,
   onTrimReset,
   onMergeNext,
@@ -58,6 +59,12 @@ export function SessionLapDetail({
   extraToolTabs,
   toolsOpenRequest,
   toolsShowButtons = true,
+  mapHeader = null,
+  trimDirty = false,
+  videoDirty = false,
+  onSave,
+  onDiscard,
+  saving = false,
   sfLine = null,
   sfEditing = false,
   onSfEndpointMove,
@@ -85,14 +92,23 @@ export function SessionLapDetail({
   layout?: "stack" | "workspace";
   sidebar?: ReactNode;
   extraToolTabs?: SessionToolTab[];
-  /** Toolbar requests opening a tools tab (trim / sync / exclude / …). */
+  /** Legacy open-request for LocalGarage / compare. */
   toolsOpenRequest?: { tab: string; nonce: number } | null;
-  /** When false, hide in-panel tool buttons (session page owns the toolbar). */
+  /** When false, contextual headers own tools (session page). */
   toolsShowButtons?: boolean;
+  mapHeader?: ReactNode;
+  trimDirty?: boolean;
+  videoDirty?: boolean;
+  onSave?: () => void;
+  onDiscard?: () => void;
+  saving?: boolean;
   sfLine?: StartFinishLine | null;
   sfEditing?: boolean;
   onSfEndpointMove?: (which: "a" | "b", lat: number, lon: number) => void;
 }) {
+  void _onExcludeChange;
+  void _excludeBusy;
+
   const trimable: TrimableLap = useMemo(
     () => ({
       id: lap.id,
@@ -107,6 +123,7 @@ export function SessionLapDetail({
   );
 
   const [speedUnit] = useSpeedUnit();
+  const [trimOpen, setTrimOpen] = useState(Boolean(trimDirty));
 
   const siblingTrimables = useMemo(
     () =>
@@ -175,9 +192,6 @@ export function SessionLapDetail({
   const deltaSec =
     bestMs != null ? (applied.lap_time_ms - bestMs) / 1000 : null;
 
-  const flags = suspicionByLapId(siblingLaps);
-  const suspicion = flags.get(lap.id);
-
   const activeVideo: SessionVideo | null = useMemo(
     () =>
       pickSessionVideoForLap(videos, lap.id, {
@@ -195,6 +209,7 @@ export function SessionLapDetail({
       lapId: lap.id,
       ...next,
     });
+    setTrimOpen(true);
   }
 
   if (!lap.telemetry.length) {
@@ -256,84 +271,79 @@ export function SessionLapDetail({
     };
   });
 
-  const trimTabContent =
+  const hasTrimOverride = Boolean(
+    lap.start_offset_override != null || lap.end_offset_override != null,
+  );
+
+  const chartHeader =
     canEdit && onTrimChange && trimChart ? (
-      <LapTrimControls
-        lap={trimable}
-        sessionMin={trimChart.sessionMin}
-        sessionMax={trimChart.sessionMax}
-        previewLapTimeMs={applied.lap_time_ms}
-        canMergeNext={canMergeNext}
-        canSplit={canSplit}
-        busy={trimBusy}
-        onChange={commitTrim}
-        onReset={() => {
-          onTrimReset?.(lap.id);
-        }}
-        onMergeNext={onMergeNext ? () => onMergeNext(lap.id) : undefined}
-        onSplit={
-          onSplit
-            ? () => {
-                const b = resolveLapTrimBounds(trimable);
-                const mid = (b.effectiveStart + b.effectiveEnd) / 2;
-                const progress =
-                  (mid - b.effectiveStart) /
-                  Math.max(0.001, b.effectiveEnd - b.effectiveStart);
-                onSplit(lap.id, progress);
-              }
-            : undefined
-        }
-      />
-    ) : null;
-
-  const excludeTabContent =
-    canEdit && onExcludeChange ? (
-      <div className="space-y-3">
-        <p className="text-sm text-zinc-400">
-          Exclude this lap from best-lap calculations when it is an in-lap,
-          out-lap, or otherwise invalid.
-        </p>
-        <ExcludeFromBestControl
-          excluded={Boolean(lap.excluded)}
-          busy={excludeBusy}
-          reason={lap.exclude_reason}
-          title={
-            suspicion ? suspicion.labels.join("; ") : "Exclude from best"
-          }
-          onChange={(next) => {
-            onExcludeChange({
-              lapId: lap.id,
-              excluded: next.excluded,
-              exclude_reason: next.excluded
-                ? suspicion
-                  ? suspicion.labels.join("; ")
-                  : (next.exclude_reason ?? "manual")
-                : null,
-            });
-          }}
-        />
-        {suspicion ? (
-          <p className="text-xs text-amber-200/90">
-            Flagged: {suspicion.labels.join("; ")}
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">
+            Speed chart
           </p>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              data-testid="toolbar-trim"
+              aria-pressed={trimOpen}
+              onClick={() => setTrimOpen((open) => !open)}
+              className={`apex-btn ${trimOpen || hasTrimOverride ? "apex-btn--pressed" : ""}`}
+            >
+              <span aria-hidden>✂</span> Trim
+            </button>
+          </div>
+        </div>
+        {trimDirty || videoDirty ? (
+          <SectionSaveHint
+            dirty
+            saving={saving}
+            label={
+              trimDirty && videoDirty
+                ? "Unsaved trim / video"
+                : trimDirty
+                  ? "Unsaved trim"
+                  : "Unsaved video sync"
+            }
+            onSave={onSave}
+            onDiscard={onDiscard}
+          />
         ) : null}
+        {trimOpen ? (
+          <LapTrimControls
+            lap={trimable}
+            sessionMin={trimChart.sessionMin}
+            sessionMax={trimChart.sessionMax}
+            previewLapTimeMs={applied.lap_time_ms}
+            canMergeNext={canMergeNext}
+            canSplit={canSplit}
+            busy={trimBusy}
+            onChange={commitTrim}
+            onReset={() => {
+              onTrimReset?.(lap.id);
+            }}
+            onMergeNext={onMergeNext ? () => onMergeNext(lap.id) : undefined}
+            onSplit={
+              onSplit
+                ? () => {
+                    const b = resolveLapTrimBounds(trimable);
+                    const mid = (b.effectiveStart + b.effectiveEnd) / 2;
+                    const progress =
+                      (mid - b.effectiveStart) /
+                      Math.max(0.001, b.effectiveEnd - b.effectiveStart);
+                    onSplit(lap.id, progress);
+                  }
+                : undefined
+            }
+          />
+        ) : (
+          <p className="text-[11px] text-zinc-600">
+            Drag orange handles on the chart · tap Trim for numeric edit · Save
+            when ready
+          </p>
+        )}
       </div>
-    ) : lap.excluded ? (
-      <p className="text-sm text-zinc-400">
-        This lap is excluded from best
-        {lap.exclude_reason ? ` · ${lap.exclude_reason}` : ""}.
-      </p>
     ) : null;
-
-  const lapToolTabs: SessionToolTab[] = [
-    ...(trimTabContent
-      ? [{ id: "trim", label: "Trim", content: trimTabContent }]
-      : []),
-    ...(excludeTabContent
-      ? [{ id: "exclude", label: "Exclude", content: excludeTabContent }]
-      : []),
-    ...(extraToolTabs ?? []),
-  ];
 
   const workspace = layout === "workspace";
 
@@ -392,9 +402,11 @@ export function SessionLapDetail({
           sessionId={sessionId}
           layout={layout}
           sidebar={sidebar}
-          extraToolTabs={lapToolTabs}
+          extraToolTabs={extraToolTabs}
           toolsOpenRequest={toolsOpenRequest}
           toolsShowButtons={toolsShowButtons}
+          mapHeader={mapHeader}
+          chartHeader={chartHeader}
           lap={
             canEdit && onTrimChange
               ? {

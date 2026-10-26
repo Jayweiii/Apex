@@ -102,10 +102,10 @@ export function DeleteSessionControl({
 
   const dangerClass =
     variant === "toolbar"
-      ? "inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-red-500/50 bg-red-500/10 px-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-red-200 hover:border-red-400 hover:bg-red-500/20"
+      ? "apex-btn apex-btn--danger"
       : variant === "bulk"
-        ? "inline-flex min-h-9 items-center rounded-lg border border-red-500/50 bg-red-500/10 px-3 text-xs font-semibold uppercase tracking-[0.14em] text-red-200 hover:bg-red-500/20 disabled:opacity-40"
-        : "inline-flex min-h-8 items-center rounded-lg border border-red-500/40 px-2.5 text-[11px] uppercase tracking-[0.12em] text-red-300 hover:border-red-400 hover:bg-red-500/10 disabled:opacity-40";
+        ? "apex-btn apex-btn--danger"
+        : "apex-btn apex-btn--danger min-h-8 px-2.5 text-[11px]";
 
   return (
     <>
