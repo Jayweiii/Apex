@@ -347,8 +347,9 @@ function TrackOverviewMap({
           id: `${track.id}-overview`,
           label: track.name,
           color: "#f97316",
+          // Single polyline (not per-segment color) so the GPS outline is clear.
           points: mapPoints,
-          colorBySpeed: true,
+          colorBySpeed: false,
         },
       ]}
     />
