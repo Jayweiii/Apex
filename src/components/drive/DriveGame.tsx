@@ -73,6 +73,8 @@ export function DriveGame({ trackId }: Props) {
   const cameraRef = useRef<DriveCameraMode>("chase");
   const pausedRef = useRef(false);
   const startedRef = useRef(false);
+  /** Lateral shove (m) applied once in the sim loop — QA / recovery. */
+  const shoveRef = useRef(0);
 
   useEffect(() => {
     cameraRef.current = camera;
@@ -150,6 +152,10 @@ export function DriveGame({ trackId }: Props) {
       }
       if (e.code === "KeyP" || e.code === "Escape") {
         setPaused((p) => !p);
+      }
+      // Shove perpendicular to heading onto the grass (also helps QA prove crawl-off).
+      if (e.code === "KeyX") {
+        shoveRef.current = 22;
       }
     };
     const up = (e: KeyboardEvent) => {
@@ -549,6 +555,19 @@ export function DriveGame({ trackId }: Props) {
           const inputs = readInputs();
           const stepped = stepCar(car, inputs, FIXED_DT, centerline, halfW);
           car = stepped.car;
+          if (shoveRef.current !== 0) {
+            const lat = shoveRef.current;
+            shoveRef.current = 0;
+            const lx = Math.cos(car.heading);
+            const ly = -Math.sin(car.heading);
+            car = {
+              ...car,
+              x: car.x + lx * lat,
+              y: car.y + ly * lat,
+              onTrack: false,
+              speed: Math.min(car.speed, 8),
+            };
+          }
           const nextPos = { x: car.x, y: car.y };
 
           leaveTimer += FIXED_DT;

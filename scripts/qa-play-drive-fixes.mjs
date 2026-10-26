@@ -186,9 +186,10 @@ const browser = await chromium.launch({ headless: true });
   const ensureL3 = async () => {
     const state = await page.evaluate(() => {
       const rows = [...document.querySelectorAll('[role="option"]')];
-      const idx = rows.findIndex((el) =>
-        /^L3(?!\d)/.test((el.textContent || "").replace(/\s+/g, " ").trim()),
-      );
+      const idx = rows.findIndex((el) => {
+        const label = el.querySelector("span")?.textContent?.trim() || "";
+        return label === "L3";
+      });
       if (idx < 0) return { idx: -1, selected: false };
       return {
         idx,
@@ -225,9 +226,10 @@ const browser = await chromium.launch({ headless: true });
     const rows = [
       ...document.querySelectorAll('[role="option"][aria-selected="true"]'),
     ];
-    return rows.findIndex((el) =>
-      /^L3(?!\d)/.test((el.textContent || "").replace(/\s+/g, " ").trim()),
-    );
+    return rows.findIndex((el) => {
+      const label = el.querySelector("span")?.textContent?.trim() || "";
+      return label === "L3";
+    });
   });
   if (l3Selected >= 0 && beforeChips.length > 2) {
     removedKey = "L3-row";
@@ -262,10 +264,14 @@ const browser = await chromium.launch({ headless: true });
 
   const afterSelected = await page.evaluate(() =>
     [...document.querySelectorAll('[role="option"][aria-selected="true"]')].map(
-      (el) => (el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 48),
+      (el) => {
+        const label = el.querySelector("span")?.textContent?.trim() || "";
+        const rest = (el.textContent || "").replace(/\s+/g, " ").trim();
+        return `${label}|${rest.slice(0, 40)}`;
+      },
     ),
   );
-  const l3StillSelected = afterSelected.some((t) => /^L3(?!\d)/.test(t));
+  const l3StillSelected = afterSelected.some((t) => t.startsWith("L3|"));
   const removed =
     beforeChips.length >= 3 &&
     afterChips.length === beforeChips.length - 1 &&
@@ -368,14 +374,14 @@ const browser = await chromium.launch({ headless: true });
     minimap,
   );
 
-  // Grass: lock full left steer + throttle until HUD reports Grass.
+  // Grass: shove off ribbon (KeyX), then measure cap / coast / crawl.
   await page.keyboard.press("KeyC"); // back to chase
   await page.keyboard.down("ArrowUp");
-  await page.keyboard.down("ArrowLeft");
+  await page.keyboard.press("KeyX");
   let onGrass = 0;
   let grassMphWhileThrottle = 0;
-  for (let i = 0; i < 40; i += 1) {
-    await page.waitForTimeout(250);
+  for (let i = 0; i < 20; i += 1) {
+    await page.waitForTimeout(200);
     onGrass = await page.locator("[data-apex-drive-on-track='0']").count();
     grassMphWhileThrottle = Number(
       (await page
@@ -383,6 +389,7 @@ const browser = await chromium.launch({ headless: true });
         .getAttribute("data-apex-drive-mph")) || "0",
     );
     if (onGrass > 0) break;
+    if (i === 8) await page.keyboard.press("KeyX");
   }
   // Keep steering into grass while measuring cap / coast / crawl.
   await page.waitForTimeout(700);
