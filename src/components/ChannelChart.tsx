@@ -50,7 +50,7 @@ export function ChannelChart({
   onSeekIndex,
   syncId = "lap",
   yUnit,
-  heightClass = "h-[100px] min-h-[100px] sm:h-[120px] sm:min-h-[120px]",
+  heightClass = "h-[240px] min-h-[240px] sm:h-[260px] sm:min-h-[260px]",
   showLegend = false,
   showXAxis = true,
   compact = true,
@@ -123,7 +123,7 @@ export function ChannelChart({
           if (!hoverCursor) scrub.onMouseLeave?.();
         }}
       >
-        <ResponsiveContainer width="100%" height="100%" minHeight={100}>
+        <ResponsiveContainer width="100%" height="100%" minHeight={220}>
           <LineChart
             data={points}
             syncId={syncId}

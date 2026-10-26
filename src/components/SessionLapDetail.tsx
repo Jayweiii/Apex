@@ -366,11 +366,19 @@ export function SessionLapDetail({
             Lap {lap.lap_number}
           </h2>
           <p
-            className={`font-mono text-orange-400 ${
+            className={`inline-flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-orange-400 ${
               workspace ? "text-lg" : "mt-0.5 text-2xl"
             }`}
           >
             {formatLapTime(applied.lap_time_ms)}
+            {deltaSec === 0 ? (
+              <span
+                className="rounded-md border border-orange-500/40 bg-orange-500/15 px-1.5 py-0.5 text-[10px] font-sans uppercase tracking-[0.16em] text-orange-400"
+                data-apex-session-best="1"
+              >
+                Session best
+              </span>
+            ) : null}
           </p>
         </div>
         <div
@@ -381,17 +389,10 @@ export function SessionLapDetail({
           <span data-apex-peak-speed="1">
             Peak {formatSpeed(peak, speedUnit)}
           </span>
-          {deltaSec == null ? null : deltaSec !== 0 ? (
+          {deltaSec == null || deltaSec === 0 ? null : (
             <span className="font-mono">
               Δ best {deltaSec > 0 ? "+" : ""}
               {deltaSec.toFixed(3)}s
-            </span>
-          ) : (
-            <span
-              className="rounded-md border border-orange-500/40 bg-orange-500/15 px-1.5 py-0.5 text-[10px] font-sans uppercase tracking-[0.16em] text-orange-400"
-              data-apex-session-best="1"
-            >
-              Session best
             </span>
           )}
           {lap.excluded ? (

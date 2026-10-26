@@ -32,9 +32,9 @@ const tooltipStyle = {
   color: "#fafafa",
 };
 
-/** Desktop plot body ~120px; phone slightly shorter but still readable. */
+/** Plot body ≥240px so cartesian grid stays ≥200px after axis chrome. */
 export const G_ROW_HEIGHT =
-  "h-[100px] min-h-[100px] sm:h-[120px] sm:min-h-[120px]";
+  "h-[240px] min-h-[240px] sm:h-[260px] sm:min-h-[260px]";
 
 export const G_PLOT_PAD: PlotPad = { left: 40, right: 6 };
 
@@ -125,7 +125,7 @@ function AxisGChart({
           if (!hoverCursor) scrub.onMouseLeave?.();
         }}
       >
-        <ResponsiveContainer width="100%" height="100%" minHeight={100}>
+        <ResponsiveContainer width="100%" height="100%" minHeight={220}>
           <LineChart
             data={points}
             syncId={syncId}
@@ -225,7 +225,7 @@ function FrictionCircle({
         className={`relative touch-none ${heightClass}`}
         data-apex-chart-plot="g-friction"
       >
-        <ResponsiveContainer width="100%" height="100%" minHeight={100}>
+        <ResponsiveContainer width="100%" height="100%" minHeight={220}>
           <ScatterChart margin={{ top: 8, right: 8, left: 0, bottom: 4 }}>
             <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
             <XAxis

@@ -119,8 +119,10 @@ assert(
   "StackedCompareTelemetry must be exported",
 );
 assert(
-  stackedSrc.includes("min-h-[160px]") || stackedSrc.includes("sm:min-h-[200px]"),
-  "speed channel should keep a solid min height (no flex sliver)",
+  stackedSrc.includes("min-h-[260px]") ||
+    stackedSrc.includes("h-[260px]") ||
+    stackedSrc.includes("sm:min-h-[280px]"),
+  "speed channel should keep a solid min height ≥260 (plot ≥200)",
 );
 assert(
   !stackedSrc.includes("overflow-y-auto"),
@@ -136,9 +138,11 @@ assert(gChartSrc.includes("Lateral G"), "G chart stacks lateral");
 assert(gChartSrc.includes("Longitudinal G"), "G chart stacks longitudinal");
 assert(gChartSrc.includes("Friction circle"), "G chart includes friction circle");
 assert(
-  (gChartSrc.includes("sm:h-[120px]") || gChartSrc.includes("sm:min-h-[120px]")) &&
+  (gChartSrc.includes("h-[240px]") ||
+    gChartSrc.includes("sm:h-[260px]") ||
+    gChartSrc.includes("sm:min-h-[260px]")) &&
     !gChartSrc.includes("h-[56px]"),
-  "G rows ~120px on desktop, no 56px slivers",
+  "G rows ≥240px so plot ≥200px, no 56px slivers",
 );
 
 const lapCompareSrc = fs.readFileSync(
@@ -155,8 +159,11 @@ assert(
   "compare picker uses shared pressable styles",
 );
 assert(
-  lapCompareSrc.includes("min-h-[120px]") || lapCompareSrc.includes("h-[120px]"),
-  "compare ChartCard keeps ≥120px plot height",
+  lapCompareSrc.includes("min-h-[320px]") ||
+    lapCompareSrc.includes("h-[320px]") ||
+    lapCompareSrc.includes("min-h-[300px]") ||
+    lapCompareSrc.includes("h-[300px]"),
+  "compare ChartCard keeps ≥300px container (plot ≥200px)",
 );
 
 const speedChartSrc = fs.readFileSync(
