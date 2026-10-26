@@ -13,7 +13,7 @@ import { downsampleSeriesAsync } from "@/lib/telemetry-worker";
 import { getTrack } from "@/lib/tracks";
 import type { LapRow, TelemetryPoint } from "@/lib/types";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Line,
   LineChart,
