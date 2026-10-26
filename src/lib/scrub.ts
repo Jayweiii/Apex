@@ -252,8 +252,8 @@ export function hasUsableTrackDist(points: GpsPoint[]): boolean {
     if (d < min) min = d;
     if (d > max) max = d;
   }
-  // Need a real along-track span — all zeros previously made gap = −elapsed.
-  return count >= 2 && max - min > 10;
+  // Need a real along-track span (≥100 m). Tiny spans still collapse to −elapsed.
+  return count >= 2 && max - min > 100;
 }
 
 /**

@@ -71,6 +71,11 @@ assert(
   Math.abs((series[20]!.delta1 as number) + midT) > 1,
   `time-sync delta must not be −elapsed (got ${series[20]!.delta1} at t=${midT})`,
 );
+// Real gap magnitude for these constant-speed laps is a few seconds, not ~t.
+assert(
+  Math.abs(series[20]!.delta1 as number) < midT * 0.5,
+  `delta magnitude << elapsed (got ${series[20]!.delta1} at t=${midT})`,
+);
 
 // All-zero trackDist must fall back to path distance (prod −elapsed bug).
 const zeroTrack = (pts: TelemetryPoint[]) =>
@@ -80,6 +85,21 @@ assert(zeroSeries.length === 41, "zero-trackDist still builds series");
 assert(
   Math.abs((zeroSeries[20]!.delta1 as number) + midT) > 1,
   `zero trackDist delta not −elapsed, got ${zeroSeries[20]!.delta1}`,
+);
+assert(
+  Math.abs(zeroSeries[20]!.delta1 as number) < midT * 0.5,
+  `zero trackDist delta magnitude << elapsed`,
+);
+// Bogus tiny trackDist span (11 m) must NOT be treated as usable.
+const tinyTrack = (pts: TelemetryPoint[]) =>
+  pts.map((p, i) => ({
+    ...p,
+    trackDist: (i / Math.max(1, pts.length - 1)) * 11,
+  }));
+const tinySeries = compareManyByTime(tinyTrack(fast), [tinyTrack(slow)], 41, shared);
+assert(
+  Math.abs((tinySeries[20]!.delta1 as number) + midT) > 1,
+  `tiny trackDist span delta not −elapsed, got ${tinySeries[20]!.delta1}`,
 );
 // Distance axis must also produce a real series (not blank charts).
 const distSeries = compareMany(zeroTrack(fast), [zeroTrack(slow)], 41);

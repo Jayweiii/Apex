@@ -216,9 +216,9 @@ function haversine(lat1: number, lon1: number, lat2: number, lon2: number) {
 }
 
 /**
- * True when trackDist spans real meters. All-null / all-zero junk must fall
- * back to path distance — otherwise time-sync delta becomes −elapsed
- * (valueAt(ref, 0, "t") ≡ 0 → delta = −t) and distance-axis charts go blank.
+ * True when trackDist spans real along-track meters (≥100 m).
+ * Tiny / all-zero spans must fall back to path distance — otherwise
+ * time-sync delta becomes −elapsed and distance-axis charts go blank.
  */
 export function usesTrackDistance(points: TelemetryPoint[]): boolean {
   let min = Number.POSITIVE_INFINITY;
@@ -231,7 +231,7 @@ export function usesTrackDistance(points: TelemetryPoint[]): boolean {
     if (d < min) min = d;
     if (d > max) max = d;
   }
-  return count >= 2 && max - min > 10;
+  return count >= 2 && max - min > 100;
 }
 
 /**
@@ -487,9 +487,19 @@ export function compareMany(
 }
 
 /**
+ * Strip trackDist so withDistance builds cumulative GPS/speed path meters.
+ * Time-sync delta must match map gap labels (timeGapAtProgress) — snapped
+ * trackDist has produced −elapsed diagonals when SF/base alignment drifts.
+ */
+function withoutTrackDist(points: TelemetryPoint[]): TelemetryPoint[] {
+  return points.map(({ trackDist: _td, ...rest }) => rest);
+}
+
+/**
  * Time-aligned multi-lap compare: same elapsed seconds from each lap start.
  * At time t, each series shows speed/G where that car was.
  * delta{i} = t_ref(d_other(t)) − t  (seconds; negative = behind reference).
+ * Distance for delta is always path meters (same as map gap), not trackDist.
  */
 export function compareManyByTime(
   reference: TelemetryPoint[],
@@ -501,9 +511,16 @@ export function compareManyByTime(
   const snapped =
     usesTrackDistance(reference) &&
     others.every((other) => usesTrackDistance(other));
+  // Channel samples (speed/G) — may still prefer trackDist for dist fields.
   const ref = withDistance(enrichTelemetry(reference));
   const alts = others.map((other) => withDistance(enrichTelemetry(other)));
+  // Gap samples — always path meters so delta ≡ map gap, never −elapsed.
+  const refGap = withDistance(enrichTelemetry(withoutTrackDist(reference)));
+  const altGaps = others.map((other) =>
+    withDistance(enrichTelemetry(withoutTrackDist(other))),
+  );
   if (ref.length < 2 || alts.some((alt) => alt.length < 2)) return [];
+  if (refGap.length < 2 || altGaps.some((alt) => alt.length < 2)) return [];
 
   const refEndT = ref[ref.length - 1]!.t;
   const altEndTs = alts.map((alt) => alt[alt.length - 1]!.t);
@@ -535,14 +552,15 @@ export function compareManyByTime(
     }
     alts.forEach((alt, j) => {
       const idx = j + 1;
-      const otherDist = valueAtTime(alt, t, "dist");
+      const gapAlt = altGaps[j]!;
+      const otherPathDist = valueAtTime(gapAlt, t, "dist");
       row[`speed${idx}`] = valueAtTime(alt, t, "speed");
       row[`g${idx}`] = valueAtTime(alt, t, "g");
       row[`latG${idx}`] = valueAtTime(alt, t, "latG");
       row[`lonG${idx}`] = valueAtTime(alt, t, "lonG");
-      row[`dist${idx}`] = otherDist;
-      // Time gap at other's distance: when ref was there minus now.
-      const refTAtOtherDist = valueAt(ref, otherDist, "t");
+      row[`dist${idx}`] = otherPathDist;
+      // Same formula as map gap / timeGapAtProgress (path meters).
+      const refTAtOtherDist = valueAt(refGap, otherPathDist, "t");
       row[`delta${idx}`] = refTAtOtherDist - t;
       for (const key of optionalKeys) {
         row[`${key}${idx}`] = valueAtTime(alt, t, key);
