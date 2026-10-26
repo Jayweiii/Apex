@@ -86,18 +86,44 @@ const browser = await chromium.launch({ headless: true });
   await header.screenshot({ path: resolve(OUT, "qa-mobile-header-home.png") });
   const menuBtn = page.getByRole("button", { name: /Open menu|Close menu/i });
   ok("mobile-menu-btn", (await menuBtn.count()) > 0, "compact menu control");
+  // Top bar only (menu closed): visible chrome is APEX + hamburger (w>0).
+  // Hidden desktop controls still appear in textContent — check layout boxes.
+  const topRow = await page
+    .locator("header")
+    .first()
+    .evaluate((el) => {
+      const row = el.firstElementChild;
+      if (!row) return null;
+      const visible = [...row.querySelectorAll("a,button")].filter(
+        (node) => node.getBoundingClientRect().width > 1,
+      );
+      const labels = visible.map((node) =>
+        (node.getAttribute("aria-label") || node.textContent || "")
+          .trim()
+          .toLowerCase(),
+      );
+      return {
+        h: Math.round(row.getBoundingClientRect().height),
+        labels,
+        hasMph: labels.some((t) => /mph|km\/h/.test(t)),
+        hasAuth: labels.some((t) =>
+          /sign out|sign in|my sessions|keep sessions/.test(t),
+        ),
+      };
+    })
+    .catch(() => null);
+  ok(
+    "mobile-header-compact",
+    topRow != null && topRow.h < 80 && !topRow.hasMph && !topRow.hasAuth,
+    topRow
+      ? `top h=${topRow.h} visible=[${topRow.labels.join(",")}]`
+      : "no header",
+  );
   if (await menuBtn.count()) {
     await menuBtn.click();
     await page.waitForTimeout(400);
     await page.screenshot({ path: resolve(OUT, "qa-mobile-header-menu.png") });
   }
-  // Header should not wrap Sign out beside APEX in the top row on 390px
-  const headerBox = await header.boundingBox();
-  ok(
-    "mobile-header-compact",
-    headerBox != null && headerBox.height < 120,
-    headerBox ? `header h=${Math.round(headerBox.height)}` : "no header",
-  );
   await context.close();
 }
 
@@ -146,24 +172,24 @@ const browser = await chromium.launch({ headless: true });
 
   // Play rate: advance scrubber ~1s media in ~1–1.5s wall at 1x
   const play = page.getByRole("button", { name: /^Play$/i }).first();
+  const readClock = async () => {
+    const group = page.locator("[role='group']").filter({ hasText: /Playback|Lap playback/i }).first();
+    const text = await group.innerText().catch(() => "");
+    const m = text.match(/(\d+(?:\.\d+)?)s\s*\/\s*(\d+(?:\.\d+)?)s/);
+    return m ? Number(m[1]) : null;
+  };
   if (await play.count()) {
-    const clockBefore = await page.locator("text=/\\d+\\.\\ds\\s*\\/").first().textContent().catch(() => null);
+    const a = await readClock();
     await play.click();
     await page.waitForTimeout(2000);
-    const clockAfter = await page.locator("text=/\\d+\\.\\ds\\s*\\/").first().textContent().catch(() => null);
+    const b = await readClock();
     await page.getByRole("button", { name: /^Pause$/i }).first().click().catch(() => {});
-    const parse = (s) => {
-      const m = s && s.match(/(\d+(?:\.\d+)?)s/);
-      return m ? Number(m[1]) : null;
-    };
-    const a = parse(clockBefore);
-    const b = parse(clockAfter);
     const delta = a != null && b != null ? b - a : null;
     // After 2s wall at 1x expect ~1.2–2.8s of progress (not ~0.5s).
     ok(
       "play-rate-1x",
       delta != null && delta >= 1.0 && delta <= 3.5,
-      `Δt=${delta} (before=${clockBefore} after=${clockAfter})`,
+      `Δt=${delta} (before=${a} after=${b})`,
     );
   } else {
     ok("play-rate-1x", false, "no Play button");
