@@ -186,7 +186,9 @@ export function LocalCompare({
     .map((item) => ({
       id: item.id,
       name: item.name,
+      title: item.name,
       car: item.car,
+      createdAt: item.created_at,
       kind: item.kind,
       trackId: item.trackId,
       sourceKind: item.sourceKind ?? null,

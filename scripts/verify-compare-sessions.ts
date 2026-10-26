@@ -1,4 +1,5 @@
 import {
+  formatSessionPickerLabel,
   groupLapsBySession,
   labelForAccessibleSession,
   trackIdsFromSessions,
@@ -17,6 +18,7 @@ const metas = [
     car: "Mx-5",
     user_id: "me",
     visibility: "friends",
+    created_at: "2026-10-12T16:00:00.000Z",
   },
   {
     id: "s2",
@@ -26,6 +28,7 @@ const metas = [
     driver_name: "Alex",
     user_id: "other",
     visibility: "friends",
+    created_at: "2026-10-13T18:00:00.000Z",
   },
   {
     id: "s3",
@@ -34,6 +37,7 @@ const metas = [
     car: "GT4",
     user_id: "other",
     visibility: "public",
+    created_at: "2026-09-01T12:00:00.000Z",
   },
 ];
 
@@ -85,7 +89,16 @@ assert(grouped.length === 3, "three sessions with laps");
 assert(grouped[0].laps.length === 2, "s1 has two laps");
 assert(trackIdsFromSessions(metas).length === 2, "two tracks");
 
+const friendOpt = grouped.find((s) => s.id === "s2");
+assert(friendOpt, "friend session present");
+assert(friendOpt.createdAt === metas[1].created_at, "createdAt threaded");
+assert(friendOpt.driverName === "Alex", "driverName threaded");
+const picker = formatSessionPickerLabel(friendOpt);
+assert(picker.includes("Alex"), `picker shows driver: ${picker}`);
+assert(/Oct|10/.test(picker), `picker shows date: ${picker}`);
+
 console.log("verify-compare-sessions ok", {
   sessions: grouped.length,
   tracks: trackIdsFromSessions(metas),
+  picker,
 });

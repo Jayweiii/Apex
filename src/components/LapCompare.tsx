@@ -21,7 +21,10 @@ import {
   parseCompareSlots,
   type MultiComparedPoint,
 } from "@/lib/compare";
-import { type CompareSessionOption } from "@/lib/compare-sessions";
+import {
+  formatSessionPickerLabel,
+  type CompareSessionOption,
+} from "@/lib/compare-sessions";
 import {
   comparisonItemsFromSlots,
   type ComparisonDraftSnapshot,
@@ -36,6 +39,8 @@ import {
   speedUnitSuffix,
 } from "@/lib/format";
 import { enrichTelemetry } from "@/lib/gforce";
+import { bestLapTimeMs, isLapExcluded } from "@/lib/lap-quality";
+import { lapKindsForSession } from "@/lib/lap-sf-boundary";
 import {
   analysisPoints,
   displayPoints,
@@ -297,6 +302,11 @@ export function LapCompare({
     return 0;
   });
 
+  /** Session currently shown in the always-visible lap list (selections persist). */
+  const [browseSessionId, setBrowseSessionId] = useState(
+    () => filteredSessions[0]?.id ?? baseSessionId,
+  );
+
   // Keep slots valid when session list / filter changes (bail if unchanged).
   useEffect(() => {
     setSlots((prev) => {
@@ -345,6 +355,12 @@ export function LapCompare({
     initialLaps,
     baseSessionId,
   ]);
+
+  const activeBrowseSessionId = filteredSessions.some(
+    (session) => session.id === browseSessionId,
+  )
+    ? browseSessionId
+    : (filteredSessions[0]?.id ?? browseSessionId);
 
   useEffect(() => {
     if (refIndex >= slots.length) setRefIndex(0);
@@ -563,42 +579,6 @@ export function LapCompare({
     0,
   );
 
-  function updateSlot(key: string, patch: Partial<SlotState>) {
-    setSlots((prev) =>
-      prev.map((slot) => (slot.key === key ? { ...slot, ...patch } : slot)),
-    );
-  }
-
-  function addSlot() {
-    if (slots.length >= MAX_COMPARE_LAPS) return;
-    const used = new Set(slots.map((s) => `${s.sessionId}:${s.lapId}`));
-    let session = filteredSessions[0];
-    let lapId = "";
-    for (const candidate of filteredSessions) {
-      const ordered = [...candidate.laps].sort(
-        (a, b) => a.lap_time_ms - b.lap_time_ms,
-      );
-      // Prefer non-excluded for default picks; fall back so excluded stay selectable.
-      const pool = [
-        ...ordered.filter((lap) => !lap.excluded),
-        ...ordered.filter((lap) => lap.excluded),
-      ];
-      for (const lap of pool) {
-        const key = `${candidate.id}:${lap.id}`;
-        if (used.has(key)) continue;
-        session = candidate;
-        lapId = lap.id;
-        break;
-      }
-      if (lapId) break;
-    }
-    if (!session || !lapId) return;
-    setSlots((prev) => [
-      ...prev,
-      { key: newSlotKey(), sessionId: session!.id, lapId },
-    ]);
-  }
-
   function removeSlot(key: string) {
     if (slots.length <= 2) return;
     const index = slots.findIndex((slot) => slot.key === key);
@@ -606,6 +586,28 @@ export function LapCompare({
     if (index >= 0 && index === refIndex) setRefIndex(0);
     else if (index >= 0 && index < refIndex) setRefIndex((r) => r - 1);
   }
+
+  /** Tap a lap in the browse list to add/remove it from the comparison set. */
+  function toggleComparedLap(sessionId: string, lapId: string) {
+    if (readOnly) return;
+    const existing = slots.findIndex(
+      (slot) => slot.sessionId === sessionId && slot.lapId === lapId,
+    );
+    if (existing >= 0) {
+      removeSlot(slots[existing]!.key);
+      return;
+    }
+    if (slots.length >= MAX_COMPARE_LAPS) return;
+    setSlots((prev) => [
+      ...prev,
+      { key: newSlotKey(), sessionId, lapId },
+    ]);
+  }
+
+  const browseSession =
+    filteredSessions.find((session) => session.id === activeBrowseSessionId) ??
+    filteredSessions[0] ??
+    null;
 
   if (totalLaps < 2) {
     return (
@@ -626,8 +628,8 @@ export function LapCompare({
     color: item.color,
   }));
 
-  const setupPanel = (
-    <div className="space-y-2.5">
+  const lapPicker = (
+    <div className="space-y-3 rounded-xl border border-zinc-800/80 bg-zinc-950/50 p-3">
       {trackOptions.length > 1 ? (
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-[11px] uppercase tracking-[0.14em] text-zinc-500">
@@ -636,7 +638,7 @@ export function LapCompare({
           <select
             value={trackFilter}
             onChange={(event) => setTrackFilter(event.target.value)}
-            className="min-h-9 rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-sm text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2"
+            className="apex-pressable min-h-10 rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-sm text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2"
           >
             {trackOptions.map((trackId) => (
               <option key={trackId} value={trackId}>
@@ -647,49 +649,52 @@ export function LapCompare({
         </label>
       ) : null}
 
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="space-y-1.5">
         <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
-          Laps ({slots.length}/{MAX_COMPARE_LAPS})
+          Comparing ({slots.length}/{MAX_COMPARE_LAPS})
           {readOnly ? " · read-only" : ""}
         </p>
-        {!readOnly ? (
-          <button
-            type="button"
-            disabled={slots.length >= MAX_COMPARE_LAPS}
-            onClick={addSlot}
-            className="min-h-8 rounded-md border border-zinc-800 px-2.5 text-xs text-zinc-300 hover:border-zinc-600 disabled:opacity-40"
-          >
-            Add lap
-          </button>
-        ) : null}
-      </div>
-      <div className="grid gap-2">
-        {slots.map((slot, index) => {
-          const session =
-            filteredSessions.find((s) => s.id === slot.sessionId) ??
-            filteredSessions[0];
-          const color = COMPARE_COLORS[index % COMPARE_COLORS.length];
-          const isRef = index === refIndex;
-          return (
-            <div
-              key={slot.key}
-              className="space-y-1.5 rounded-lg border border-zinc-800/80 bg-zinc-950/40 px-2 py-2"
-            >
-              <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex flex-wrap gap-1.5">
+          {slots.map((slot, index) => {
+            const session =
+              filteredSessions.find((s) => s.id === slot.sessionId) ?? null;
+            const lap = session?.laps.find((item) => item.id === slot.lapId);
+            const color = COMPARE_COLORS[index % COMPARE_COLORS.length];
+            const isRef = index === refIndex;
+            return (
+              <div
+                key={slot.key}
+                className="inline-flex max-w-full flex-wrap items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-950/80 px-2 py-1.5"
+              >
                 <span
-                  className="inline-block h-2 w-2 rounded-full"
+                  className="inline-block h-2 w-2 shrink-0 rounded-full"
                   style={{ background: color }}
                 />
-                <span className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">
-                  {isRef ? "Reference" : `Lap ${index + 1}`}
+                <span className="font-mono text-xs text-zinc-100">
+                  L{lap?.lap_number ?? "—"}{" "}
+                  <span className="text-zinc-500">
+                    {formatLapTime(lap?.lap_time_ms ?? 0)}
+                  </span>
                 </span>
+                {isRef ? (
+                  <span className="text-[10px] uppercase tracking-[0.12em] text-orange-400">
+                    Ref
+                  </span>
+                ) : null}
+                {multiSession ? (
+                  <span className="max-w-[9rem] truncate text-[10px] text-zinc-500">
+                    {session
+                      ? formatSessionPickerLabel(session)
+                      : slot.sessionId}
+                  </span>
+                ) : null}
                 {!readOnly ? (
-                  <div className="ml-auto flex gap-1">
+                  <span className="ml-auto flex gap-0.5">
                     {!isRef ? (
                       <button
                         type="button"
                         onClick={() => setRefIndex(index)}
-                        className="rounded px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-orange-400 hover:bg-zinc-900"
+                        className="apex-pressable apex-pressable--muted rounded px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-orange-400"
                       >
                         Set ref
                       </button>
@@ -698,73 +703,67 @@ export function LapCompare({
                       <button
                         type="button"
                         onClick={() => removeSlot(slot.key)}
-                        className="rounded px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300"
+                        className="apex-pressable apex-pressable--muted rounded px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-zinc-500"
                       >
                         Remove
                       </button>
                     ) : null}
-                  </div>
-                ) : (
-                  <span className="ml-auto text-[10px] uppercase tracking-[0.14em] text-zinc-600">
-                    {session?.name ?? ""}
                   </span>
-                )}
+                ) : null}
               </div>
-              {multiSession && !readOnly ? (
-                <SessionSelect
-                  label="Session"
-                  value={session?.id ?? ""}
-                  sessions={filteredSessions}
-                  onChange={(id) => {
-                    const next = filteredSessions.find((s) => s.id === id);
-                    const pair = defaultLapPair(next?.laps ?? []);
-                    updateSlot(slot.key, {
-                      sessionId: id,
-                      lapId: pair.ref,
-                    });
-                  }}
-                />
-              ) : null}
-              {!readOnly ? (
-                <LapChipPicker
-                  value={slot.lapId}
-                  laps={session?.laps ?? []}
-                  onChange={(lapId) => updateSlot(slot.key, { lapId })}
-                />
-              ) : (
-                <p className="text-sm text-zinc-300">
-                  Lap{" "}
-                  {session?.laps.find((l) => l.id === slot.lapId)?.lap_number ??
-                    "—"}{" "}
-                  <span className="font-mono text-zinc-500">
-                    {formatLapTime(
-                      session?.laps.find((l) => l.id === slot.lapId)
-                        ?.lap_time_ms ?? 0,
-                    )}
-                  </span>
-                </p>
-              )}
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
+
+      {!readOnly ? (
+        <>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-[11px] uppercase tracking-[0.14em] text-zinc-500">
+              Session
+            </span>
+            <select
+              value={browseSession?.id ?? ""}
+              onChange={(event) => setBrowseSessionId(event.target.value)}
+              className="apex-pressable min-h-10 rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-sm text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2"
+            >
+              {filteredSessions.map((session) => (
+                <option key={session.id} value={session.id}>
+                  {formatSessionPickerLabel(session)}
+                  {session.kind === "upload" ? " · you" : ""}
+                  {session.kind === "friends" ? " · friends" : ""}
+                  {session.kind === "public" ? " · public" : ""}
+                  {session.kind === "demo" ? " · demo" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <SessionLapToggleList
+            session={browseSession}
+            slots={slots}
+            atCapacity={slots.length >= MAX_COMPARE_LAPS}
+            onToggle={toggleComparedLap}
+          />
+        </>
+      ) : null}
     </div>
   );
 
   return (
     <div className="flex flex-col gap-2">
-      <SessionToolsPanel
-        tabs={[
-          { id: "setup", label: "Laps", content: setupPanel },
-          ...(extraToolTabs ?? []),
-        ]}
-        defaultTab="setup"
-        defaultOpen
-      />
+      {lapPicker}
+
+      {extraToolTabs?.length ? (
+        <SessionToolsPanel
+          tabs={extraToolTabs}
+          defaultTab={extraToolTabs[0]?.id}
+        />
+      ) : null}
 
       {sameLap || ordered.length < 2 ? (
         <p className="text-sm text-zinc-500">
-          Pick at least two different laps (open Tools → Laps).
+          Pick at least two different laps from the list above.
         </p>
       ) : (
         <>
@@ -1220,116 +1219,136 @@ export function LapCompare({
   );
 }
 
-function SessionSelect({
-  label,
-  value,
-  sessions,
-  onChange,
+/**
+ * Always-visible lap list for one session. Tap to add/remove from compare.
+ * No nested scroll pane — page scroll only.
+ */
+function SessionLapToggleList({
+  session,
+  slots,
+  atCapacity,
+  onToggle,
 }: {
-  label: string;
-  value: string;
-  sessions: CompareSessionOption[];
-  onChange: (id: string) => void;
+  session: CompareSessionOption | null;
+  slots: SlotState[];
+  atCapacity: boolean;
+  onToggle: (sessionId: string, lapId: string) => void;
 }) {
-  return (
-    <label className="flex flex-col gap-1 text-xs">
-      <span className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">
-        {label}
-      </span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="min-h-8 rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-1"
-      >
-        {sessions.map((session) => (
-          <option key={session.id} value={session.id}>
-            {session.name}
-            {session.sourceKind === "gopro" || session.gpsQuality?.rank
-              ? session.gpsQuality?.stream
-                ? ` · ${session.gpsQuality.stream}`
-                : " · GoPro"
-              : ""}
-            {session.kind === "upload" ? " · you" : ""}
-            {session.kind === "friends" ? " · friends" : ""}
-            {session.kind === "demo" ? " · demo" : ""}
-            {session.kind === "public" ? " · public" : ""}
-          </option>
-        ))}
-      </select>
-    </label>
+  const ordered = useMemo(() => {
+    const laps = session?.laps ?? [];
+    return [...laps].sort((a, b) => a.lap_number - b.lap_number);
+  }, [session?.laps]);
+  const fastest = bestLapTimeMs(ordered);
+  const kinds = useMemo(() => lapKindsForSession(ordered), [ordered]);
+  const selectedKeys = useMemo(
+    () => new Set(slots.map((slot) => `${slot.sessionId}:${slot.lapId}`)),
+    [slots],
   );
-}
 
-/** Compact searchable lap chips for compare setup. */
-function LapChipPicker({
-  value,
-  laps,
-  onChange,
-}: {
-  value: string;
-  laps: LapRow[];
-  onChange: (id: string) => void;
-}) {
-  const [query, setQuery] = useState("");
-  const ordered = useMemo(
-    () => [...laps].sort((a, b) => a.lap_number - b.lap_number),
-    [laps],
-  );
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return ordered;
-    return ordered.filter((lap) => {
-      const time = formatLapTime(lap.lap_time_ms).toLowerCase();
-      return (
-        String(lap.lap_number).includes(q) ||
-        time.includes(q) ||
-        `lap ${lap.lap_number}`.includes(q)
-      );
-    });
-  }, [ordered, query]);
+  if (!session) {
+    return <p className="text-sm text-zinc-500">No session available.</p>;
+  }
 
   return (
     <div className="space-y-1.5">
-      {ordered.length > 6 ? (
-        <input
-          type="search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search laps…"
-          className="min-h-8 w-full rounded-md border border-zinc-800 bg-zinc-950 px-2 text-xs text-zinc-100 outline-none ring-orange-500/40 placeholder:text-zinc-600 focus:border-orange-500/70 focus:ring-1"
-        />
-      ) : null}
+      <p className="text-[11px] uppercase tracking-[0.14em] text-zinc-500">
+        Laps in session
+      </p>
       <div
-        className="flex flex-wrap gap-1"
         role="listbox"
-        aria-label="Lap"
+        aria-label="Laps in session"
+        aria-multiselectable
+        className="divide-y divide-zinc-800/80 rounded-lg border border-zinc-800/80"
       >
-        {filtered.map((lap) => {
-          const selected = lap.id === value;
+        {ordered.map((lap) => {
+          const key = `${session.id}:${lap.id}`;
+          const selected = selectedKeys.has(key);
+          const excluded = isLapExcluded(lap);
+          const isBest =
+            !excluded && fastest != null && lap.lap_time_ms === fastest;
+          const kind = kinds.get(lap.lap_number) ?? "hot";
+          const kindLabel =
+            kind === "out" ? "Out" : kind === "in" ? "In" : null;
+          const blocked = !selected && atCapacity;
           return (
             <button
               key={lap.id}
               type="button"
               role="option"
               aria-selected={selected}
-              onClick={() => onChange(lap.id)}
-              className={`inline-flex min-h-7 items-center gap-1 rounded-md px-2 font-mono text-[11px] ${
-                selected
-                  ? "bg-orange-500 text-black"
-                  : "border border-zinc-800 text-zinc-300 hover:border-zinc-600 hover:text-zinc-50"
-              } ${lap.excluded ? "opacity-50" : ""}`}
+              disabled={blocked}
+              onClick={() => onToggle(session.id, lap.id)}
+              className={`apex-pressable flex min-h-11 w-full items-center gap-2 px-2.5 py-2 text-left text-sm disabled:cursor-not-allowed disabled:opacity-40 ${
+                selected ? "apex-pressable--selected" : "apex-pressable--row"
+              } ${excluded && !selected ? "opacity-55" : ""}`}
             >
-              L{lap.lap_number}
-              <span className={selected ? "text-black/70" : "text-zinc-500"}>
+              <span
+                className={`w-8 shrink-0 font-mono text-xs ${
+                  selected ? "text-black/70" : "text-zinc-500"
+                }`}
+              >
+                L{lap.lap_number}
+              </span>
+              <span
+                className={`min-w-0 flex-1 font-mono tracking-tight ${
+                  selected
+                    ? "text-black"
+                    : isBest
+                      ? "text-orange-400"
+                      : "text-zinc-100"
+                }`}
+              >
                 {formatLapTime(lap.lap_time_ms)}
+              </span>
+              <span className="flex shrink-0 items-center gap-1.5">
+                {isBest ? (
+                  <span
+                    className={`text-[10px] font-sans uppercase tracking-[0.16em] ${
+                      selected ? "text-black/70" : "text-orange-500"
+                    }`}
+                  >
+                    Best
+                  </span>
+                ) : null}
+                {kindLabel ? (
+                  <span
+                    className={`rounded px-1.5 py-0.5 text-[10px] font-sans uppercase tracking-[0.14em] ${
+                      selected
+                        ? "bg-black/15 text-black/80"
+                        : kind === "out"
+                          ? "border border-sky-500/40 text-sky-300"
+                          : "border border-rose-500/40 text-rose-300"
+                    }`}
+                  >
+                    {kindLabel}
+                  </span>
+                ) : null}
+                {excluded ? (
+                  <span
+                    className={`text-[10px] font-sans uppercase tracking-[0.12em] ${
+                      selected ? "text-black/55" : "text-zinc-500"
+                    }`}
+                  >
+                    Excl
+                  </span>
+                ) : null}
               </span>
             </button>
           );
         })}
-        {!filtered.length ? (
-          <p className="text-xs text-zinc-500">No laps match.</p>
+        {!ordered.length ? (
+          <p className="px-2.5 py-3 text-sm text-zinc-500">No laps in session.</p>
         ) : null}
       </div>
+      {atCapacity ? (
+        <p className="text-[11px] text-zinc-500">
+          Comparison full — remove a lap above to add another.
+        </p>
+      ) : (
+        <p className="text-[11px] text-zinc-500">
+          Tap a lap to add or remove. Switch sessions to keep prior picks.
+        </p>
+      )}
     </div>
   );
 }

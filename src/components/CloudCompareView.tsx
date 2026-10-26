@@ -220,6 +220,7 @@ export function CloudCompareView({
             track_id: current.track_id,
             car: current.car,
             user_id: current.user_id,
+            created_at: current.created_at,
           });
         }
 

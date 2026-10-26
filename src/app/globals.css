@@ -68,6 +68,73 @@ select:disabled {
   cursor: not-allowed;
 }
 
+/*
+ * Shared pressables (compare picker, tools, toggles).
+ * Hover only on fine pointers so iPhone first-tap fires click immediately.
+ */
+.apex-pressable {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease,
+    opacity 0.12s ease;
+}
+
+.apex-pressable--muted {
+  border: 1px solid rgb(39 39 42);
+  background-color: rgb(24 24 27 / 0.85);
+  color: rgb(212 212 216);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .apex-pressable--muted:hover:not(:disabled):not([aria-pressed="true"]):not([aria-selected="true"]) {
+    border-color: rgb(82 82 91);
+    background-color: rgb(39 39 42);
+    color: rgb(250 250 250);
+  }
+}
+
+.apex-pressable--muted:active:not(:disabled) {
+  border-color: rgb(82 82 91);
+  background-color: rgb(63 63 70);
+  color: rgb(250 250 250);
+}
+
+.apex-pressable--selected {
+  border: 1px solid transparent;
+  background-color: rgb(249 115 22);
+  color: rgb(0 0 0);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .apex-pressable--selected:hover:not(:disabled) {
+    background-color: rgb(251 146 60);
+  }
+}
+
+.apex-pressable--selected:active:not(:disabled) {
+  background-color: rgb(234 88 12);
+}
+
+/* Flat list rows (compare lap picker) — no card border; shared hover/press. */
+.apex-pressable--row {
+  border: 0;
+  background-color: transparent;
+  color: rgb(244 244 245);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .apex-pressable--row:hover:not(:disabled):not([aria-selected="true"]) {
+    background-color: rgb(24 24 27 / 0.9);
+  }
+}
+
+.apex-pressable--row:active:not(:disabled):not([aria-selected="true"]) {
+  background-color: rgb(39 39 42);
+}
+
 /* Chart scrub / seek surfaces (trim handles keep cursor-ew-resize). */
 [data-apex-chart-plot] {
   cursor: pointer;

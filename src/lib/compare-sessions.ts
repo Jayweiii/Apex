@@ -5,7 +5,11 @@ import { getTrack } from "@/lib/tracks";
 export type CompareSessionOption = {
   id: string;
   name: string;
+  /** Raw session title (without track/driver mashup). */
+  title?: string;
   car?: string;
+  driverName?: string;
+  createdAt?: string;
   kind?: string;
   trackId?: string;
   sourceKind?: "csv" | "gopro" | "logger" | null;
@@ -27,6 +31,7 @@ export type AccessibleSessionMeta = {
   visibility?: string | null;
   source_kind?: string | null;
   gps_quality?: GpsQuality | null;
+  created_at?: string | null;
 };
 
 export function labelForAccessibleSession(
@@ -45,6 +50,43 @@ export function labelForAccessibleSession(
   if (session.driver_name && !mine) parts.push(session.driver_name);
   if (trackLabel) parts.push(trackLabel);
   return { name: parts.join(" · "), kind };
+}
+
+/** Compact picker label: track · date · driver/name. */
+export function formatSessionPickerLabel(
+  session: Pick<
+    CompareSessionOption,
+    "name" | "title" | "trackId" | "driverName" | "createdAt" | "car" | "kind"
+  >,
+): string {
+  const track = session.trackId
+    ? (getTrack(session.trackId)?.name ?? session.trackId)
+    : null;
+  const date = formatSessionPickerDate(session.createdAt);
+  const who =
+    session.driverName?.trim() ||
+    session.title?.trim() ||
+    session.name.split(" · ")[0]?.trim() ||
+    session.name;
+  const parts = [track, date, who].filter(Boolean) as string[];
+  if (session.car && who && !who.includes(session.car)) {
+    parts.push(session.car);
+  }
+  if (!parts.length) return session.name;
+  return parts.join(" · ");
+}
+
+export function formatSessionPickerDate(
+  createdAt: string | null | undefined,
+): string | null {
+  if (!createdAt) return null;
+  const ms = Date.parse(createdAt);
+  if (!Number.isFinite(ms)) return null;
+  return new Date(ms).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }
 
 export function groupLapsBySession(
@@ -74,7 +116,10 @@ export function groupLapsBySession(
     options.push({
       id: meta.id,
       name: labeled.name,
+      title: meta.name,
       car: meta.car ?? undefined,
+      driverName: meta.driver_name ?? undefined,
+      createdAt: meta.created_at ?? undefined,
       kind: labeled.kind,
       trackId: meta.track_id ?? undefined,
       sourceKind,
