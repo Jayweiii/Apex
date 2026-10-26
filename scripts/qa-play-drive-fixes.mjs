@@ -233,15 +233,20 @@ const browser = await chromium.launch({ headless: true });
   const beforeTexts = await chipTexts();
 
   // Click the selected L3 row — must deselect even when only 2/4.
-  const l3Row = page
-    .locator('[role="option"][aria-selected="true"]')
-    .filter({ hasText: /^L3\b/ });
+  const l3Idx = await page.evaluate(() => {
+    const rows = [...document.querySelectorAll('[role="option"]')];
+    return rows.findIndex((el) => {
+      const label = el.querySelector("span")?.textContent?.trim() || "";
+      return label === "L3" && el.getAttribute("aria-selected") === "true";
+    });
+  });
   ok(
     "2-compare-l3-selected-before",
-    (await l3Row.count()) === 1 && beforeChips === 2,
-    { beforeChips, beforeSelected, beforeTexts },
+    l3Idx >= 0 && beforeChips === 2,
+    { beforeChips, beforeSelected, beforeTexts, l3Idx },
   );
-  await l3Row.first().click();
+  if (l3Idx < 0) throw new Error("L3 not selected before toggle");
+  await page.locator('[role="option"]').nth(l3Idx).click();
   await page.waitForTimeout(900);
   let afterSelected = await selectedLabels();
   let afterChips = await chipCount();

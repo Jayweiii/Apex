@@ -947,6 +947,7 @@ export function LapCompare({
                 </span>
                 {isRef ? (
                   <span className="text-[10px] uppercase tracking-[0.12em] text-orange-400">
+                    {" "}
                     Ref
                   </span>
                 ) : null}
