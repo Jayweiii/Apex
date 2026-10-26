@@ -855,7 +855,12 @@ export function DriveGame({ trackId }: Props) {
             data-drive-ui
             className="pointer-events-none absolute inset-x-0 top-0 flex justify-between gap-2 p-2 sm:p-3"
           >
-            <div className="rounded-lg bg-zinc-950/75 px-2.5 py-1.5 font-mono text-xs text-zinc-100 backdrop-blur">
+            <div
+              className="rounded-lg bg-zinc-950/75 px-2.5 py-1.5 font-mono text-xs text-zinc-100 backdrop-blur"
+              data-apex-drive-lap
+              data-apex-drive-lap-ms={Math.round(hud.currentMs)}
+              data-apex-drive-lap-n={Math.max(1, hud.lap + 1)}
+            >
               <div>Lap {Math.max(1, hud.lap + 1)}</div>
               <div className="text-base text-orange-400">
                 {formatLapTime(hud.currentMs)}
@@ -865,7 +870,12 @@ export function DriveGame({ trackId }: Props) {
                 {hud.bestMs != null ? formatLapTime(hud.bestMs) : "—"}
               </div>
             </div>
-            <div className="rounded-lg bg-zinc-950/75 px-2.5 py-1.5 text-right font-mono text-xs text-zinc-100 backdrop-blur">
+            <div
+              className="rounded-lg bg-zinc-950/75 px-2.5 py-1.5 text-right font-mono text-xs text-zinc-100 backdrop-blur"
+              data-apex-drive-speed
+              data-apex-drive-mph={hud.speedMph.toFixed(1)}
+              data-apex-drive-on-track={hud.onTrack ? "1" : "0"}
+            >
               <div className="text-base">{hud.speedMph.toFixed(0)} mph</div>
               <div
                 className={`text-[10px] ${
