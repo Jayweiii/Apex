@@ -16,20 +16,36 @@ test.describe("Apex mobile/desktop regression", () => {
     useTap,
   }) => {
     await gotoReady(page, "/");
-    await expect(page.locator("[data-apex-header]")).toBeVisible();
+    await expect(page.locator("[data-apex-header], header")).toBeVisible();
+
+    const hrefByKey: Record<(typeof PRIMARY_NAV)[number], string> = {
+      home: "/",
+      upload: "/upload",
+      session: "/tracks",
+      compare: "/lap-comparisons",
+      drive: "/drive",
+    };
 
     if (useTap) {
-      const menu = page.locator("[data-apex-nav-menu]");
-      await expect(menu).toBeVisible();
-      await menu.tap();
-      await expect(page.locator("[data-apex-nav-mobile]")).toBeVisible();
+      const menu = page.locator(
+        "[data-apex-nav-menu], button[aria-label='Open menu']",
+      );
+      await expect(menu.first()).toBeVisible();
+      await menu.first().tap();
+      await expect(
+        page.locator("[data-apex-nav-mobile], nav[aria-label='Mobile']"),
+      ).toBeVisible();
     }
 
     for (const key of PRIMARY_NAV) {
       const scope = useTap
-        ? page.locator("[data-apex-nav-mobile]")
-        : page.locator("[data-apex-nav-desktop]");
-      const link = scope.locator(`[data-apex-nav="${key}"]`);
+        ? page.locator("[data-apex-nav-mobile], nav[aria-label='Mobile']")
+        : page.locator("[data-apex-nav-desktop], nav[aria-label='Primary']");
+      const tagged = scope.locator(`[data-apex-nav="${key}"]`);
+      const link =
+        (await tagged.count()) > 0
+          ? tagged
+          : scope.locator(`a[href="${hrefByKey[key]}"]`);
       await assertSingleActivate(page, link, { useTap });
     }
   });
@@ -38,8 +54,13 @@ test.describe("Apex mobile/desktop regression", () => {
     await gotoReady(page, "/");
 
     if (useTap) {
-      await page.locator("[data-apex-nav-menu]").tap();
-      await expect(page.locator("[data-apex-nav-drawer]")).toBeVisible();
+      await page
+        .locator("[data-apex-nav-menu], button[aria-label='Open menu']")
+        .first()
+        .tap();
+      await expect(
+        page.locator("[data-apex-nav-drawer], nav[aria-label='Mobile']"),
+      ).toBeVisible();
     }
 
     const toggle = page.locator("[data-apex-speed-unit-toggle]").first();

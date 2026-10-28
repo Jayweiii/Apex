@@ -36,8 +36,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Static iPhone first-tap contract
-        run: npm run test:iphone-single-tap
+      - name: Static contracts (iphone tap + POV routes)
+        run: |
+          npm run test:iphone-single-tap
+          npm run test:pov-route
 
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
@@ -50,12 +52,17 @@ jobs:
           set -euo pipefail
           URL="${BASE_URL}"
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            PREVIEW="$(gh pr view ${{ github.event.pull_request.number }} --json comments,body \
-              --jq '[.comments[].body, .body] | join("\n")' 2>/dev/null \
-              | grep -Eo 'https://[^ ]+vercel\.app' | head -1 || true)"
-            if [ -n "${PREVIEW}" ]; then
-              URL="${PREVIEW}"
-            fi
+            # Wait briefly for Vercel to comment a preview URL.
+            for _ in 1 2 3 4 5 6; do
+              PREVIEW="$(gh pr view ${{ github.event.pull_request.number }} --json comments,body \
+                --jq '[.comments[].body, .body] | join("\n")' 2>/dev/null \
+                | grep -Eo 'https://[^[:space:]]+vercel\.app' | head -1 || true)"
+              if [ -n "${PREVIEW}" ]; then
+                URL="${PREVIEW}"
+                break
+              fi
+              sleep 10
+            done
           fi
           echo "Using BASE_URL=${URL}"
           echo "url=${URL}" >> "$GITHUB_OUTPUT"
