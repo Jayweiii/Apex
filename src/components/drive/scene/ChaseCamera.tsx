@@ -22,15 +22,15 @@ export function ChaseCamera({ simRef, boundsCenter, boundsSize }: Props) {
   const look = useRef(new Vector3());
   const pos = useRef(new Vector3());
   const smoothHeading = useRef(0);
-  const primed = useRef(false);
+  const frames = useRef(0);
 
   useFrame((_, dt) => {
     const car = simRef.current.car;
     const mode = simRef.current.camera;
-    if (!primed.current) {
+    if (frames.current === 0) {
       smoothHeading.current = car.heading;
-      primed.current = true;
     }
+    frames.current += 1;
 
     let dh = car.heading - smoothHeading.current;
     while (dh > Math.PI) dh -= Math.PI * 2;
@@ -50,21 +50,24 @@ export function ChaseCamera({ simRef, boundsCenter, boundsSize }: Props) {
       return;
     }
 
-    const back = 12 + Math.min(8, Math.abs(car.speed) * 0.12);
-    const height = 4.2 + Math.min(2.5, Math.abs(car.speed) * 0.04);
+    const back = 14 + Math.min(10, Math.abs(car.speed) * 0.15);
+    const height = 5.5 + Math.min(3, Math.abs(car.speed) * 0.05);
     const sh = smoothHeading.current;
+    // Stay behind the car in ENU (heading 0 = north).
     const behindEast = -Math.sin(sh) * back;
     const behindNorth = -Math.cos(sh) * back;
-    const [bx, , bz] = enuToThree(
+    const [bx, by, bz] = enuToThree(
       car.x + behindEast,
       car.y + behindNorth,
       (car.z ?? 0) + height,
     );
-    pos.current.set(bx, (car.z ?? 0) + height, bz);
-    camera.position.lerp(pos.current, 1 - Math.exp(-5.5 * dt));
+    pos.current.set(bx, by, bz);
+    // Snap for the first frames so the car isn't a distant speck.
+    const follow = frames.current < 4 ? 1 : 1 - Math.exp(-7 * dt);
+    camera.position.lerp(pos.current, follow);
     camera.up.set(0, 1, 0);
     const lookTarget = look.current.clone();
-    lookTarget.y += 0.4;
+    lookTarget.y += 0.6;
     camera.lookAt(lookTarget);
   });
 

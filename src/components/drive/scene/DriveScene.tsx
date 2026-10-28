@@ -76,7 +76,7 @@ function GhostLayer({
       node.visible = true;
       const [x, y, z] = enuToThree(g.sample.x, g.sample.y, g.sample.z ?? 0);
       node.position.set(x, y, z);
-      node.rotation.set(0, g.heading, 0);
+      node.rotation.set(0, -g.heading, 0);
     }
   });
   return (
@@ -200,15 +200,15 @@ export function DriveScene({ payload, simRef, carColor, mobile, gate }: Props) {
   const dpr: [number, number] = mobile ? [1, 1.25] : [1, 1.75];
   return (
     <Canvas
-      className="h-full w-full touch-none"
-      style={{ touchAction: "none" }}
+      className="absolute inset-0 h-full w-full touch-none"
+      style={{ touchAction: "none", width: "100%", height: "100%" }}
       dpr={dpr}
       gl={{
         antialias: !mobile,
         powerPreference: "high-performance",
         alpha: false,
       }}
-      camera={{ fov: 55, near: 0.5, far: 900, position: [0, 12, 20] }}
+      camera={{ fov: 55, near: 0.5, far: 900, position: [0, 8, 18] }}
       frameloop="always"
     >
       <SceneInner

@@ -968,7 +968,10 @@ export function DriveGame({ trackId, carId: carIdProp }: Props) {
         </div>
       </div>
 
-      <div ref={wrapRef} className="relative min-h-0 flex-1 touch-none">
+      <div
+        ref={wrapRef}
+        className="relative min-h-[60vh] flex-1 touch-none sm:min-h-0"
+      >
         {simLive ? (
           <DriveScene
             payload={payload}
@@ -991,7 +994,7 @@ export function DriveGame({ trackId, carId: carIdProp }: Props) {
             }
           />
         ) : (
-          <div className="h-full w-full bg-[#16351a]" />
+          <div className="absolute inset-0 bg-[#16351a]" />
         )}
         {gateState && phase !== "ready" ? (
           <DriveMinimap

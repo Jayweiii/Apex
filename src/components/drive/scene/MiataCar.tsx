@@ -58,9 +58,11 @@ export function MiataCar({
     if (!localOnly) {
       const [x, y, z] = enuToThree(state.x, state.y, state.z ?? 0);
       root.current.position.set(x, y, z);
+      // Drive heading is clockwise from north; Three Y-rot is CCW from +Z.
+      // Car nose is modeled along local -Z (= north at yaw 0).
       root.current.rotation.set(
         state.pitch ?? 0,
-        state.heading,
+        -state.heading,
         -(state.roll ?? 0),
       );
     }
