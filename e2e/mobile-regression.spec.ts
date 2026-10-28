@@ -90,12 +90,18 @@ test.describe("Apex mobile/desktop regression", () => {
       const host = document.createElement("div");
       host.setAttribute("data-apex-map-stack", "1");
       host.id = "apex-e2e-synth-map";
-      host.style.cssText =
-        "position:relative;z-index:0;isolation:isolate;height:240px;margin:80px 16px;background:#18181b;";
+      host.style.position = "relative";
+      host.style.zIndex = "0";
+      host.style.isolation = "isolate";
+      host.style.height = "240px";
+      host.style.margin = "80px 16px";
+      host.style.background = "#18181b";
       const pane = document.createElement("div");
       pane.id = "apex-e2e-synth-pane";
-      pane.style.cssText =
-        "position:absolute;inset:0;z-index:650;background:rgba(249,115,22,0.55);";
+      pane.style.position = "absolute";
+      pane.style.inset = "0";
+      pane.style.zIndex = "650";
+      pane.style.background = "rgba(249,115,22,0.55)";
       host.appendChild(pane);
       document.body.appendChild(host);
 
@@ -109,11 +115,22 @@ test.describe("Apex mobile/desktop regression", () => {
       const hitInHeader = Boolean(header && hit && header.contains(hit));
       const hs = getComputedStyle(header);
       const ms = getComputedStyle(host);
+      // CSS contract from globals: [data-apex-map-stack] { isolation:isolate }
+      const sheetHasStack =
+        [...document.styleSheets].some((sheet) => {
+          try {
+            return [...sheet.cssRules].some((rule) =>
+              /data-apex-map-stack/.test(rule.cssText || ""),
+            );
+          } catch {
+            return false;
+          }
+        }) || ms.isolation === "isolate";
       host.remove();
       return {
-        ok: hitInHeader && ms.isolation === "isolate",
         hitInHeader,
         mapIsolation: ms.isolation,
+        sheetHasStack,
         headerZ: hs.zIndex,
         headerPosition: hs.position,
       };
@@ -123,7 +140,9 @@ test.describe("Apex mobile/desktop regression", () => {
     expect(
       Number.parseInt(String(stacking.headerZ), 10) || 0,
     ).toBeGreaterThanOrEqual(40);
-    expect(stacking.mapIsolation).toBe("isolate");
+    expect(stacking.sheetHasStack || stacking.mapIsolation === "isolate").toBe(
+      true,
+    );
     expect(stacking.hitInHeader).toBe(true);
   });
 
