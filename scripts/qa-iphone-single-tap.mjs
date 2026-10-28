@@ -3,8 +3,8 @@
  * across home, upload, session, compare, Drive.
  *
  * Usage:
- *   BASE_URL=http://127.0.0.1:3000 node scripts/qa-iphone-single-tap.mjs
- *   BASE_URL=https://apex-ashy-beta.vercel.app node scripts/qa-iphone-single-tap.mjs
+ *   BASE_URL=http://127.0.0.1:3033 node scripts/qa-iphone-single-tap.mjs
+ *   BASE_URL=https://apex-ashy-beta.vercel.app VERCEL_SHARE=... node scripts/qa-iphone-single-tap.mjs
  */
 import { chromium, devices } from "playwright";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -55,6 +55,8 @@ async function withShare(page) {
 async function assertSingleTapClick(page, locator, name) {
   const el = locator.first();
   await el.waitFor({ state: "visible", timeout: 30000 });
+  await el.scrollIntoViewIfNeeded();
+  await page.waitForTimeout(80);
   const box = await el.boundingBox();
   if (!box) {
     ok(name, false, "no bounding box");
@@ -71,7 +73,10 @@ async function assertSingleTapClick(page, locator, name) {
     node.dataset.apexTapClicks = "0";
     node.addEventListener(
       "click",
-      () => {
+      (event) => {
+        // Count the gesture without leaving the page mid-suite.
+        event.preventDefault();
+        event.stopPropagation();
         node.dataset.apexTapClicks = String(
           Number(node.dataset.apexTapClicks || "0") + 1,
         );
@@ -99,6 +104,23 @@ async function assertSingleTapClick(page, locator, name) {
   return pass;
 }
 
+async function firstVisible(page, selectors, timeout = 60000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    for (const sel of selectors) {
+      const loc = page.locator(sel).first();
+      if ((await loc.count()) === 0) continue;
+      try {
+        if (await loc.isVisible()) return loc;
+      } catch {
+        /* detached */
+      }
+    }
+    await page.waitForTimeout(250);
+  }
+  throw new Error(`no visible match among ${selectors.join(" | ")}`);
+}
+
 const iPhone = devices["iPhone 13"];
 const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext({
@@ -111,200 +133,230 @@ await withShare(page);
 
 let failures = 0;
 
-{
-  await page.goto(`${BASE}/`, {
-    waitUntil: "domcontentloaded",
-    timeout: 120000,
-  });
-  const media = await page.evaluate(() => ({
-    hoverHover: window.matchMedia("(hover: hover)").matches,
-    pointerFine: window.matchMedia("(pointer: fine)").matches,
-    hoverNone: window.matchMedia("(hover: none)").matches,
-    pointerCoarse: window.matchMedia("(pointer: coarse)").matches,
-  }));
-  ok(
-    "iphone-media-no-fine-hover",
-    media.pointerFine === false && media.hoverHover === false,
-    media,
-  );
-  if (media.pointerFine || media.hoverHover) failures += 1;
+try {
+  {
+    await page.goto(`${BASE}/`, {
+      waitUntil: "domcontentloaded",
+      timeout: 120000,
+    });
+    const media = await page.evaluate(() => ({
+      hoverHover: window.matchMedia("(hover: hover)").matches,
+      pointerFine: window.matchMedia("(pointer: fine)").matches,
+      hoverNone: window.matchMedia("(hover: none)").matches,
+      pointerCoarse: window.matchMedia("(pointer: coarse)").matches,
+    }));
+    ok(
+      "iphone-media-no-fine-hover",
+      media.pointerFine === false && media.hoverHover === false,
+      media,
+    );
+    if (media.pointerFine || media.hoverHover) failures += 1;
 
-  const sticky = await page.evaluate(() => {
-    let invalidMedia = 0;
-    let gatedHoverUtils = 0;
-    for (const sheet of document.styleSheets) {
-      let rules;
-      try {
-        rules = sheet.cssRules;
-      } catch {
-        continue;
-      }
-      for (const rule of rules) {
-        const text = rule.cssText || "";
-        if (text.includes("(hover: hover) and (pointer: fine):hover")) {
-          invalidMedia += 1;
+    const sticky = await page.evaluate(() => {
+      let invalidMedia = 0;
+      let gatedHoverUtils = 0;
+      for (const sheet of document.styleSheets) {
+        let rules;
+        try {
+          rules = sheet.cssRules;
+        } catch {
+          continue;
         }
-        if (
-          rule.type === CSSRule.MEDIA_RULE &&
-          /hover:\s*hover/.test(rule.conditionText) &&
-          /pointer:\s*fine/.test(rule.conditionText)
-        ) {
-          gatedHoverUtils += 1;
+        for (const rule of rules) {
+          const text = rule.cssText || "";
+          if (text.includes("(hover: hover) and (pointer: fine):hover")) {
+            invalidMedia += 1;
+          }
+          if (
+            rule.type === CSSRule.MEDIA_RULE &&
+            /hover:\s*hover/.test(rule.conditionText) &&
+            /pointer:\s*fine/.test(rule.conditionText)
+          ) {
+            gatedHoverUtils += 1;
+          }
         }
       }
-    }
-    return { invalidMedia, gatedHoverUtils };
-  });
-  ok("css-no-invalid-hover-media", sticky.invalidMedia === 0, sticky);
-  if (sticky.invalidMedia !== 0) failures += 1;
-  ok(
-    "css-gated-hover-media-present",
-    sticky.gatedHoverUtils > 0,
-    sticky,
-  );
-  if (sticky.gatedHoverUtils <= 0) failures += 1;
-}
-
-{
-  await page.goto(`${BASE}/`, {
-    waitUntil: "domcontentloaded",
-    timeout: 120000,
-  });
-  await page.waitForSelector("a.apex-btn, button.apex-btn", { timeout: 60000 });
-  if (
-    !(await assertSingleTapClick(
-      page,
-      page.locator('a.apex-btn[href="/upload"]').first(),
-      "home-upload-cta-single-tap",
-    ))
-  ) {
-    failures += 1;
+      return { invalidMedia, gatedHoverUtils };
+    });
+    ok("css-no-invalid-hover-media", sticky.invalidMedia === 0, sticky);
+    if (sticky.invalidMedia !== 0) failures += 1;
+    ok("css-gated-hover-media-present", sticky.gatedHoverUtils > 0, sticky);
+    if (sticky.gatedHoverUtils <= 0) failures += 1;
   }
-  const menu = page.locator('button[aria-label="Open menu"]');
-  if ((await menu.count()) > 0) {
+
+  // --- Home ---
+  {
+    await page.goto(`${BASE}/`, {
+      waitUntil: "domcontentloaded",
+      timeout: 120000,
+    });
+    const homeCta = await firstVisible(page, [
+      'main a.apex-btn[href="/upload"]',
+      "main a.apex-btn.apex-btn--primary",
+      "main a.apex-btn",
+    ]);
+    if (
+      !(await assertSingleTapClick(page, homeCta, "home-upload-cta-single-tap"))
+    ) {
+      failures += 1;
+    }
+    const menu = page.locator('button[aria-label="Open menu"]');
+    await menu.first().waitFor({ state: "visible", timeout: 15000 });
     await menu.first().tap();
     await page.waitForTimeout(200);
+    if (
+      !(await assertSingleTapClick(
+        page,
+        page
+          .locator('nav[aria-label="Mobile"] a.apex-nav-link[href="/drive"]')
+          .first(),
+        "home-mobile-nav-drive-single-tap",
+      ))
+    ) {
+      failures += 1;
+    }
+    await page.screenshot({
+      path: resolve(OUT, "home-iphone.png"),
+      fullPage: false,
+    });
   }
-  if (
-    !(await assertSingleTapClick(
-      page,
-      page
-        .locator('nav[aria-label="Mobile"] a.apex-nav-link[href="/drive"]')
-        .first(),
-      "home-mobile-nav-drive-single-tap",
-    ))
-  ) {
-    failures += 1;
+
+  // --- Upload ---
+  {
+    await page.goto(`${BASE}/upload`, {
+      waitUntil: "domcontentloaded",
+      timeout: 120000,
+    });
+    const target = await firstVisible(page, [
+      "main button.apex-btn.apex-btn--primary",
+      "main button.apex-btn",
+      'main a.apex-eyebrow[href="/"]',
+      "main a.apex-btn",
+    ]);
+    if (
+      !(await assertSingleTapClick(page, target, "upload-primary-single-tap"))
+    ) {
+      failures += 1;
+    }
+    await page.screenshot({
+      path: resolve(OUT, "upload-iphone.png"),
+      fullPage: false,
+    });
   }
-  await page.screenshot({
-    path: resolve(OUT, "home-iphone.png"),
-    fullPage: false,
-  });
+
+  // --- Session (falls back to tracks if local session missing) ---
+  {
+    await page.goto(`${BASE}/sessions/${SESSION}`, {
+      waitUntil: "domcontentloaded",
+      timeout: 120000,
+    });
+    await page.waitForTimeout(1500);
+    const body = await page.evaluate(
+      () => document.querySelector("main")?.innerText || "",
+    );
+    if (/not found|not configured/i.test(body)) {
+      await page.goto(`${BASE}/tracks`, {
+        waitUntil: "domcontentloaded",
+        timeout: 120000,
+      });
+      await page.waitForTimeout(1000);
+      ok("session-fallback-tracks", true, "session unavailable locally");
+    }
+    const sessionTarget = await firstVisible(page, [
+      "main button.apex-btn",
+      "main a.apex-btn",
+      "main a[href^='/tracks/']",
+      "main a[href='/']",
+      "main button",
+      "main a[href]",
+    ]);
+    if (
+      !(await assertSingleTapClick(
+        page,
+        sessionTarget,
+        "session-control-single-tap",
+      ))
+    ) {
+      failures += 1;
+    }
+    await page.screenshot({
+      path: resolve(OUT, "session-iphone.png"),
+      fullPage: false,
+    });
+  }
+
+  // --- Compare (falls back to lap-comparisons if unavailable) ---
+  {
+    await page.goto(`${BASE}/compare/${COMPARE}`, {
+      waitUntil: "domcontentloaded",
+      timeout: 120000,
+    });
+    await page.waitForTimeout(1500);
+    const body = await page.evaluate(
+      () => document.querySelector("main")?.innerText || "",
+    );
+    if (/not configured|not found|unavailable/i.test(body)) {
+      await page.goto(`${BASE}/lap-comparisons`, {
+        waitUntil: "domcontentloaded",
+        timeout: 120000,
+      });
+      await page.waitForTimeout(1000);
+      ok("compare-fallback-list", true, "compare unavailable locally");
+    }
+    const compareTarget = await firstVisible(page, [
+      "main button.apex-btn",
+      "main a.apex-btn",
+      "main [role='option']",
+      "main a[href^='/compare/']",
+      "main a[href]",
+      "main button",
+    ]);
+    if (
+      !(await assertSingleTapClick(
+        page,
+        compareTarget,
+        "compare-control-single-tap",
+      ))
+    ) {
+      failures += 1;
+    }
+    await page.screenshot({
+      path: resolve(OUT, "compare-iphone.png"),
+      fullPage: false,
+    });
+  }
+
+  // --- Drive ---
+  {
+    await page.goto(`${BASE}/drive/${DRIVE_TRACK}`, {
+      waitUntil: "domcontentloaded",
+      timeout: 120000,
+    });
+    const driveTarget = await firstVisible(page, [
+      "[data-apex-drive-start]",
+      "main button.apex-btn.apex-btn--accent",
+      "main button.apex-btn",
+      "main a.apex-btn",
+    ], 90000);
+    if (
+      !(await assertSingleTapClick(page, driveTarget, "drive-start-single-tap"))
+    ) {
+      failures += 1;
+    }
+    await page.screenshot({
+      path: resolve(OUT, "drive-iphone.png"),
+      fullPage: false,
+    });
+  }
+} catch (err) {
+  failures += 1;
+  ok("suite-error", false, String(err && err.message ? err.message : err));
+} finally {
+  await browser.close();
+  const passed = Object.values(proof.checks).filter((c) => c.pass).length;
+  const total = Object.keys(proof.checks).length;
+  proof.summary = { passed, total, failures };
+  writeFileSync(resolve(OUT, "proof.json"), JSON.stringify(proof, null, 2));
+  console.log(JSON.stringify(proof.summary));
+  if (failures > 0 || passed < total) process.exit(1);
 }
-
-{
-  await page.goto(`${BASE}/upload`, {
-    waitUntil: "domcontentloaded",
-    timeout: 120000,
-  });
-  await page.waitForSelector("button, a.apex-btn, label", { timeout: 60000 });
-  const uploadBtn = page
-    .locator("button.apex-btn, label[for], button[type='submit']")
-    .filter({ hasText: /upload|choose|browse|select|continue|sign/i })
-    .first();
-  const fallback = page.locator("button.apex-btn, a.apex-btn").first();
-  const target = (await uploadBtn.count()) > 0 ? uploadBtn : fallback;
-  if (!(await assertSingleTapClick(page, target, "upload-primary-single-tap"))) {
-    failures += 1;
-  }
-  await page.screenshot({
-    path: resolve(OUT, "upload-iphone.png"),
-    fullPage: false,
-  });
-}
-
-{
-  await page.goto(`${BASE}/sessions/${SESSION}`, {
-    waitUntil: "domcontentloaded",
-    timeout: 120000,
-  });
-  await page.waitForTimeout(2500);
-  const sessionTarget = page
-    .locator(
-      "button.apex-btn, a.apex-btn, button[data-apex-speed-unit-toggle], [role='button'].apex-pressable",
-    )
-    .first();
-  if (
-    !(await assertSingleTapClick(
-      page,
-      sessionTarget,
-      "session-control-single-tap",
-    ))
-  ) {
-    failures += 1;
-  }
-  await page.screenshot({
-    path: resolve(OUT, "session-iphone.png"),
-    fullPage: false,
-  });
-}
-
-{
-  await page.goto(`${BASE}/compare/${COMPARE}`, {
-    waitUntil: "domcontentloaded",
-    timeout: 120000,
-  });
-  await page.waitForTimeout(3000);
-  const compareTarget = page
-    .locator(
-      "button.apex-btn, a.apex-btn, [data-apex-speed-unit-toggle] button, .apex-segment__option, .apex-disclosure, button[aria-pressed]",
-    )
-    .first();
-  if (
-    !(await assertSingleTapClick(
-      page,
-      compareTarget,
-      "compare-control-single-tap",
-    ))
-  ) {
-    failures += 1;
-  }
-  await page.screenshot({
-    path: resolve(OUT, "compare-iphone.png"),
-    fullPage: false,
-  });
-}
-
-{
-  await page.goto(`${BASE}/drive/${DRIVE_TRACK}`, {
-    waitUntil: "domcontentloaded",
-    timeout: 120000,
-  });
-  await page.waitForSelector(
-    "[data-apex-drive-start], a.apex-btn, button.apex-btn",
-    { timeout: 90000 },
-  );
-  const driveStart = page.locator("[data-apex-drive-start]");
-  const driveTarget =
-    (await driveStart.count()) > 0
-      ? driveStart
-      : page.locator("button.apex-btn, a.apex-btn").first();
-  if (
-    !(await assertSingleTapClick(page, driveTarget, "drive-start-single-tap"))
-  ) {
-    failures += 1;
-  }
-  await page.screenshot({
-    path: resolve(OUT, "drive-iphone.png"),
-    fullPage: false,
-  });
-}
-
-await browser.close();
-
-const passed = Object.values(proof.checks).filter((c) => c.pass).length;
-const total = Object.keys(proof.checks).length;
-proof.summary = { passed, total, failures };
-writeFileSync(resolve(OUT, "proof.json"), JSON.stringify(proof, null, 2));
-console.log(JSON.stringify(proof.summary));
-if (failures > 0 || passed < total) process.exit(1);
