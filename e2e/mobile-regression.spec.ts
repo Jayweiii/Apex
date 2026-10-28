@@ -185,10 +185,10 @@ test.describe("Apex mobile/desktop regression", () => {
     useTap,
   }) => {
     await gotoReady(page, `/sessions/${SESSION_ID}`);
-    await page.waitForSelector(
-      "[data-apex-pov-toggle], [data-apex-map-stack], button",
-      { timeout: 90_000 },
-    );
+    await page.getByRole("button", { name: /^POV$/i }).first().waitFor({
+      state: "visible",
+      timeout: 90_000,
+    });
 
     // Prefer stable data-apex selector; fall back to role for older deploys.
     const pov = page.locator(
