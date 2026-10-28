@@ -1,0 +1,76 @@
+# Required merge gate: Playwright e2e (iPhone + desktop) mobile regression.
+# Status check name: "e2e-mobile-regression"
+name: e2e-mobile-regression
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, "cursor/**"]
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-mobile-regression-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e-mobile-regression:
+    name: e2e-mobile-regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BASE_URL: ${{ vars.APEX_E2E_BASE_URL || 'https://apex-ashy-beta.vercel.app' }}
+      VERCEL_SHARE: ${{ secrets.VERCEL_SHARE }}
+      APEX_SESSION_ID: ${{ vars.APEX_SESSION_ID || '340f914a-49f7-4c6e-bccc-33a3fe2de689' }}
+      CI: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Static iPhone first-tap contract
+        run: npm run test:iphone-single-tap
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Resolve BASE_URL (Vercel preview when available)
+        id: base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          URL="${BASE_URL}"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            PREVIEW="$(gh pr view ${{ github.event.pull_request.number }} --json comments,body \
+              --jq '[.comments[].body, .body] | join("\n")' 2>/dev/null \
+              | grep -Eo 'https://[^ ]+vercel\.app' | head -1 || true)"
+            if [ -n "${PREVIEW}" ]; then
+              URL="${PREVIEW}"
+            fi
+          fi
+          echo "Using BASE_URL=${URL}"
+          echo "url=${URL}" >> "$GITHUB_OUTPUT"
+
+      - name: Run Playwright e2e (iPhone + desktop)
+        env:
+          BASE_URL: ${{ steps.base.outputs.url }}
+        run: npm run test:e2e
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
