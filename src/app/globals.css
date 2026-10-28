@@ -1,7 +1,20 @@
 @import "tailwindcss";
 
-/* Hover utilities only on real hover devices — iOS sticky :hover steals first tap. */
-@custom-variant hover (@media (hover: hover) and (pointer: fine):hover);
+/*
+ * Hover utilities only on real hover + fine pointer devices.
+ * Broken shorthand `@custom-variant hover (@media …:hover)` compiled to the
+ * invalid media `@media (hover: hover) and (pointer: fine):hover`, which
+ * dropped every Tailwind `hover:` rule — and any fallback bare `:hover`
+ * (or layout-shifting hover) still steals the first tap on iOS.
+ * Nest media → &:hover → @slot so hover never applies on coarse pointers.
+ */
+@custom-variant hover {
+  @media (hover: hover) and (pointer: fine) {
+    &:hover {
+      @slot;
+    }
+  }
+}
 
 
 :root {
@@ -221,7 +234,7 @@ button[aria-busy="true"],
     border-color: rgb(212 212 216);
     color: rgb(255 255 255);
     background: rgb(82 82 91);
-    transform: scale(1.04);
+    /* No transform/layout shift on hover — that steals the first tap on touch. */
   }
 }
 
@@ -328,7 +341,6 @@ button[aria-busy="true"],
     border-color: rgb(253 186 116);
     background: rgb(249 115 22 / 0.65);
     color: rgb(255 255 255);
-    transform: scale(1.04);
   }
 }
 
@@ -355,7 +367,6 @@ button[aria-busy="true"],
   .apex-nav-link:hover {
     color: rgb(255 255 255);
     background-color: rgb(63 63 70);
-    transform: translateY(-1px);
   }
 }
 
@@ -459,8 +470,10 @@ textarea.apex-field {
   color: rgb(113 113 122);
 }
 
-a.apex-eyebrow:hover {
-  color: rgb(212 212 216);
+@media (hover: hover) and (pointer: fine) {
+  a.apex-eyebrow:hover {
+    color: rgb(212 212 216);
+  }
 }
 
 .apex-empty {

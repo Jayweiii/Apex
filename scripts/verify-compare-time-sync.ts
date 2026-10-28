@@ -166,6 +166,12 @@ assert(dual.includes("onProgressSubscribe"), "exposes rAF subscribe");
 const css = read("src/app/globals.css");
 assert(css.includes("touch-action: manipulation"), "touch-action on clickables");
 assert(css.includes("@custom-variant hover"), "hover only on fine pointer");
+assert(
+  /@custom-variant hover\s*\{[\s\S]*@media \(hover: hover\) and \(pointer: fine\)[\s\S]*&:hover[\s\S]*@slot/.test(
+    css,
+  ),
+  "custom-variant nests media → &:hover → @slot",
+);
 assert(css.includes(":active"), "pressed/active styles");
 assert(css.includes(":focus-visible"), "focus-visible styles");
 
