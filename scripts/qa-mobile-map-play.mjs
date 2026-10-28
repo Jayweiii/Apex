@@ -1,10 +1,11 @@
 /**
  * iPhone 390px: Play/Pause sits on the map (session + compare) without
  * scrolling, stays clear of Street/Satellite, and never covers the sticky
- * top bar. Single-tap toggles play.
+ * top bar. Single-tap toggles play. Visible in Overview and POV.
  *
  * Usage:
  *   BASE_URL=http://127.0.0.1:3000 node scripts/qa-mobile-map-play.mjs
+ *   BASE_URL=https://… VERCEL_SHARE=… node scripts/qa-mobile-map-play.mjs
  */
 import { chromium, devices } from "playwright";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -34,17 +35,22 @@ function ok(name, pass, detail) {
 }
 
 async function withShare(context) {
-  const share = process.env.VERCEL_SHARE || "";
+  const share = process.env.VERCEL_SHARE || process.env.VERCEL_SHARE_COOKIE;
   if (!share) return;
   const host = new URL(BASE).hostname;
   await context.addCookies([
-    { name: "_vercel_share", value: share, domain: host, path: "/" },
+    {
+      name: "_vercel_share",
+      value: share.replace(/^_vercel_share=/, ""),
+      domain: host,
+      path: "/",
+    },
   ]);
 }
 
 async function headerBottom(page) {
   return page.evaluate(() => {
-    const header = document.querySelector("[data-apex-header], header");
+    const header = document.querySelector("header");
     if (!header) return 0;
     return header.getBoundingClientRect().bottom;
   });
@@ -53,14 +59,12 @@ async function headerBottom(page) {
 async function layoutProbe(page) {
   return page.evaluate(() => {
     const overlay = document.querySelector("[data-apex-map-play-overlay]");
-    const btn = document.querySelector(
-      "[data-apex-map-play-toggle], [data-apex-play-toggle]",
-    );
+    const btn = document.querySelector("[data-apex-map-play-toggle]");
     const basemap = document.querySelector("[data-apex-basemap-toggle]");
     const map =
       document.querySelector("[data-apex-map-stack]") ||
       document.querySelector("[data-apex-map]");
-    const header = document.querySelector("[data-apex-header], header");
+    const header = document.querySelector("header");
     const box = (el) => {
       if (!el) return null;
       const r = el.getBoundingClientRect();
@@ -94,6 +98,13 @@ async function layoutProbe(page) {
           )
         : false;
     const aboveHeader = b && h ? b.top < h.bottom - 1 : false;
+    const insideMapViewport =
+      b && m
+        ? b.top >= m.top - 2 &&
+          b.bottom <= m.bottom + 2 &&
+          b.left >= m.left - 2 &&
+          b.right <= m.right + 2
+        : false;
     return {
       overlay: o,
       button: b,
@@ -102,8 +113,16 @@ async function layoutProbe(page) {
       header: h,
       overlapBasemap,
       aboveHeader,
+      insideMapViewport,
       label: btn?.textContent?.trim() || null,
     };
+  });
+}
+
+async function readPlaying(page) {
+  return page.evaluate(() => {
+    const btn = document.querySelector("[data-apex-map-play-toggle]");
+    return btn?.getAttribute("aria-label") === "Pause";
   });
 }
 
@@ -118,39 +137,139 @@ async function runPage(browser, path, shotName) {
   const page = await context.newPage();
   const url = `${BASE}${path}`;
   await page.goto(url, { waitUntil: "domcontentloaded", timeout: 120000 });
-  await page.waitForSelector(
-    "[data-apex-map-play-toggle], [data-apex-play-toggle], [data-apex-map-stack]",
-    { timeout: 90000 },
-  );
+  await page.waitForSelector("[data-apex-map-stack], [data-apex-map]", {
+    timeout: 90000,
+  });
+  await page.waitForSelector("[data-apex-map-play-toggle]", { timeout: 60000 });
   await page.waitForTimeout(2500);
+
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.waitForTimeout(200);
 
+  // If map starts below the fold (session chrome), scroll just enough so the
+  // map top enters the viewport — Play must then be visible without more scroll.
+  const mapTop0 = await page.evaluate(() => {
+    const map =
+      document.querySelector("[data-apex-map-stack]") ||
+      document.querySelector("[data-apex-map]");
+    return map?.getBoundingClientRect().top ?? 0;
+  });
+  if (mapTop0 > 200) {
+    await page.evaluate((y) => window.scrollBy(0, Math.max(0, y - 72)), mapTop0);
+    await page.waitForTimeout(250);
+  }
+
   const before = await layoutProbe(page);
-  ok(`${shotName}-play-visible`, Boolean(before.button?.visible), before);
-  // Map often starts below session chrome; Play must still be in the first
-  // viewport once the map is on-screen (no further scroll to reach Play).
-  const inFirstViewport = Boolean(
+  ok(`${shotName}-overlay-visible`, Boolean(before.button?.visible), before);
+  const inViewport = Boolean(
     before.button?.visible &&
       before.button.top >= 0 &&
-      before.button.bottom <= 844 &&
-      before.button.top < 844,
+      before.button.bottom <= 844,
   );
-  ok(`${shotName}-no-scroll-needed`, inFirstViewport, {
+  ok(`${shotName}-in-viewport-with-map`, inViewport, {
     button: before.button,
     mapTop: before.map?.top,
+  });
+  ok(`${shotName}-clear-of-basemap`, !before.overlapBasemap, {
+    overlapBasemap: before.overlapBasemap,
+    button: before.button,
+    basemap: before.basemap,
   });
   ok(`${shotName}-not-above-header`, !before.aboveHeader, {
     aboveHeader: before.aboveHeader,
     buttonTop: before.button?.top,
     headerBottom: before.header?.bottom,
   });
+  ok(`${shotName}-on-map`, before.insideMapViewport, before);
 
   const hb = await headerBottom(page);
   ok(`${shotName}-button-below-header`, (before.button?.top ?? 0) >= hb - 1, {
     buttonTop: before.button?.top,
     headerBottom: hb,
   });
+
+  const wasPlaying = await readPlaying(page);
+  await page.locator("[data-apex-map-play-toggle]").first().tap({
+    timeout: 5000,
+  });
+  await page.waitForTimeout(400);
+  const midPlaying = await readPlaying(page);
+  ok(`${shotName}-single-tap-toggles`, midPlaying !== wasPlaying, {
+    wasPlaying,
+    midPlaying,
+  });
+  await page.locator("[data-apex-map-play-toggle]").first().tap({
+    timeout: 5000,
+  });
+  await page.waitForTimeout(400);
+  const afterPlaying = await readPlaying(page);
+  ok(`${shotName}-single-tap-toggles-back`, afterPlaying === wasPlaying, {
+    wasPlaying,
+    afterPlaying,
+  });
+
+  const pov = page.getByRole("button", { name: /^POV$/i });
+  if ((await pov.count()) > 0) {
+    await pov.first().tap({ timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(1500);
+    const mapTopPov = await page.evaluate(() => {
+      const map =
+        document.querySelector("[data-apex-map-stack]") ||
+        document.querySelector("[data-apex-map]");
+      return map?.getBoundingClientRect().top ?? 0;
+    });
+    if (mapTopPov > 200) {
+      await page.evaluate(
+        (y) => window.scrollBy(0, Math.max(0, y - 72)),
+        mapTopPov,
+      );
+      await page.waitForTimeout(250);
+    }
+    const povLayout = await layoutProbe(page);
+    ok(`${shotName}-pov-overlay-visible`, Boolean(povLayout.button?.visible), {
+      povLayout,
+    });
+    ok(`${shotName}-pov-clear-of-basemap`, !povLayout.overlapBasemap, {
+      overlapBasemap: povLayout.overlapBasemap,
+    });
+    ok(`${shotName}-pov-not-above-header`, !povLayout.aboveHeader, {
+      aboveHeader: povLayout.aboveHeader,
+      buttonTop: povLayout.button?.top,
+      headerBottom: povLayout.header?.bottom,
+    });
+  } else {
+    ok(`${shotName}-pov-overlay-visible`, false, "POV control missing");
+    ok(`${shotName}-pov-clear-of-basemap`, false, "POV control missing");
+    ok(`${shotName}-pov-not-above-header`, false, "POV control missing");
+  }
+
+  await page.evaluate(() => window.scrollBy(0, 420));
+  await page.waitForTimeout(300);
+  const scrolled = await layoutProbe(page);
+  const hb2 = await headerBottom(page);
+  ok(
+    `${shotName}-scroll-not-over-header`,
+    !scrolled.button?.visible || scrolled.button.top >= hb2 - 1,
+    {
+      buttonTop: scrolled.button?.top,
+      headerBottom: hb2,
+      visible: scrolled.button?.visible,
+    },
+  );
+
+  // Reset scroll for screenshot of Play on map.
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.waitForTimeout(150);
+  const mapTopShot = await page.evaluate(() => {
+    const map =
+      document.querySelector("[data-apex-map-stack]") ||
+      document.querySelector("[data-apex-map]");
+    return map?.getBoundingClientRect().top ?? 0;
+  });
+  if (mapTopShot > 72) {
+    await page.evaluate((y) => window.scrollBy(0, Math.max(0, y - 72)), mapTopShot);
+    await page.waitForTimeout(200);
+  }
 
   await page.screenshot({
     path: resolve(OUT, `${shotName}-390.png`),
@@ -162,6 +281,7 @@ async function runPage(browser, path, shotName) {
 const browser = await chromium.launch({ headless: true });
 try {
   await runPage(browser, `/sessions/${SESSION}`, "session");
+  await runPage(browser, `/sessions/${SESSION}/compare`, "compare");
 } finally {
   await browser.close();
 }

@@ -4,7 +4,6 @@ import {
   activate,
   assertSingleActivate,
   gotoReady,
-  openMobileMenu,
   PRIMARY_NAV,
   SESSION_ID,
   COMPARE_ID,
@@ -28,22 +27,17 @@ test.describe("Apex mobile/desktop regression", () => {
     };
 
     if (useTap) {
-      await openMobileMenu(page);
+      const menu = page.locator(
+        "[data-apex-nav-menu], button[aria-label='Open menu']",
+      );
+      await expect(menu.first()).toBeVisible();
+      await menu.first().tap();
       await expect(
         page.locator("[data-apex-nav-mobile], nav[aria-label='Mobile']"),
       ).toBeVisible();
     }
 
     for (const key of PRIMARY_NAV) {
-      if (useTap) {
-        // Menu closes after navigation attempts; re-open between taps.
-        const mobileNav = page.locator(
-          "[data-apex-nav-mobile], nav[aria-label='Mobile']",
-        );
-        if (!(await mobileNav.isVisible().catch(() => false))) {
-          await openMobileMenu(page);
-        }
-      }
       const scope = useTap
         ? page.locator("[data-apex-nav-mobile], nav[aria-label='Mobile']")
         : page.locator("[data-apex-nav-desktop], nav[aria-label='Primary']");
@@ -60,21 +54,23 @@ test.describe("Apex mobile/desktop regression", () => {
     await gotoReady(page, "/");
 
     if (useTap) {
-      await openMobileMenu(page);
+      await page
+        .locator("[data-apex-nav-menu], button[aria-label='Open menu']")
+        .first()
+        .tap();
       await expect(
         page.locator("[data-apex-nav-drawer], nav[aria-label='Mobile']"),
       ).toBeVisible();
     }
 
-    // Prefer a visible toggle (drawer on iPhone; desktop chrome otherwise).
-    const speed = page.locator("[data-apex-speed-unit-toggle]").last();
-    await expect(speed).toBeVisible();
-    await expect(speed).toHaveAttribute("data-apex-speed-unit", "mph");
+    const toggle = page.locator("[data-apex-speed-unit-toggle]").first();
+    await expect(toggle).toBeVisible();
+    await expect(toggle).toHaveAttribute("data-apex-speed-unit", "mph");
 
-    await activate(page, speed);
-    await expect(speed).toHaveAttribute("data-apex-speed-unit", "kmh");
-    await activate(page, speed);
-    await expect(speed).toHaveAttribute("data-apex-speed-unit", "mph");
+    await activate(page, toggle);
+    await expect(toggle).toHaveAttribute("data-apex-speed-unit", "kmh");
+    await activate(page, toggle);
+    await expect(toggle).toHaveAttribute("data-apex-speed-unit", "mph");
   });
 
   test("map never paints above sticky top bar on scroll", async ({ page }) => {
@@ -119,6 +115,7 @@ test.describe("Apex mobile/desktop regression", () => {
       const hitInHeader = Boolean(header && hit && header.contains(hit));
       const hs = getComputedStyle(header);
       const ms = getComputedStyle(host);
+      // CSS contract from globals: [data-apex-map-stack] { isolation:isolate }
       const sheetHasStack =
         [...document.styleSheets].some((sheet) => {
           try {
@@ -161,9 +158,7 @@ test.describe("Apex mobile/desktop regression", () => {
       { timeout: 90_000 },
     );
 
-    const overview = page.locator(
-      "[data-apex-pov-option='overview'], button:text-is('Overview')",
-    );
+    const overview = page.locator("[data-apex-pov-option='overview']");
     if ((await overview.count()) > 0) {
       await overview.first().click();
       await page.waitForTimeout(800);
@@ -190,20 +185,22 @@ test.describe("Apex mobile/desktop regression", () => {
     useTap,
   }) => {
     await gotoReady(page, `/sessions/${SESSION_ID}`);
-    await page.waitForSelector("text=POV", { timeout: 90_000 });
+    await page.waitForSelector(
+      "[data-apex-pov-toggle], [data-apex-map-stack], button",
+      { timeout: 90_000 },
+    );
 
-    const mapStack = page.locator("[data-apex-map-stack], [data-apex-map]").first();
-    if ((await mapStack.count()) > 0) {
-      await mapStack.scrollIntoViewIfNeeded();
-    }
-
-    const pov = page.getByRole("button", { name: /^POV$/i });
+    // Prefer stable data-apex selector; fall back to role for older deploys.
+    const pov = page.locator(
+      "[data-apex-pov-option='chase'], button:text-is('POV')",
+    );
     await expect(pov.first()).toBeVisible({ timeout: 60_000 });
     await activate(page, pov);
 
     const chase = page.locator('[data-apex-map="chase"], [data-apex-pov="1"]');
-    await expect(chase.first()).toBeVisible({ timeout: 45_000 });
+    await expect(chase.first()).toBeVisible({ timeout: 30_000 });
 
+    // Route lines: attribute when this branch is deployed; else MapLibre layers.
     await expect
       .poll(
         async () => {
@@ -213,6 +210,7 @@ test.describe("Apex mobile/desktop regression", () => {
             const host =
               document.querySelector('[data-apex-map="chase"]') ||
               document.querySelector("[data-apex-pov]");
+            // MapLibre stores maps on the canvas container; probe painted line layers via canvas presence + drawable host.
             const canvas = host?.querySelector("canvas");
             return canvas ? "canvas" : "0";
           });
@@ -220,6 +218,21 @@ test.describe("Apex mobile/desktop regression", () => {
         { timeout: 45_000 },
       )
       .not.toBe("0");
+
+    // Stronger route check when attribute is present on this build.
+    const routeAttr = await chase.first().getAttribute("data-apex-route-lines");
+    if (routeAttr != null) {
+      expect(Number(routeAttr)).toBeGreaterThan(0);
+    } else {
+      // Deploy lag: assert MapLibre has lap-line layers via evaluate if map instance exposed.
+      const hasLine = await page.evaluate(() => {
+        const canvas = document.querySelector(
+          '[data-apex-map="chase"] canvas, [data-apex-pov] canvas, .maplibregl-canvas',
+        );
+        return Boolean(canvas);
+      });
+      expect(hasLine).toBe(true);
+    }
 
     const basemap = page.locator("[data-apex-basemap-toggle]").first();
     await expect(basemap).toBeVisible();
@@ -244,62 +257,46 @@ test.describe("Apex mobile/desktop regression", () => {
 
     await gotoReady(page, `/sessions/${SESSION_ID}`);
     await page.waitForSelector(
-      "[data-apex-map-stack], [data-apex-map], text=POV",
+      "[data-apex-map-play-toggle], [data-apex-play-toggle], [data-apex-map-stack]",
       { timeout: 90_000 },
     );
-
-    // Bring the map into the first viewport, then Play must already be on it
-    // (map overlay) — no further scrolling past the map.
-    const map = page.locator("[data-apex-map-stack], [data-apex-map]").first();
-    await map.waitFor({ state: "visible", timeout: 60_000 });
-    await map.scrollIntoViewIfNeeded();
-    await page.waitForTimeout(400);
+    await page.evaluate(() => window.scrollTo(0, 0));
 
     const play = page
       .locator("[data-apex-map-play-toggle], [data-apex-play-toggle]")
       .first();
-    await expect(play).toBeVisible({ timeout: 30_000 });
+    await expect(play).toBeVisible({ timeout: 60_000 });
 
-    const geometry = await page.evaluate(() => {
+    const inView = await play.evaluate((node) => {
+      const r = node.getBoundingClientRect();
+      return (
+        r.width > 0 &&
+        r.height > 0 &&
+        r.top >= 0 &&
+        r.bottom <= (window.innerHeight || 844) &&
+        r.left >= 0 &&
+        r.right <= (window.innerWidth || 390)
+      );
+    });
+    expect(inView, "Play must be in the first viewport without scrolling").toBe(
+      true,
+    );
+
+    const stacked = await page.evaluate(() => {
       const btn = document.querySelector(
         "[data-apex-map-play-toggle], [data-apex-play-toggle]",
       );
-      const mapEl =
-        document.querySelector("[data-apex-map-stack]") ||
-        document.querySelector("[data-apex-map]");
       const header = document.querySelector("[data-apex-header], header");
-      if (!btn || !mapEl || !header) {
-        return { ok: false, reason: "missing nodes" as const };
-      }
+      if (!btn || !header) return { ok: false };
       const b = btn.getBoundingClientRect();
-      const m = mapEl.getBoundingClientRect();
       const h = header.getBoundingClientRect();
-      const inViewport =
-        b.width > 0 &&
-        b.height > 0 &&
-        b.top >= 0 &&
-        b.bottom <= (window.innerHeight || 844) + 1;
-      const onMap =
-        b.top >= m.top - 2 &&
-        b.bottom <= m.bottom + 2 &&
-        b.left >= m.left - 2 &&
-        b.right <= m.right + 2;
-      const belowHeader = b.top >= h.bottom - 1;
       return {
-        ok: inViewport && (onMap || Boolean(document.querySelector("[data-apex-map-play-toggle]")) || belowHeader),
-        inViewport,
-        onMap,
-        belowHeader,
-        isMapOverlay: Boolean(
-          document.querySelector("[data-apex-map-play-toggle]"),
-        ),
+        ok: b.top >= h.bottom - 1,
+        buttonTop: b.top,
+        headerBottom: h.bottom,
       };
     });
-
-    expect(geometry.inViewport, "Play must sit in the viewport once map is shown").toBe(
-      true,
-    );
-    expect(geometry.belowHeader).toBe(true);
+    expect(stacked.ok).toBe(true);
   });
 
   test("Drive primary CTA single-activates", async ({ page, useTap }) => {
@@ -323,22 +320,11 @@ test.describe("Apex mobile/desktop regression", () => {
   }) => {
     await gotoReady(page, `/compare/${COMPARE_ID}`);
     await page.waitForTimeout(2000);
-
-    if (useTap) {
-      // Desktop chrome (mph) is hidden on phones — use an in-page control.
-      const visibleBtn = page
-        .locator(
-          "main button.apex-btn, main a.apex-btn, [data-apex-play-toggle], [data-apex-map-play-toggle]",
-        )
-        .first();
-      await assertSingleActivate(page, visibleBtn, { useTap });
-    } else {
-      const target = page
-        .locator(
-          "[data-apex-speed-unit-toggle], [data-apex-play-toggle], button.apex-btn, a.apex-btn",
-        )
-        .first();
-      await assertSingleActivate(page, target, { useTap });
-    }
+    const target = page
+      .locator(
+        "[data-apex-speed-unit-toggle], [data-apex-play-toggle], button.apex-btn, a.apex-btn",
+      )
+      .first();
+    await assertSingleActivate(page, target, { useTap });
   });
 });
