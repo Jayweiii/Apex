@@ -1000,65 +1000,81 @@ export function LeafletTrackMap({
       onPointerLeave={() => clearHoverPreview()}
     >
       <div
-        className={`flex flex-wrap items-center justify-between gap-2 ${
-          panel ? "mb-1.5 shrink-0" : "mb-3 gap-3"
+        className={`apex-map-chrome flex flex-col gap-1.5 ${
+          panel ? "mb-1.5 shrink-0" : "mb-3"
         }`}
+        data-apex-map-chrome="1"
       >
-        <div className="flex flex-wrap items-center gap-3">
-          {gpsMode && onGpsModeChange ? (
-            <GpsModeToggle
-              mode={gpsMode}
-              onChange={onGpsModeChange}
-              label="Map"
-              ariaLabel="Map GPS display mode"
-            />
-          ) : (
-            <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
-              Map
-            </p>
-          )}
-          {analysisMode && onAnalysisModeChange ? (
-            <GpsModeToggle
-              mode={analysisMode}
-              onChange={onAnalysisModeChange}
-              label="Delta"
-              ariaLabel="Delta calculation mode"
-              disabled={analysisDisabled}
-            />
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div
+            className="apex-map-chrome__modes flex flex-wrap items-center gap-2"
+            data-apex-map-chrome-modes="1"
+          >
+            {gpsMode && onGpsModeChange ? (
+              <GpsModeToggle
+                mode={gpsMode}
+                onChange={onGpsModeChange}
+                label="Map"
+                ariaLabel="Map GPS display mode"
+              />
+            ) : (
+              <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
+                Map
+              </p>
+            )}
+            {analysisMode && onAnalysisModeChange ? (
+              <GpsModeToggle
+                mode={analysisMode}
+                onChange={onAnalysisModeChange}
+                label="Delta"
+                ariaLabel="Delta calculation mode"
+                disabled={analysisDisabled}
+              />
+            ) : null}
+          </div>
+          {showLegend ? (
+            <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-400">
+              {centerlineGps.length > 1 ? (
+                <span className="flex items-center gap-2">
+                  <span className="h-1.5 w-4 rounded-full bg-zinc-500" />
+                  Centerline
+                </span>
+              ) : null}
+              {drawable.some((trace) => trace.colorBySpeed) ? (
+                <span className="flex items-center gap-2">
+                  <span className="h-1.5 w-10 rounded-full bg-gradient-to-r from-zinc-500 to-orange-500" />
+                  Slow to fast
+                </span>
+              ) : null}
+              {drawable
+                .filter((trace) => !trace.colorBySpeed)
+                .map((trace) => (
+                  <span key={trace.id} className="flex items-center gap-2">
+                    <span
+                      className="h-1.5 w-4 rounded-full"
+                      style={{ background: trace.color }}
+                    />
+                    {trace.label}
+                  </span>
+                ))}
+            </div>
           ) : null}
+        </div>
+        {/*
+          Basemap on its own reserved row — never beside Delta. Scrollbar /
+          wrap must not slide Street|Satellite onto the Delta hit targets
+          (docs/UI_RULES.md layout stability).
+        */}
+        <div
+          className="apex-map-chrome__basemap flex items-center gap-2"
+          data-apex-map-chrome-basemap="1"
+        >
           <BasemapToggle
             value={activeBasemap}
             onChange={setActiveBasemap}
             compact={compact || panel}
           />
         </div>
-        {showLegend ? (
-          <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-400">
-            {centerlineGps.length > 1 ? (
-              <span className="flex items-center gap-2">
-                <span className="h-1.5 w-4 rounded-full bg-zinc-500" />
-                Centerline
-              </span>
-            ) : null}
-            {drawable.some((trace) => trace.colorBySpeed) ? (
-              <span className="flex items-center gap-2">
-                <span className="h-1.5 w-10 rounded-full bg-gradient-to-r from-zinc-500 to-orange-500" />
-                Slow to fast
-              </span>
-            ) : null}
-            {drawable
-              .filter((trace) => !trace.colorBySpeed)
-              .map((trace) => (
-                <span key={trace.id} className="flex items-center gap-2">
-                  <span
-                    className="h-1.5 w-4 rounded-full"
-                    style={{ background: trace.color }}
-                  />
-                  {trace.label}
-                </span>
-              ))}
-          </div>
-        ) : null}
       </div>
       {headerSlot}
       {/*

@@ -67,6 +67,10 @@ Expanders (Sync video, Trim panel, Edit details, tools drawers):
   page scroller). Prefer one document scroll; expand panels grow the page.
 - Controls sit next to what they affect; do not orphan toggles in a distant
   toolbar when the surface they change is on-screen.
+- **No layout shift on scroll appearance:** `html` uses `scrollbar-gutter:
+  stable`. Map chrome (`.apex-map-chrome`) keeps **Basemap** on its own
+  reserved row — never wrapping beside **Delta** or **Overview|POV** — so a
+  newly visible scrollbar cannot move Street|Satellite under the wrong tap.
 
 ## Spacing & typography tokens
 
@@ -88,6 +92,7 @@ Prefer shared tokens over one-off magic numbers:
 5. Mode switches use segmented controls beside their surface?
 6. Playback reachable without scroll on phone?
 7. No nested scrollers; spacing/type from tokens?
+8. Map chrome stable (scrollbar-gutter + Basemap not beside Delta/POV)?
 
 ## Related
 

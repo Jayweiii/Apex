@@ -266,16 +266,20 @@ export function TrackMap(props: MapProps) {
     return (
       <div className={shellClass}>
         {/*
-          Basemap and POV are always on separate rows so Street|Satellite
-          never sits beside Overview|POV (fat-finger on 393px was flipping
-          camera mode when tapping Satellite).
+          Stable map chrome (docs/UI_RULES.md): reserved rows so scrollbar /
+          wrap never slides Street|Satellite beside Delta or Overview|POV
+          (fat-finger on 393px). Basemap and POV each get their own row.
         */}
         <div
-          className={`flex flex-col gap-1.5 ${
+          className={`apex-map-chrome flex flex-col gap-1.5 ${
             props.panel || props.compact ? "mb-1.5 shrink-0" : "mb-3"
           }`}
+          data-apex-map-chrome="1"
         >
-          <div className="flex flex-wrap items-center gap-2">
+          <div
+            className="apex-map-chrome__modes flex flex-wrap items-center gap-2"
+            data-apex-map-chrome-modes="1"
+          >
             {props.gpsMode && props.onGpsModeChange ? (
               <GpsModeToggle
                 mode={props.gpsMode}
@@ -297,10 +301,22 @@ export function TrackMap(props: MapProps) {
                 disabled={props.analysisDisabled}
               />
             ) : null}
-            {basemapControl}
           </div>
+          {basemapControl ? (
+            <div
+              className="apex-map-chrome__basemap flex items-center gap-2"
+              data-apex-map-chrome-basemap="1"
+            >
+              {basemapControl}
+            </div>
+          ) : null}
           {povControl ? (
-            <div className="flex flex-wrap items-center gap-2">{povControl}</div>
+            <div
+              className="apex-map-chrome__pov flex flex-wrap items-center gap-2"
+              data-apex-map-chrome-pov="1"
+            >
+              {povControl}
+            </div>
           ) : null}
         </div>
         <div className="relative min-h-0 flex-1">

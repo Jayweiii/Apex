@@ -87,9 +87,31 @@ assert(basemap.includes("SegmentedControl"), "Street/Satellite segmented");
 const trackMap = read("src/components/TrackMap.tsx");
 assert(trackMap.includes("SegmentedControl"), "Overview/POV segmented");
 assert(
-  trackMap.includes("never sits beside Overview|POV") ||
-    trackMap.includes("Basemap and POV are always on separate rows"),
-  "POV chrome keeps basemap off the Overview/POV row",
+  trackMap.includes("data-apex-map-chrome-basemap") &&
+    trackMap.includes("data-apex-map-chrome-pov"),
+  "POV chrome keeps basemap on its own reserved row (not beside Delta/POV)",
+);
+assert(
+  css.includes("scrollbar-gutter: stable"),
+  "html reserves scrollbar gutter (no map-chrome shift)",
+);
+assert(
+  css.includes(".apex-map-chrome__basemap") &&
+    css.includes("min-height: var(--apex-tap-min)"),
+  "basemap row reserves tap-min height",
+);
+
+const leafletMap = read("src/components/LeafletTrackMap.tsx");
+assert(
+  leafletMap.includes("data-apex-map-chrome-basemap") &&
+    leafletMap.includes("data-apex-map-chrome-modes"),
+  "overview map keeps Basemap off the Delta/modes wrap row",
+);
+
+const uiRules = read("docs/UI_RULES.md");
+assert(
+  uiRules.includes("scrollbar-gutter") && uiRules.includes("Basemap"),
+  "UI_RULES documents stable map chrome / scrollbar-gutter",
 );
 
 const chase = read("src/components/ChaseTrackMap.tsx");
