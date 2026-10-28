@@ -247,15 +247,20 @@ async function runPage(browser, path, shotName) {
   await page.waitForTimeout(300);
   const scrolled = await layoutProbe(page);
   const hb2 = await headerBottom(page);
-  ok(
-    `${shotName}-scroll-not-over-header`,
-    !scrolled.button?.visible || scrolled.button.top >= hb2 - 1,
-    {
-      buttonTop: scrolled.button?.top,
-      headerBottom: hb2,
-      visible: scrolled.button?.visible,
-    },
+  // Off-screen above (top < 0) means the control scrolled away with the map —
+  // that is correct. Fail only if it still paints over the sticky header band.
+  const coveringHeader = Boolean(
+    scrolled.button &&
+      scrolled.button.width > 0 &&
+      scrolled.button.bottom > 0 &&
+      scrolled.button.top < hb2,
   );
+  ok(`${shotName}-scroll-not-over-header`, !coveringHeader, {
+    buttonTop: scrolled.button?.top,
+    buttonBottom: scrolled.button?.bottom,
+    headerBottom: hb2,
+    coveringHeader,
+  });
 
   // Reset scroll for screenshot of Play on map.
   await page.evaluate(() => window.scrollTo(0, 0));
