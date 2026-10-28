@@ -56,7 +56,7 @@ export async function activate(
 
 /**
  * Assert one finger tap / click fires exactly one click on the target.
- * iPhone uses touchscreen.tap(); desktop uses click().
+ * Prevents navigation so multi-control suites stay on the page.
  */
 export async function assertSingleActivate(
   page: Page,
@@ -75,7 +75,9 @@ export async function assertSingleActivate(
     n.dataset.apexTapClicks = "0";
     n.addEventListener(
       "click",
-      () => {
+      (event) => {
+        event.preventDefault();
+        event.stopPropagation();
         n.dataset.apexTapClicks = String(
           Number(n.dataset.apexTapClicks || "0") + 1,
         );
@@ -104,6 +106,19 @@ export async function assertSingleActivate(
 export async function gotoReady(page: Page, path: string) {
   await applyVercelShare(page);
   await page.goto(path, { waitUntil: "domcontentloaded", timeout: 90_000 });
+}
+
+export async function openMobileMenu(page: Page) {
+  const menu = page.locator(
+    "[data-apex-nav-menu], button[aria-label='Open menu']",
+  );
+  if ((await menu.count()) === 0) return;
+  if (await menu.first().isVisible()) {
+    await menu.first().tap({ timeout: 10_000 }).catch(async () => {
+      await menu.first().click({ timeout: 10_000 });
+    });
+    await page.waitForTimeout(200);
+  }
 }
 
 export const test = base.extend<{ useTap: boolean }>({
