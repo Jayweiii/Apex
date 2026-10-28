@@ -104,9 +104,16 @@ function basemapStyleLayers(mode: BasemapMode) {
  * Toggle Street ↔ Satellite via raster-opacity only.
  * Camera (center/zoom/bearing/pitch), GeoJSON laps, and HTML markers stay put —
  * no setStyle() and no source remove/add (avoids pitch resets + blank-tile lag).
+ *
+ * Returns false when dual basemap layers are not ready yet (caller must retry).
+ * Do not gate on map.isStyleLoaded() — after satellite setTiles failover that
+ * API stays false while "load" never re-fires, which left Street pressed with
+ * satellite still opaque.
  */
-function applyBasemapOpacities(map: MapLibreMap, mode: BasemapMode) {
-  if (!(map.getLayer(STREET_LAYER_ID) && map.getLayer(SAT_LAYER_ID))) return;
+function applyBasemapOpacities(map: MapLibreMap, mode: BasemapMode): boolean {
+  if (!(map.getLayer(STREET_LAYER_ID) && map.getLayer(SAT_LAYER_ID))) {
+    return false;
+  }
   map.setPaintProperty(
     STREET_LAYER_ID,
     "raster-opacity",
@@ -117,6 +124,7 @@ function applyBasemapOpacities(map: MapLibreMap, mode: BasemapMode) {
     "raster-opacity",
     mode === "satellite" ? 1 : 0,
   );
+  return true;
 }
 
 function applyBasemapTiles(
@@ -124,12 +132,12 @@ function applyBasemapTiles(
   mode: BasemapMode,
   pitch = POV_PITCH_DEG,
   opts?: { refreshSatellite?: boolean },
-) {
+): boolean {
   const center = map.getCenter();
   const zoom = map.getZoom();
   const bearing = map.getBearing();
 
-  applyBasemapOpacities(map, mode);
+  if (!applyBasemapOpacities(map, mode)) return false;
 
   // Satellite re-tap: nudge tile list so a stuck ArcGIS edge retries.
   if (mode === "satellite" && opts?.refreshSatellite) {
@@ -141,9 +149,10 @@ function applyBasemapTiles(
 
   // Always re-assert chase pitch (don't trust a stale 0 after style churn).
   map.jumpTo({ center, zoom, bearing, pitch });
+  return true;
 }
 
-/** Publish camera on the host for Playwright / QA. */
+/** Publish camera + live raster-opacity for Playwright / QA. */
 function syncCameraAttrs(
   host: HTMLElement | null,
   map: MapLibreMap | null,
@@ -155,6 +164,30 @@ function syncCameraAttrs(
     host.dataset.apexZoom = String(Math.round(map.getZoom() * 100) / 100);
     host.dataset.apexBearing = String(Math.round(map.getBearing() * 10) / 10);
     if (basemap) host.dataset.apexBasemap = basemap;
+    if (map.getLayer(STREET_LAYER_ID) && map.getLayer(SAT_LAYER_ID)) {
+      const streetOp = map.getPaintProperty(STREET_LAYER_ID, "raster-opacity");
+      const satOp = map.getPaintProperty(SAT_LAYER_ID, "raster-opacity");
+      host.dataset.apexBasemapStreetOpacity = String(streetOp ?? "");
+      host.dataset.apexBasemapSatOpacity = String(satOp ?? "");
+      const streetSrc = map.getSource(STREET_SOURCE_ID) as
+        | { tiles?: string[] }
+        | undefined;
+      const satSrc = map.getSource(SAT_SOURCE_ID) as
+        | { tiles?: string[] }
+        | undefined;
+      const streetTile = streetSrc?.tiles?.[0] ?? "";
+      const satTile = satSrc?.tiles?.[0] ?? "";
+      host.dataset.apexBasemapStreetTile = streetTile.includes("openstreetmap")
+        ? "osm"
+        : streetTile
+          ? "other"
+          : "";
+      host.dataset.apexBasemapSatTile = /arcgis|arcgisonline|esri/i.test(satTile)
+        ? "esri"
+        : satTile
+          ? "other"
+          : "";
+    }
   } catch {
     // Map may be mid-remove during unmount.
   }
@@ -360,9 +393,11 @@ export function ChaseTrackMap({
       SAT_SOURCE_ID,
       () => {
         // Keep Satellite mode opaque after a host rotate — never leave street
-        // visible under a pressed Satellite control.
+        // visible under a pressed Satellite control. Do not touch Street mode
+        // (failover must not undo a Street↔Satellite opacity swap).
         if (basemapRef.current === "satellite") {
           applyBasemapOpacities(map, "satellite");
+          syncCameraAttrs(hostRef.current, map, "satellite");
         }
       },
     );
@@ -481,21 +516,43 @@ export function ChaseTrackMap({
 
   // Swap Street ↔ Satellite via opacity (keeps chase camera + lap layers).
   // Always apply when the prop differs from the style we last painted —
-  // never "ack" a new mode without calling applyBasemapTiles (POV Street
-  // highlight with satellite tiles was that race).
+  // never "ack" a new mode without a successful applyBasemapTiles.
+  // Gate on dual layers existing — NOT isStyleLoaded()/once("load"): sat
+  // failover setTiles keeps isStyleLoaded false and load never re-fires,
+  // which stuck Street pressed while satellite stayed opaque.
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     if (appliedBasemapRef.current === basemap) return;
-    const swap = () => {
-      applyBasemapTiles(map, basemap, pitch, {
+
+    const trySwap = () => {
+      if (appliedBasemapRef.current === basemap) return true;
+      const ok = applyBasemapTiles(map, basemap, pitch, {
         refreshSatellite: basemap === "satellite",
       });
+      if (!ok) return false;
       appliedBasemapRef.current = basemap;
       syncCameraAttrs(hostRef.current, map, basemap);
+      return true;
     };
-    if (map.isStyleLoaded()) swap();
-    else map.once("load", swap);
+
+    if (trySwap()) return;
+
+    const onReady = () => {
+      if (trySwap()) {
+        map.off("load", onReady);
+        map.off("idle", onReady);
+        map.off("styledata", onReady);
+      }
+    };
+    map.on("load", onReady);
+    map.on("idle", onReady);
+    map.on("styledata", onReady);
+    return () => {
+      map.off("load", onReady);
+      map.off("idle", onReady);
+      map.off("styledata", onReady);
+    };
   }, [basemap, pitch]);
 
   // SF crossing + out/in tags (additive; north-up + POV).

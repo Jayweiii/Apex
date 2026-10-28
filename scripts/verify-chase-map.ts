@@ -156,6 +156,20 @@ assert(
 );
 assert(chaseSrc.includes("maxPitch"), "chase maxPitch above POV pitch");
 assert(chaseSrc.includes("data-apex-pitch") || chaseSrc.includes("apexPitch"), "exposes pitch for QA");
+assert(
+  chaseSrc.includes("return true") && chaseSrc.includes("return false"),
+  "applyBasemapTiles reports whether dual layers applied",
+);
+assert(
+  !/if \(map\.isStyleLoaded\(\)\) swap\(\);\s*else map\.once\(["']load["'], swap\);/.test(
+    chaseSrc,
+  ),
+  "Street↔Satellite swap must not rely on isStyleLoaded once(load)",
+);
+assert(
+  chaseSrc.includes("apexBasemapStreetOpacity"),
+  "exposes street raster-opacity for e2e",
+);
 
 console.log("verify-chase-map ok", {
   b0: Math.round(b0),

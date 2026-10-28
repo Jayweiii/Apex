@@ -5,11 +5,12 @@ import { MiataCar } from "@/components/drive/scene/MiataCar";
 import type { DriveSimSnapshot } from "@/components/drive/scene/sim-bridge";
 import { TrackMesh3D } from "@/components/drive/scene/TrackMesh3D";
 import { buildGradeProfile } from "@/lib/drive/elevation";
+import { createTimerClock, type TimerClock } from "@/lib/drive/timer-clock";
 import { buildTrackMeshBuffers, enuToThree } from "@/lib/drive/track-mesh";
 import type { DriveCarState, DrivePoint, DriveTrackPayload } from "@/lib/drive/types";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { useMemo, useRef, type MutableRefObject } from "react";
-import type { Group } from "three";
+import { useEffect, useMemo, useRef, type MutableRefObject } from "react";
+import type { Clock, Group } from "three";
 
 type Props = {
   payload: DriveTrackPayload;
@@ -198,6 +199,14 @@ function SceneInner({
 
 export function DriveScene({ payload, simRef, carColor, mobile, gate }: Props) {
   const dpr: [number, number] = mobile ? [1, 1.25] : [1, 1.75];
+  const timerClockRef = useRef<TimerClock | null>(null);
+  useEffect(() => {
+    return () => {
+      timerClockRef.current?.dispose();
+      timerClockRef.current = null;
+    };
+  }, []);
+
   return (
     <Canvas
       className="absolute inset-0 h-full w-full touch-none"
@@ -210,6 +219,13 @@ export function DriveScene({ payload, simRef, carColor, mobile, gate }: Props) {
       }}
       camera={{ fov: 55, near: 0.5, far: 900, position: [0, 8, 18] }}
       frameloop="always"
+      onCreated={(state) => {
+        // Replace deprecated THREE.Clock (r183+) with THREE.Timer-backed facade.
+        timerClockRef.current?.dispose();
+        const clock = createTimerClock(document);
+        timerClockRef.current = clock;
+        state.set({ clock: clock as unknown as Clock });
+      }}
     >
       <SceneInner
         payload={payload}
