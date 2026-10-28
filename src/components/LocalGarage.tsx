@@ -351,6 +351,8 @@ export function LocalSession({ id }: { id: string }) {
     null,
   );
   const [draftVideos, setDraftVideos] = useState<SessionVideo[] | null>(null);
+  // Must stay above early returns — conditional hooks crash React.
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   useEffect(() => {
     setDraftLaps(null);
@@ -588,7 +590,6 @@ export function LocalSession({ id }: { id: string }) {
     workingLaps.find((lap) => lap.id === selected?.id) ?? null;
   const track = session.trackId ? getTrack(session.trackId) : null;
   const current = session;
-  const [detailsOpen, setDetailsOpen] = useState(false);
 
   async function reprocess() {
     setReprocessBusy(true);

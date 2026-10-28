@@ -5,7 +5,7 @@ Track lap-time app: upload TrackAddict CSV or GoPro MP4 telemetry, review laps, 
 ## Setup
 
 1. Create a project at [supabase.com](https://supabase.com).
-2. In **SQL Editor**, run `supabase/schema.sql`.
+2. In **SQL Editor**, either run every file in `supabase/migrations/` in filename order, or run the squashed `supabase/schema.sql` once on a brand-new empty project. Existing projects should only apply newer migration files.
 3. In **Authentication**, enable Email. For local testing you can turn off “Confirm email”.
 4. Copy `.env.example` to `.env.local` and fill in **Project URL** and **anon public** key from **Project Settings → API**.
 5. Optional — Cloudflare R2 for durable raw/video storage:

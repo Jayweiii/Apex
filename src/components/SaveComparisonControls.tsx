@@ -45,7 +45,7 @@ export function SaveComparisonControls({
     existing?.title ?? defaultComparisonTitle(draft?.items ?? []),
   );
   const [visibility, setVisibility] = useState<SessionVisibility>(
-    existing?.visibility ?? "public",
+    existing?.visibility ?? "friends",
   );
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);

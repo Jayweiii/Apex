@@ -15,11 +15,11 @@ function read(rel: string) {
   return readFileSync(resolve(root, rel), "utf8");
 }
 
-// Friends nav folded into Lap Comparisons; legacy /friends redirects there.
+// Legacy /friends redirects to Account → Friends management.
 const friends = read("src/app/friends/page.tsx");
 assert(
-  friends.includes("lap-comparisons") && friends.includes("redirect"),
-  "friends page redirects into Lap Comparisons",
+  friends.includes('"/account"') && friends.includes("redirect"),
+  "friends page redirects into Account",
 );
 const lapComparisons = read("src/components/LapComparisonsPage.tsx");
 assert(

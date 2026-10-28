@@ -13,7 +13,7 @@ export const VISIBILITY_OPTIONS: Array<{
   {
     value: "friends",
     label: "Friends",
-    hint: "Signed-in Apex drivers",
+    hint: "Accepted friends only",
   },
   {
     value: "public",
