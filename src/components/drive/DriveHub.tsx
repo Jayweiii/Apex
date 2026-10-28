@@ -23,7 +23,13 @@ import {
   type Track,
 } from "@/lib/tracks";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type MouseEvent,
+  type PointerEvent,
+} from "react";
 
 const SUGGESTED = [
   "thunderhill-west",
@@ -31,6 +37,28 @@ const SUGGESTED = [
   "custom-thunderhill-west",
   "custom-thunderhill-east",
 ];
+
+const TRACK_KEY = "apex.drive.selectedTrack";
+
+function loadSelectedTrackId(fallback: string): string {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const raw = localStorage.getItem(TRACK_KEY);
+    if (raw) return raw;
+  } catch {
+    // ignore
+  }
+  return fallback;
+}
+
+function saveSelectedTrackId(id: string) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(TRACK_KEY, id);
+  } catch {
+    // ignore
+  }
+}
 
 function readLocalBoards(trackIds: string[]) {
   const next: Record<
@@ -46,9 +74,22 @@ function readLocalBoards(trackIds: string[]) {
   return next;
 }
 
+/** iPhone: stopPropagation on pointerdown so neighboring cards don't steal the tap. */
+function selectOnActivate(
+  event: MouseEvent | PointerEvent,
+  select: () => void,
+) {
+  event.preventDefault();
+  event.stopPropagation();
+  select();
+}
+
 export function DriveHub() {
   const [extra, setExtra] = useState<Track[]>([]);
   const [carId, setCarId] = useState<DriveCarId>(() => loadSelectedCarId());
+  const [trackId, setTrackId] = useState<string>(() =>
+    loadSelectedTrackId("thunderhill-west"),
+  );
   const [boardTick, setBoardTick] = useState(0);
 
   useEffect(() => {
@@ -94,6 +135,16 @@ export function DriveHub() {
     return readLocalBoards(tracks.map((t) => t.id));
   }, [tracks, boardTick]);
 
+  // Resolve against hydrated list without an effect (invalid ids fall back).
+  const resolvedTrackId =
+    tracks.length === 0
+      ? trackId
+      : tracks.some((t) => t.id === trackId)
+        ? trackId
+        : tracks[0]!.id;
+  const selectedTrack =
+    tracks.find((t) => t.id === resolvedTrackId) ?? tracks[0] ?? null;
+
   return (
     <>
       <AppHeader />
@@ -115,76 +166,127 @@ export function DriveHub() {
         </div>
 
         <section data-apex-drive-car-select className="space-y-3">
-          <h2 className="text-sm font-medium text-zinc-200">Car</h2>
-          <ul className="grid gap-2 sm:grid-cols-2">
+          <h2 id="apex-drive-car-label" className="text-sm font-medium text-zinc-200">
+            Car
+          </h2>
+          <div
+            role="radiogroup"
+            aria-labelledby="apex-drive-car-label"
+            className="grid gap-2 sm:grid-cols-2"
+          >
             {DRIVE_CARS.map((car) => {
               const selected = car.id === carId;
               return (
-                <li key={car.id}>
-                  <button
-                    type="button"
-                    data-apex-drive-car={car.id}
-                    aria-pressed={selected}
-                    onClick={() => {
+                <button
+                  key={car.id}
+                  type="button"
+                  role="radio"
+                  data-apex-drive-car={car.id}
+                  aria-checked={selected}
+                  tabIndex={selected ? 0 : -1}
+                  onPointerDown={(event) => {
+                    event.stopPropagation();
+                  }}
+                  onClick={(event) => {
+                    selectOnActivate(event, () => {
                       setCarId(car.id);
                       saveSelectedCarId(car.id);
-                    }}
-                    className={`flex w-full flex-col items-start gap-1 rounded-xl border px-4 py-3 text-left transition ${
-                      selected
-                        ? "border-orange-500/50 bg-orange-500/10"
-                        : "border-zinc-800/80 bg-zinc-950/50 hover:border-zinc-700"
-                    }`}
-                  >
-                    <span className="flex items-center gap-2 font-medium text-zinc-100">
-                      <span
-                        className="inline-block h-2.5 w-2.5 rounded-full"
-                        style={{ background: car.color }}
-                        aria-hidden
-                      />
-                      {car.name}
-                    </span>
-                    <span className="text-xs text-zinc-500">{car.blurb}</span>
-                  </button>
-                </li>
+                    });
+                  }}
+                  style={{ touchAction: "manipulation" }}
+                  className={`flex min-h-14 w-full flex-col items-start gap-1 rounded-xl border px-4 py-3 text-left transition ${
+                    selected
+                      ? "border-orange-500/50 bg-orange-500/10"
+                      : "border-zinc-800/80 bg-zinc-950/50 hover:border-zinc-700"
+                  }`}
+                >
+                  <span className="flex items-center gap-2 font-medium text-zinc-100">
+                    <span
+                      className="inline-block h-2.5 w-2.5 rounded-full"
+                      style={{ background: car.color }}
+                      aria-hidden
+                    />
+                    {car.name}
+                  </span>
+                  <span className="text-xs text-zinc-500">{car.blurb}</span>
+                </button>
               );
             })}
-          </ul>
+          </div>
         </section>
 
-        <section className="space-y-3">
-          <h2 className="text-sm font-medium text-zinc-200">Track</h2>
-          <ul className="grid gap-2">
+        <section data-apex-drive-track-select className="space-y-3">
+          <h2
+            id="apex-drive-track-label"
+            className="text-sm font-medium text-zinc-200"
+          >
+            Track
+          </h2>
+          <div
+            role="radiogroup"
+            aria-labelledby="apex-drive-track-label"
+            className="grid gap-2"
+          >
             {tracks.map((track) => {
               const board = boards[track.id];
+              const selected = track.id === resolvedTrackId;
               return (
-                <li key={track.id}>
-                  <Link
-                    href={`/drive/${track.id}?car=${carId}`}
-                    data-apex-drive-track={track.id}
-                    className="flex min-h-14 items-center justify-between gap-3 rounded-xl border border-zinc-800/80 bg-zinc-950/50 px-4 py-3 transition hover:border-zinc-700 hover:bg-zinc-900/60"
-                  >
-                    <div className="min-w-0">
-                      <p className="font-medium text-zinc-100">{track.name}</p>
-                      <p className="text-xs text-zinc-500">{track.location}</p>
-                      {board?.pb != null || (board?.top.length ?? 0) > 0 ? (
-                        <p className="mt-1 text-[11px] text-zinc-500">
-                          Local PB{" "}
-                          {board?.pb != null ? formatLapTime(board.pb) : "—"}
-                          {board?.top?.[0]
-                            ? ` · board ${formatLapTime(board.top[0].timeMs)}`
-                            : ""}
-                        </p>
-                      ) : null}
-                    </div>
-                    <span className="shrink-0 text-sm text-orange-400">
-                      Drive →
+                <button
+                  key={track.id}
+                  type="button"
+                  role="radio"
+                  data-apex-drive-track={track.id}
+                  aria-checked={selected}
+                  tabIndex={selected ? 0 : -1}
+                  onPointerDown={(event) => {
+                    event.stopPropagation();
+                  }}
+                  onClick={(event) => {
+                    selectOnActivate(event, () => {
+                      setTrackId(track.id);
+                      saveSelectedTrackId(track.id);
+                    });
+                  }}
+                  style={{ touchAction: "manipulation" }}
+                  className={`flex min-h-14 w-full items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left transition ${
+                    selected
+                      ? "border-orange-500/50 bg-orange-500/10"
+                      : "border-zinc-800/80 bg-zinc-950/50 hover:border-zinc-700"
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <p className="font-medium text-zinc-100">{track.name}</p>
+                    <p className="text-xs text-zinc-500">{track.location}</p>
+                    {board?.pb != null || (board?.top.length ?? 0) > 0 ? (
+                      <p className="mt-1 text-[11px] text-zinc-500">
+                        Local PB{" "}
+                        {board?.pb != null ? formatLapTime(board.pb) : "—"}
+                        {board?.top?.[0]
+                          ? ` · board ${formatLapTime(board.top[0].timeMs)}`
+                          : ""}
+                      </p>
+                    ) : null}
+                  </div>
+                  {selected ? (
+                    <span className="shrink-0 text-xs font-medium text-orange-400">
+                      Selected
                     </span>
-                  </Link>
-                </li>
+                  ) : null}
+                </button>
               );
             })}
-          </ul>
+          </div>
         </section>
+
+        {selectedTrack ? (
+          <Link
+            href={`/drive/${selectedTrack.id}?car=${carId}`}
+            data-apex-drive-go
+            className="apex-btn apex-btn--cta inline-flex min-h-12 items-center justify-center rounded-xl px-5 text-sm font-semibold"
+          >
+            Drive {selectedTrack.name} →
+          </Link>
+        ) : null}
 
         <p className="text-[11px] text-zinc-600">
           Local game boards are stored in this browser only under{" "}

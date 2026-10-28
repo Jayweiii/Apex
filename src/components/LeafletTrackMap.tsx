@@ -27,6 +27,35 @@ import L from "leaflet";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import "leaflet/dist/leaflet.css";
 
+/** Street or satellite tile layer; satellite rotates Esri hosts on tileerror. */
+function makeBasemapTileLayer(mode: BasemapMode): L.TileLayer {
+  if (mode !== "satellite") {
+    return L.tileLayer(OSM_STREET.url, {
+      attribution: OSM_STREET.attribution,
+      maxZoom: 19,
+    });
+  }
+  let hostIndex = 0;
+  let errorBurst = 0;
+  let lastRotateAt = 0;
+  const layer = L.tileLayer(ESRI_IMAGERY.urls[0]!, {
+    attribution: ESRI_IMAGERY.attribution,
+    maxZoom: 19,
+    crossOrigin: true,
+  });
+  layer.on("tileerror", () => {
+    errorBurst += 1;
+    if (errorBurst < 2) return;
+    const now = Date.now();
+    if (now - lastRotateAt < 2500) return;
+    errorBurst = 0;
+    lastRotateAt = now;
+    hostIndex = (hostIndex + 1) % ESRI_IMAGERY.urls.length;
+    layer.setUrl(ESRI_IMAGERY.urls[hostIndex]!);
+  });
+  return layer;
+}
+
 export type TrackTrace = {
   id: string;
   label: string;
@@ -430,10 +459,7 @@ export function LeafletTrackMap({
     markersRef.current = L.layerGroup().addTo(map);
     sfLayerRef.current = L.layerGroup().addTo(map);
 
-    tileRef.current = L.tileLayer(ESRI_IMAGERY.url, {
-      attribution: ESRI_IMAGERY.attribution,
-      maxZoom: 19,
-    }).addTo(map);
+    tileRef.current = makeBasemapTileLayer("satellite").addTo(map);
 
     const progressAt = (latlng: L.LatLng) => {
       const current = drawableRef.current;
@@ -702,7 +728,7 @@ export function LeafletTrackMap({
     sfHandleBRef.current?.dragging?.[sfEditing ? "enable" : "disable"]();
   }, [sfLine, sfEditing]);
 
-  // Swap basemap tiles.
+  // Swap basemap tiles (satellite uses Esri host failover on tileerror).
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -710,11 +736,7 @@ export function LeafletTrackMap({
       map.removeLayer(tileRef.current);
       tileRef.current = null;
     }
-    const source = activeBasemap === "satellite" ? ESRI_IMAGERY : OSM_STREET;
-    tileRef.current = L.tileLayer(source.url, {
-      attribution: source.attribution,
-      maxZoom: 19,
-    }).addTo(map);
+    tileRef.current = makeBasemapTileLayer(activeBasemap).addTo(map);
   }, [activeBasemap]);
 
   // Draw traces + centerline only when geometry identity changes.
