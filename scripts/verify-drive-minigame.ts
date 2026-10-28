@@ -12,10 +12,17 @@ import {
 } from "../src/lib/drive/lap-timing";
 import {
   DRIVE_PHYSICS,
+  pacejkaFactor,
   spawnAtStart,
   stepCar,
 } from "../src/lib/drive/physics";
 import { projectOnRibbon, isOnTrack } from "../src/lib/drive/ribbon";
+import {
+  buildGradeProfile,
+  smoothElevations,
+  withElevation,
+} from "../src/lib/drive/elevation";
+import { buildTrackMeshBuffers, enuToThree } from "../src/lib/drive/track-mesh";
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
@@ -172,6 +179,7 @@ assert(
 
 const game = read("src/components/drive/DriveGame.tsx");
 assert(game.includes("drawMinimap"), "minimap rendered");
+assert(game.includes("DriveScene") || game.includes("DriveScene"), "3D scene hosted");
 assert(game.includes("LAP_FINISH_COVER_FRAC"), "coverage-gated finish");
 assert(game.includes("Math.max(56, 11 * pxPerM)"), "car has screen-space size");
 assert(game.includes("data-apex-drive-car-px"), "exposes car px for QA");
@@ -196,6 +204,20 @@ assert(!game.includes("onTouchStart"), "pads use pointer events not touch*");
 assert(existsSync(join(root, "src/lib/drive/cars.ts")), "car presets");
 assert(existsSync(join(root, "src/lib/drive/audio.ts")), "drive audio");
 assert(existsSync(join(root, "src/lib/drive/sectors.ts")), "sectors helper");
+assert(existsSync(join(root, "src/lib/drive/elevation.ts")), "elevation helpers");
+assert(existsSync(join(root, "src/lib/drive/track-mesh.ts")), "track mesh builder");
+assert(
+  existsSync(join(root, "src/components/drive/scene/DriveScene.tsx")),
+  "DriveScene component",
+);
+assert(
+  existsSync(join(root, "src/components/drive/scene/MiataCar.tsx")),
+  "Miata car mesh",
+);
+assert(
+  existsSync(join(root, "src/components/drive/scene/ChaseCamera.tsx")),
+  "chase camera",
+);
 
 const cars = read("src/lib/drive/cars.ts");
 assert(cars.includes("apex.drive.selectedCar"), "car selection namespaced");
@@ -215,6 +237,31 @@ assert(physicsSrc.includes("curbStartFrac"), "curb / rumble strip");
 assert(physicsSrc.includes("weightTransfer") || physicsSrc.includes("load"), "weight transfer");
 assert(physicsSrc.includes("throttleLag"), "throttle feel");
 assert(physicsSrc.includes("carPreset"), "car preset tuning");
+assert(physicsSrc.includes("pacejka") || physicsSrc.includes("Pacejka"), "pacejka grip");
+assert(physicsSrc.includes("wheelbaseM"), "wheelbase for load transfer");
+assert(physicsSrc.includes("cgHeightM"), "CG height for load transfer");
+assert(physicsSrc.includes("wheelTravel"), "suspension travel state");
+
+assert(pacejkaFactor(0) >= 0 && pacejkaFactor(0) < 0.05, "pacejka zero slip");
+assert(pacejkaFactor(1) > 0.5, "pacejka near peak");
+
+const elevated = withElevation(
+  closed.map((p) => ({ ...p })),
+  closed.map((_, i) => 100 + Math.sin(i / 5) * 4),
+);
+assert(
+  elevated.every((p) => typeof p.z === "number"),
+  "elevation attached",
+);
+assert(smoothElevations([1, 1000, 1])[1]! < 50, "elevation spike smoothed");
+const grades = buildGradeProfile(elevated);
+assert(grades.length === elevated.length, "grade profile length");
+const mesh = buildTrackMeshBuffers(elevated, 9, grades);
+assert(mesh.asphalt.length > 12, "asphalt mesh");
+assert(mesh.curb.length > 12, "curb mesh");
+assert(mesh.grass.length > 12, "grass mesh");
+const [tx, ty, tz] = enuToThree(1, 2, 3);
+assert(tx === 1 && ty === 3 && tz === -2, "enu→three mapping");
 
 // Curb is still on-track; grass is not.
 const mid = spawnAtStart(closed, closed[0]!, 0);
@@ -224,7 +271,18 @@ const onAsphalt = stepCar(
   1 / 60,
   closed,
   9,
+  { grades },
 );
 assert(onAsphalt.surface === "asphalt" || onAsphalt.car.onTrack, "asphalt surface");
+assert(
+  Array.isArray(onAsphalt.car.wheelTravel) && onAsphalt.car.wheelTravel.length === 4,
+  "wheel travel after step",
+);
+assert(typeof onAsphalt.car.pitch === "number", "body pitch");
+assert(typeof onAsphalt.car.roll === "number", "body roll");
+
+const pkg = read("package.json");
+assert(pkg.includes('"three"'), "three dependency");
+assert(pkg.includes("@react-three/fiber"), "R3F dependency");
 
 console.log("verify-drive-minigame: ok");

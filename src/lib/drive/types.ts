@@ -7,6 +7,11 @@ export type DrivePoint = {
   x: number;
   /** North meters from track origin. */
   y: number;
+  /**
+   * Relative elevation (meters above track minimum).
+   * From session GPS altitude when available; else 0 (flat fallback).
+   */
+  z?: number;
   /** Optional elapsed ms along a ghost/recording. */
   t?: number;
 };
@@ -43,6 +48,8 @@ export type DriveTrackPayload = {
   realGhost: DriveGhostLap | null;
   /** How the ribbon path was sourced. */
   source: "session_gps" | "centerline" | "builtin";
+  /** True when centerline carries smoothed GPS altitude. */
+  hasElevation?: boolean;
 };
 
 export type DriveInputs = {
@@ -53,9 +60,13 @@ export type DriveInputs = {
 
 export type DriveSurface = "asphalt" | "curb" | "grass";
 
+export type DriveWheelId = "fl" | "fr" | "rl" | "rr";
+
 export type DriveCarState = {
   x: number;
   y: number;
+  /** World height (m) at contact patch / body reference. */
+  z?: number;
   /** Radians, 0 = north, clockwise-positive matching atan2(east, north). */
   heading: number;
   speed: number;
@@ -70,6 +81,18 @@ export type DriveCarState = {
   brakePedal?: number;
   /** Longitudinal weight-transfer proxy (−1 front … +1 rear). */
   load?: number;
+  /** Body pitch (rad): nose-down negative under braking. */
+  pitch?: number;
+  /** Body roll (rad): positive = right side down. */
+  roll?: number;
+  /** Per-wheel spring compression (m), order FL FR RL RR. */
+  wheelTravel?: [number, number, number, number];
+  /** Per-wheel normal load (N), order FL FR RL RR. */
+  wheelLoadN?: [number, number, number, number];
+  /** Longitudinal accel estimate (m/s²) for suspension/audio. */
+  longAccel?: number;
+  /** Lateral accel estimate (m/s²). */
+  latAccel?: number;
 };
 
 export type DriveCameraMode = "chase" | "top";
