@@ -7,9 +7,20 @@ export const BASEMAP_PREFS_EVENT = "apex:basemap";
 
 export const DEFAULT_BASEMAP: BasemapMode = "satellite";
 
-/** Free Esri World Imagery — no API key. */
+/**
+ * Free Esri World Imagery — no API key.
+ * Primary + alternate hosts: ArcGIS intermittently 502/CORS on one edge;
+ * MapLibre/Leaflet failover rotates through these so Satellite never sticks
+ * on blank / street-through holes until a manual re-tap.
+ */
+export const ESRI_IMAGERY_URLS = [
+  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+  "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+] as const;
+
 export const ESRI_IMAGERY = {
-  url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+  url: ESRI_IMAGERY_URLS[0],
+  urls: [...ESRI_IMAGERY_URLS] as string[],
   attribution:
     'Tiles &copy; <a href="https://www.esri.com/">Esri</a> — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community',
 };
@@ -48,5 +59,22 @@ export function writeBasemapPrefs(mode: BasemapMode) {
   }
   window.dispatchEvent(
     new CustomEvent<BasemapMode>(BASEMAP_PREFS_EVENT, { detail: next }),
+  );
+}
+
+/** Rotate satellite URL list so the next host is preferred. */
+export function rotateSatelliteTileUrls(fromIndex = 0): string[] {
+  const n = ESRI_IMAGERY_URLS.length;
+  const start = ((fromIndex % n) + n) % n;
+  return Array.from({ length: n }, (_, i) => ESRI_IMAGERY_URLS[(start + i) % n]!);
+}
+
+export function isSatelliteTileErrorMessage(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    m.includes("world_imagery") ||
+    m.includes("arcgisonline") ||
+    m.includes("basemap-satellite") ||
+    m.includes("esri")
   );
 }

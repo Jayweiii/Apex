@@ -135,13 +135,24 @@ assert(
   "basemap swap uses raster-opacity (no removeSource)",
 );
 const applyHelper = chaseSrc.slice(
-  chaseSrc.indexOf("function applyBasemapTiles"),
+  chaseSrc.indexOf("function applyBasemapOpacities") >= 0
+    ? chaseSrc.indexOf("function applyBasemapOpacities")
+    : chaseSrc.indexOf("function applyBasemapTiles"),
   chaseSrc.indexOf("function syncCameraAttrs"),
 );
 assert(applyHelper.includes("raster-opacity"), "applyBasemapTiles toggles opacity");
 assert(
+  applyHelper.includes("applyBasemapOpacities") ||
+    applyHelper.includes("raster-opacity"),
+  "opacity helper used for Street/Satellite swap",
+);
+assert(
   !/\.removeSource\s*\(/.test(applyHelper) && !/\.setStyle\s*\(/.test(applyHelper),
   "applyBasemapTiles avoids setStyle/removeSource",
+);
+assert(
+  chaseSrc.includes("attachMapLibreSatelliteFailover"),
+  "satellite tile host failover wired",
 );
 assert(chaseSrc.includes("maxPitch"), "chase maxPitch above POV pitch");
 assert(chaseSrc.includes("data-apex-pitch") || chaseSrc.includes("apexPitch"), "exposes pitch for QA");

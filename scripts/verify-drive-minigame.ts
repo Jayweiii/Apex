@@ -229,6 +229,11 @@ assert(
   hub.includes("data-apex-drive-car-track-select"),
   "hub is car/track selection screen",
 );
+assert(hub.includes('role="radiogroup"'), "hub car/track radiogroups");
+assert(hub.includes('role="radio"'), "hub options are radios");
+assert(hub.includes("aria-checked"), "hub uses aria-checked single-select");
+assert(hub.includes("data-apex-drive-track-select"), "hub track select");
+assert(hub.includes("data-apex-drive-go"), "hub Drive CTA after select");
 assert(hub.includes("Local PB") || hub.includes("local"), "hub shows local board");
 assert(hub.includes("apex.drive."), "hub documents isolation");
 

@@ -468,6 +468,60 @@ test.describe("Apex mobile/desktop regression", () => {
     }
   });
 
+  test("Drive car/track pickers are single-select radios on tap", async ({
+    page,
+  }) => {
+    await gotoReady(page, "/drive");
+    await page.waitForSelector("[data-apex-drive-car-track-select]", {
+      timeout: 90_000,
+    });
+
+    const carGroup = page.locator(
+      "[data-apex-drive-car-select] [role='radiogroup']",
+    );
+    await expect(carGroup).toBeVisible();
+    const hatch = page.locator('[data-apex-drive-car="hatch"]');
+    const miata = page.locator('[data-apex-drive-car="miata"]');
+    const gt = page.locator('[data-apex-drive-car="gt"]');
+
+    await activate(page, hatch);
+    await expect(hatch).toHaveAttribute("aria-checked", "true");
+    await expect(miata).toHaveAttribute("aria-checked", "false");
+    await expect(
+      page.locator('[data-apex-drive-car][aria-checked="true"]'),
+    ).toHaveCount(1);
+
+    // Second tap on another card: exactly one remains checked (no sticky dual).
+    await activate(page, gt);
+    await expect(gt).toHaveAttribute("aria-checked", "true");
+    await expect(hatch).toHaveAttribute("aria-checked", "false");
+    await expect(miata).toHaveAttribute("aria-checked", "false");
+    await expect(
+      page.locator('[data-apex-drive-car][aria-checked="true"]'),
+    ).toHaveCount(1);
+
+    const trackGroup = page.locator(
+      "[data-apex-drive-track-select] [role='radiogroup']",
+    );
+    await expect(trackGroup).toBeVisible();
+    const tracks = page.locator("[data-apex-drive-track]");
+    await expect(tracks.first()).toBeVisible();
+    const count = await tracks.count();
+    expect(count).toBeGreaterThan(1);
+    const first = tracks.nth(0);
+    const second = tracks.nth(1);
+    await activate(page, second);
+    await expect(second).toHaveAttribute("aria-checked", "true");
+    await expect(first).toHaveAttribute("aria-checked", "false");
+    await expect(
+      page.locator('[data-apex-drive-track][aria-checked="true"]'),
+    ).toHaveCount(1);
+
+    const go = page.locator("[data-apex-drive-go]");
+    await expect(go).toBeVisible();
+    await expect(go).toHaveAttribute("href", /\/drive\/.+\?car=gt/);
+  });
+
   test("compare page primary control single-activates", async ({
     page,
     useTap,

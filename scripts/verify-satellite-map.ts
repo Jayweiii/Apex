@@ -32,8 +32,27 @@ assert(pkg.dependencies?.leaflet, "leaflet dependency");
 assert(trackMap.includes('ssr: false'), "TrackMap dynamic import disables SSR");
 assert(trackMap.includes("LeafletTrackMap") || trackMap.includes("leaflet"), "dynamic Leaflet");
 assert(prefs.includes("World_Imagery"), "Esri World Imagery tiles");
+assert(
+  prefs.includes("server.arcgisonline.com") &&
+    prefs.includes("services.arcgisonline.com"),
+  "Esri primary + alternate imagery hosts",
+);
 assert(prefs.includes("openstreetmap.org"), "OSM street basemap");
 assert(/Esri/i.test(prefs), "Esri attribution");
+const failover = readFileSync(
+  resolve(root, "src/lib/basemap-satellite-failover.ts"),
+  "utf8",
+);
+assert(failover.includes("setTiles"), "MapLibre satellite setTiles failover");
+assert(
+  leaflet.includes("makeBasemapTileLayer") || leaflet.includes("tileerror"),
+  "Leaflet satellite tileerror failover",
+);
+assert(
+  chase.includes("attachMapLibreSatelliteFailover") ||
+    chase.includes("satelliteTilesForStyle"),
+  "POV attaches satellite failover",
+);
 assert(toggle.includes("Street") && toggle.includes("Satellite"), "basemap toggle labels");
 assert(toggle.includes("cursor-pointer"), "basemap toggle pointer cursor");
 assert(trackMap.includes("BasemapToggle") && trackMap.includes("basemapControl"), "POV shows basemap");
@@ -78,7 +97,10 @@ console.log(
   JSON.stringify({
     ok: true,
     leaflet: pkg.dependencies?.leaflet,
-    basemaps: ["satellite:esri-world-imagery", "street:osm"],
+    basemaps: [
+      "satellite:esri-world-imagery+failover",
+      "street:osm",
+    ],
     sharedToggle: true,
     povBasemap: true,
     ssr: false,

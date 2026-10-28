@@ -6,6 +6,10 @@ import {
   OSM_STREET,
   type BasemapMode,
 } from "@/lib/basemap-prefs";
+import {
+  attachMapLibreSatelliteFailover,
+  satelliteTilesForStyle,
+} from "@/lib/basemap-satellite-failover";
 import { formatGap } from "@/lib/format";
 import { MAP_EMBED_HEIGHT_CLASS } from "@/lib/map-height";
 import { ensureMapLibreWorker } from "@/lib/maplibre-worker";
@@ -60,7 +64,8 @@ function basemapStyleSources() {
   return {
     [SAT_SOURCE_ID]: {
       type: "raster" as const,
-      tiles: [ESRI_IMAGERY.url],
+      // Primary + alternate Esri hosts — failover rotates on 502/CORS.
+      tiles: satelliteTilesForStyle(),
       tileSize: 256,
       attribution: ESRI_IMAGERY.attribution,
     },
@@ -100,26 +105,38 @@ function basemapStyleLayers(mode: BasemapMode) {
  * Camera (center/zoom/bearing/pitch), GeoJSON laps, and HTML markers stay put —
  * no setStyle() and no source remove/add (avoids pitch resets + blank-tile lag).
  */
+function applyBasemapOpacities(map: MapLibreMap, mode: BasemapMode) {
+  if (!(map.getLayer(STREET_LAYER_ID) && map.getLayer(SAT_LAYER_ID))) return;
+  map.setPaintProperty(
+    STREET_LAYER_ID,
+    "raster-opacity",
+    mode === "street" ? 1 : 0,
+  );
+  map.setPaintProperty(
+    SAT_LAYER_ID,
+    "raster-opacity",
+    mode === "satellite" ? 1 : 0,
+  );
+}
+
 function applyBasemapTiles(
   map: MapLibreMap,
   mode: BasemapMode,
   pitch = POV_PITCH_DEG,
+  opts?: { refreshSatellite?: boolean },
 ) {
   const center = map.getCenter();
   const zoom = map.getZoom();
   const bearing = map.getBearing();
 
-  if (map.getLayer(STREET_LAYER_ID) && map.getLayer(SAT_LAYER_ID)) {
-    map.setPaintProperty(
-      STREET_LAYER_ID,
-      "raster-opacity",
-      mode === "street" ? 1 : 0,
-    );
-    map.setPaintProperty(
-      SAT_LAYER_ID,
-      "raster-opacity",
-      mode === "satellite" ? 1 : 0,
-    );
+  applyBasemapOpacities(map, mode);
+
+  // Satellite re-tap: nudge tile list so a stuck ArcGIS edge retries.
+  if (mode === "satellite" && opts?.refreshSatellite) {
+    const source = map.getSource(SAT_SOURCE_ID) as
+      | { setTiles?: (tiles: string[]) => unknown }
+      | undefined;
+    source?.setTiles?.(satelliteTilesForStyle());
   }
 
   // Always re-assert chase pitch (don't trust a stale 0 after style churn).
@@ -338,6 +355,18 @@ export function ChaseTrackMap({
     mapRef.current = map;
     appliedBasemapRef.current = initialBasemap;
 
+    const detachSatFailover = attachMapLibreSatelliteFailover(
+      map,
+      SAT_SOURCE_ID,
+      () => {
+        // Keep Satellite mode opaque after a host rotate — never leave street
+        // visible under a pressed Satellite control.
+        if (basemapRef.current === "satellite") {
+          applyBasemapOpacities(map, "satellite");
+        }
+      },
+    );
+
     map.on("load", () => {
       map.resize();
       // Sky/horizon makes chase pitch obvious on flat OSM cartography.
@@ -434,6 +463,7 @@ export function ChaseTrackMap({
     container.style.cursor = "pointer";
 
     return () => {
+      detachSatFailover();
       ro?.disconnect();
       container.removeEventListener("mouseleave", onLeave);
       container.removeEventListener("pointerleave", onLeave);
@@ -458,7 +488,9 @@ export function ChaseTrackMap({
     if (!map) return;
     if (appliedBasemapRef.current === basemap) return;
     const swap = () => {
-      applyBasemapTiles(map, basemap, pitch);
+      applyBasemapTiles(map, basemap, pitch, {
+        refreshSatellite: basemap === "satellite",
+      });
       appliedBasemapRef.current = basemap;
       syncCameraAttrs(hostRef.current, map, basemap);
     };
