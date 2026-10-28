@@ -521,7 +521,7 @@ export function splitGoProLaps(
   // Builtin ellipse centerlines poison progress-wrap lap detection (e.g.
   // Thunderhill West → 4 laps instead of ~11). Only use an explicit caller
   // centerline (real GPS / stored tracks.centerline) — never auto-fill ellipse.
-  let centerline = options.centerline ?? null;
+  const centerline = options.centerline ?? null;
   if (trackId) {
     if (!startFinish) {
       startFinish = resolveTrackStartFinish(trackId);
