@@ -66,32 +66,8 @@ test.describe("Apex mobile/desktop regression", () => {
       ).toBeVisible();
     }
 
-    const toggle = page.locator("[data-apex-speed-unit-toggle]").locator("visible=true").first();
-    // Fallback: any visible speed toggle (drawer or desktop chrome).
-    const toggleAny = page.locator("[data-apex-speed-unit-toggle]");
-    const target =
-      (await toggle.count()) > 0
-        ? toggle
-        : toggleAny.filter({ hasNot: page.locator("[hidden]") }).first();
-
-    // On iPhone the toggle lives in the drawer — ensure one is visible.
-    if (useTap && !(await target.isVisible().catch(() => false))) {
-      await openMobileMenu(page);
-    }
-    const visibleToggle = page
-      .locator("[data-apex-speed-unit-toggle]")
-      .evaluateAll
-      ? page.locator("[data-apex-speed-unit-toggle]")
-      : toggleAny;
-
-    const picked = page.locator("[data-apex-speed-unit-toggle]").nth(
-      useTap ? 0 : 0,
-    );
-    // Prefer the last match which is usually the mobile drawer instance.
-    const count = await page.locator("[data-apex-speed-unit-toggle]").count();
-    const speed = page.locator("[data-apex-speed-unit-toggle]").nth(
-      useTap ? Math.max(0, count - 1) : 0,
-    );
+    // Prefer a visible toggle (drawer on iPhone; desktop chrome otherwise).
+    const speed = page.locator("[data-apex-speed-unit-toggle]").last();
     await expect(speed).toBeVisible();
     await expect(speed).toHaveAttribute("data-apex-speed-unit", "mph");
 
@@ -350,15 +326,10 @@ test.describe("Apex mobile/desktop regression", () => {
 
     if (useTap) {
       // Desktop chrome (mph) is hidden on phones — use an in-page control.
-      const target = page
-        .locator(
-          "[data-apex-play-toggle], [data-apex-map-play-toggle], a.apex-btn, button.apex-btn",
-        )
-        .locator("visible=true")
-        .first();
-      // Playwright visible filter: use .first() after filtering via evaluate if needed.
       const visibleBtn = page
-        .locator("main button.apex-btn, main a.apex-btn, [data-apex-play-toggle], [data-apex-map-play-toggle]")
+        .locator(
+          "main button.apex-btn, main a.apex-btn, [data-apex-play-toggle], [data-apex-map-play-toggle]",
+        )
         .first();
       await assertSingleActivate(page, visibleBtn, { useTap });
     } else {
