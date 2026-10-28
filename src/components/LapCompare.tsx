@@ -13,6 +13,7 @@ import {
   type SessionToolTab,
 } from "@/components/SessionToolsPanel";
 import { MissingGps, TrackMap } from "@/components/TrackMap";
+import { SegmentedControl } from "@/components/SegmentedControl";
 import { compareChannelsForSeries } from "@/components/StackedTelemetry";
 import { DualSessionVideos } from "@/components/video/DualSessionVideos";
 import { useAnalysisMode } from "@/lib/analysis-mode";
@@ -1172,35 +1173,18 @@ export function LapCompare({
                 <p className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">
                   Telemetry · {chartAxis === "time" ? "time sync" : "distance"}
                 </p>
-                <div
-                  className="inline-flex rounded-lg border border-zinc-800 bg-zinc-950/80 p-0.5 text-[11px]"
-                  role="group"
-                  aria-label="Chart axis"
-                >
-                  {(
+                <SegmentedControl
+                  value={chartAxis}
+                  options={
                     [
                       { value: "time" as const, label: "Time" },
                       { value: "track" as const, label: "Distance" },
                     ] as const
-                  ).map((option) => {
-                    const active = chartAxis === option.value;
-                    return (
-                      <button
-                        key={option.value}
-                        type="button"
-                        aria-pressed={active}
-                        onClick={() => setChartAxis(option.value)}
-                        className={`min-h-7 rounded-md px-2.5 font-medium transition ${
-                          active
-                            ? "bg-zinc-100 text-zinc-950"
-                            : "text-zinc-400 hover:text-zinc-200"
-                        }`}
-                      >
-                        {option.label}
-                      </button>
-                    );
-                  })}
-                </div>
+                  }
+                  onChange={setChartAxis}
+                  ariaLabel="Chart axis"
+                  compact
+                />
               </div>
 
               <HoverCursorScope

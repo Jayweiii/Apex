@@ -1,5 +1,6 @@
 "use client";
 
+import { SegmentedControl } from "@/components/SegmentedControl";
 import type { GpsDisplayMode } from "@/lib/map-match";
 
 export function GpsModeToggle({
@@ -23,30 +24,19 @@ export function GpsModeToggle({
           {label}
         </span>
       ) : null}
-      <div
-        className="inline-flex rounded-lg border border-zinc-800 bg-zinc-950/80 p-0.5"
-        role="group"
-        aria-label={ariaLabel}
-      >
-        {(["snapped", "raw"] as const).map((value) => {
-          const active = mode === value;
-          return (
-            <button
-              key={value}
-              type="button"
-              disabled={disabled}
-              onClick={() => onChange(value)}
-              className={`rounded-md px-2.5 py-1 capitalize transition ${
-                active
-                  ? "bg-zinc-100 text-zinc-950"
-                  : "text-zinc-400 hover:text-zinc-200"
-              } disabled:cursor-not-allowed disabled:opacity-40`}
-            >
-              {value}
-            </button>
-          );
-        })}
-      </div>
+      <SegmentedControl<GpsDisplayMode>
+        value={mode}
+        options={
+          [
+            { value: "snapped" as const, label: "Snapped" },
+            { value: "raw" as const, label: "Raw" },
+          ] as const
+        }
+        onChange={onChange}
+        ariaLabel={ariaLabel}
+        compact
+        disabled={disabled}
+      />
     </div>
   );
 }

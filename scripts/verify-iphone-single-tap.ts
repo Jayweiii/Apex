@@ -1,11 +1,12 @@
 /**
- * Static contract: iPhone first-tap must fire click (no sticky :hover).
+ * Static contract: iPhone first-tap + UI_RULES control patterns.
  * - Tailwind hover remapped via nested @custom-variant (media → &:hover → @slot)
  * - Shared apex-* hover behind (hover:hover) and (pointer:fine)
  * - touch-action: manipulation on clickables
  * - No layout-shifting transforms on :hover (scale / translate stay on :active)
+ * - Segmented modes, disclosure expanders, 44pt tap token, docs wired for Muse
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -13,7 +14,8 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 
 const root = resolve(import.meta.dirname, "..");
-const css = readFileSync(resolve(root, "src/app/globals.css"), "utf8");
+const read = (rel: string) => readFileSync(resolve(root, rel), "utf8");
+const css = read("src/app/globals.css");
 
 assert(css.includes("@custom-variant hover"), "custom hover variant");
 assert(
@@ -27,7 +29,9 @@ assert(
   "custom-variant nests media → &:hover → @slot (not @media …:hover shorthand)",
 );
 assert(
-  !/^@custom-variant hover \(/m.test(css),
+  !/@custom-variant hover\s*\(\s*@media \(hover: hover\) and \(pointer: fine\):hover\s*\)/.test(
+    css,
+  ),
   "no broken shorthand that emits invalid @media …:hover",
 );
 
@@ -59,6 +63,41 @@ for (const [, body] of hoverBlocks) {
   );
 }
 
+assert(css.includes("--apex-tap-min"), "44pt tap token");
+assert(css.includes(".apex-segment"), "segmented control styles");
+assert(css.includes(".apex-disclosure"), "disclosure styles");
+assert(css.includes("aria-expanded"), "disclosure expanded chevron rule");
+
+assert(existsSync(resolve(root, "docs/UI_RULES.md")), "docs/UI_RULES.md");
+const agents = read("AGENTS.md");
+const contributing = read("CONTRIBUTING.md");
+assert(agents.includes("docs/UI_RULES.md"), "AGENTS.md references UI_RULES");
+assert(
+  contributing.includes("docs/UI_RULES.md"),
+  "CONTRIBUTING.md references UI_RULES",
+);
+
+const speed = read("src/components/SpeedUnitToggle.tsx");
+assert(speed.includes("SegmentedControl"), "mph/kmh is segmented");
+assert(speed.includes("data-apex-speed-unit-toggle"), "speed unit test id");
+
+const basemap = read("src/components/BasemapToggle.tsx");
+assert(basemap.includes("SegmentedControl"), "Street/Satellite segmented");
+
+const trackMap = read("src/components/TrackMap.tsx");
+assert(trackMap.includes("SegmentedControl"), "Overview/POV segmented");
+
+const synced = read("src/components/video/SyncedLapView.tsx");
+assert(synced.includes("aria-expanded={syncOpen}"), "sync disclosure expanded");
+assert(synced.includes("apex-disclosure"), "sync uses disclosure style");
+assert(synced.includes("apex-disclosure__chevron"), "sync chevron");
+
+const playback = read("src/components/PlaybackControls.tsx");
+assert(
+  playback.includes("var(--apex-tap-min)") || playback.includes("apex-btn--cta"),
+  "play control meets tap min",
+);
+
 console.log(
   JSON.stringify({
     ok: true,
@@ -66,5 +105,8 @@ console.log(
     touchAction: "manipulation",
     layoutShiftOnHover: false,
     activeStyles: true,
+    uiRules: true,
+    segmented: true,
+    disclosure: true,
   }),
 );

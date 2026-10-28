@@ -1,9 +1,16 @@
 "use client";
 
+import { SegmentedControl } from "@/components/SegmentedControl";
 import { useSpeedUnit } from "@/components/useSpeedUnit";
+import type { SpeedUnit } from "@/lib/speed-units";
+
+const OPTIONS = [
+  { value: "mph" as const, label: "mph", title: "Miles per hour" },
+  { value: "kmh" as const, label: "km/h", title: "Kilometers per hour" },
+] as const;
 
 /**
- * Single mph ↔ km/h control. Pointer cursor; persists via localStorage.
+ * mph | km/h segmented control. Persists via localStorage.
  */
 export function SpeedUnitToggle({
   className = "",
@@ -11,21 +18,19 @@ export function SpeedUnitToggle({
   className?: string;
 }) {
   const [unit, setUnit] = useSpeedUnit();
-  const next = unit === "mph" ? "kmh" : "mph";
-  const label = unit === "mph" ? "mph" : "km/h";
-  const nextLabel = next === "mph" ? "mph" : "km/h";
 
   return (
-    <button
-      type="button"
-      data-apex-speed-unit-toggle="1"
-      data-apex-speed-unit={unit}
-      title={`Speed units: ${label} (click for ${nextLabel})`}
-      aria-label={`Speed units ${label}. Switch to ${nextLabel}`}
-      onClick={() => setUnit(next)}
-      className={`apex-btn cursor-pointer ${className}`.trim()}
-    >
-      {label}
-    </button>
+    <SegmentedControl<SpeedUnit>
+      value={unit}
+      options={OPTIONS}
+      onChange={setUnit}
+      ariaLabel="Speed units"
+      compact
+      className={`cursor-pointer ${className}`.trim()}
+      groupProps={{
+        "data-apex-speed-unit-toggle": "1",
+        "data-apex-speed-unit": unit,
+      }}
+    />
   );
 }

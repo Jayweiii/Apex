@@ -1062,17 +1062,26 @@ export function CloudSessionView({ id }: { id: string }) {
                 <button
                   type="button"
                   data-testid="toolbar-details"
-                  aria-pressed={detailsOpen}
+                  className="apex-disclosure"
+                  aria-expanded={detailsOpen}
+                  aria-controls="session-details-panel"
                   onClick={() => setDetailsOpen((open) => !open)}
-                  className={`apex-btn ${detailsOpen ? "apex-btn--pressed" : ""}`}
                 >
-                  <span aria-hidden>✎</span> Edit details
+                  <span className="apex-disclosure__label">Edit details</span>
+                  <span className="apex-disclosure__chevron" aria-hidden>
+                    ▾
+                  </span>
                 </button>
               ) : null}
             </div>
           </div>
           {detailsOpen && mine ? (
-            <div className="mt-3 space-y-3 border-t border-zinc-800/80 pt-3">
+            <div
+              id="session-details-panel"
+              role="region"
+              aria-label="Session details"
+              className="mt-3 space-y-3 border-t border-zinc-800/80 pt-3"
+            >
               <SessionDetailsEditor
                 value={{
                   name: session.name,

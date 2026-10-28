@@ -5,10 +5,12 @@ import {
   type PlaybackSpeed,
 } from "@/lib/playback";
 import { formatClock } from "@/lib/format";
+import { SegmentedControl } from "@/components/SegmentedControl";
 
 /**
  * Shared play/pause · speed · scrub bar for session + compare playback.
  * Clock is owned by the parent (`progress` / `onProgress` / `playing`).
+ * Primary Play stays ≥44pt and sticky-capable for mobile (see docs/UI_RULES.md).
  */
 export function PlaybackControls({
   progress,
@@ -42,6 +44,11 @@ export function PlaybackControls({
   const durationSec = Math.max(0, durationMs / 1000);
   const atSec = progress * durationSec;
 
+  const speedOptions = PLAYBACK_SPEEDS.map((value) => ({
+    value: String(value),
+    label: value === 1 ? "1x" : `${value}x`,
+  }));
+
   return (
     <div
       className={`w-full border border-zinc-800/80 bg-zinc-950/90 ${
@@ -51,6 +58,7 @@ export function PlaybackControls({
       } ${sticky ? "sticky bottom-0 z-10 shadow-[0_-8px_24px_rgba(0,0,0,0.35)]" : ""}`}
       role="group"
       aria-label={label}
+      data-apex-playback-controls="1"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className={compact ? "min-w-0" : undefined}>
@@ -72,40 +80,27 @@ export function PlaybackControls({
             type="button"
             disabled={disabled}
             onClick={onTogglePlay}
-            className={`apex-btn apex-btn--primary inline-flex box-border flex-none justify-center overflow-hidden ${
-              compact ? "min-h-8 px-2 py-1 text-xs" : "apex-btn--cta"
-            }`}
+            className="apex-btn apex-btn--primary apex-btn--cta inline-flex box-border flex-none justify-center overflow-hidden"
             aria-label={playing ? "Pause" : "Play"}
             data-apex-play-toggle
             style={{
               width: 96,
               minWidth: 96,
               maxWidth: 96,
+              minHeight: "var(--apex-tap-min)",
               flex: "0 0 96px",
             }}
           >
             {playing ? "Pause" : "Play"}
           </button>
-          <div
-            className="flex items-center gap-0.5"
-            role="group"
-            aria-label="Playback speed"
-          >
-            {PLAYBACK_SPEEDS.map((value) => (
-              <button
-                key={value}
-                type="button"
-                disabled={disabled}
-                onClick={() => onSpeed(value)}
-                aria-pressed={speed === value}
-                className={`apex-btn font-mono normal-case tracking-normal ${
-                  compact ? "min-h-7 px-1.5 text-[11px]" : "min-h-9 px-2 text-xs"
-                } ${speed === value ? "apex-btn--pressed" : ""}`}
-              >
-                {value === 1 ? "1x" : `${value}x`}
-              </button>
-            ))}
-          </div>
+          <SegmentedControl
+            value={String(speed)}
+            options={speedOptions}
+            onChange={(next) => onSpeed(Number(next) as PlaybackSpeed)}
+            ariaLabel="Playback speed"
+            compact
+            disabled={disabled}
+          />
           <span
             className={`font-mono text-zinc-300 ${
               compact ? "text-xs" : "text-sm"

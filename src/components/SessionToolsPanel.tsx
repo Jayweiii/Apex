@@ -93,36 +93,41 @@ export function SessionToolsPanel({
   return (
     <div className={`shrink-0 ${className ?? ""}`}>
       {showButtons ? (
-        <div
-          role="toolbar"
-          aria-label="Session tools"
-          className="flex flex-wrap gap-1.5 rounded-xl border border-zinc-800/80 bg-zinc-950/70 p-1.5"
-        >
-          {usable.map((tab) => {
-            const selected = panelOpen && tab.id === active;
-            const icon = tab.icon ?? DEFAULT_ICONS[tab.id] ?? "·";
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                aria-pressed={selected}
-                onClick={() => selectTab(tab.id)}
-                className={`apex-btn min-w-[4.5rem] flex-1 sm:flex-none ${
-                  selected ? "apex-btn--primary" : ""
-                }`}
-              >
-                <span aria-hidden className="text-sm font-normal">
-                  {icon}
-                </span>
-                <span>{tab.label}</span>
-                {tab.badge ? (
-                  <span className="rounded bg-black/20 px-1 font-mono text-[10px] normal-case tracking-normal">
-                    {tab.badge}
+        <div className="flex flex-wrap gap-1.5 rounded-xl border border-zinc-800/80 bg-zinc-950/70 p-1.5">
+          <div
+            role="tablist"
+            aria-label="Session tools"
+            className="flex min-w-0 flex-1 flex-wrap gap-1.5"
+          >
+            {usable.map((tab) => {
+              const selected = panelOpen && tab.id === active;
+              const icon = tab.icon ?? DEFAULT_ICONS[tab.id] ?? "·";
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  aria-controls={`${baseId}-panel`}
+                  id={`${baseId}-tab-${tab.id}`}
+                  onClick={() => selectTab(tab.id)}
+                  className={`apex-btn min-w-[4.5rem] flex-1 sm:flex-none ${
+                    selected ? "apex-btn--pressed" : ""
+                  }`}
+                >
+                  <span aria-hidden className="text-sm font-normal">
+                    {icon}
                   </span>
-                ) : null}
-              </button>
-            );
-          })}
+                  <span>{tab.label}</span>
+                  {tab.badge ? (
+                    <span className="rounded bg-black/20 px-1 font-mono text-[10px] normal-case tracking-normal">
+                      {tab.badge}
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
           {(toolbarActions ?? []).map((action) => {
             const icon = action.icon ?? DEFAULT_ICONS[action.id] ?? "·";
             return (
@@ -152,8 +157,11 @@ export function SessionToolsPanel({
       {panelOpen && current ? (
         <div
           id={`${baseId}-panel`}
-          role="region"
+          role="tabpanel"
           aria-label={`${current.label} tools`}
+          aria-labelledby={
+            showButtons ? `${baseId}-tab-${current.id}` : undefined
+          }
           className="mt-2 rounded-xl border border-zinc-800/80 bg-zinc-950/80 p-3"
         >
           <div className="mb-2 flex items-center justify-between gap-2">
@@ -163,7 +171,7 @@ export function SessionToolsPanel({
             <button
               type="button"
               onClick={() => setPanelOpen(false)}
-              className="rounded-md px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"
+              className="apex-btn apex-btn--ghost"
             >
               Close
             </button>

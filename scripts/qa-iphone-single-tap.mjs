@@ -257,7 +257,7 @@ let failures = 0;
   await page.waitForTimeout(3000);
   const compareTarget = page
     .locator(
-      "button.apex-btn, a.apex-btn, button[data-apex-speed-unit-toggle], [role='option'], button[aria-pressed]",
+      "button.apex-btn, a.apex-btn, [data-apex-speed-unit-toggle] button, .apex-segment__option, .apex-disclosure, button[aria-pressed]",
     )
     .first();
   if (

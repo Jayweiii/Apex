@@ -2,6 +2,7 @@
 
 import { BasemapToggle } from "@/components/BasemapToggle";
 import { GpsModeToggle } from "@/components/GpsModeToggle";
+import { SegmentedControl } from "@/components/SegmentedControl";
 import {
   BASEMAP_PREFS_EVENT,
   DEFAULT_BASEMAP,
@@ -91,7 +92,7 @@ const ChaseTrackMap = dynamic(
   { ssr: false, loading: () => mapLoading },
 );
 
-/** Single Overview ↔ POV control (chase camera). */
+/** Overview | POV segmented control (chase camera). */
 function PovToggle({
   prefs,
   onChange,
@@ -102,44 +103,33 @@ function PovToggle({
   compact?: boolean;
 }) {
   return (
-    <div
-      className={`inline-flex rounded-lg border border-zinc-800 bg-zinc-950/80 p-0.5 ${
-        compact ? "text-[11px]" : "text-xs"
-      }`}
-      role="group"
-      aria-label="Map camera mode"
-      data-apex-pov-toggle="1"
-      data-apex-pov-mode={prefs.mode}
-    >
-      {(
+    <SegmentedControl
+      value={prefs.mode}
+      options={
         [
-          { value: "overview" as const, label: "Overview" },
-          { value: "chase" as const, label: "POV" },
+          {
+            value: "overview" as const,
+            label: "Overview",
+            title: "North-up, fixed framing",
+            dataAttrs: { "data-apex-pov-option": "overview" },
+          },
+          {
+            value: "chase" as const,
+            label: "POV",
+            title: "Third-person chase: tilted, heading-up follow",
+            dataAttrs: { "data-apex-pov-option": "chase" },
+          },
         ] as const
-      ).map((option) => {
-        const active = prefs.mode === option.value;
-        return (
-          <button
-            key={option.value}
-            type="button"
-            data-apex-pov-option={option.value}
-            onClick={() => onChange({ ...prefs, mode: option.value })}
-            className={`cursor-pointer rounded-md px-2.5 py-1 transition ${
-              active
-                ? "bg-orange-500 text-black"
-                : "text-zinc-400 hover:text-zinc-200"
-            }`}
-            title={
-              option.value === "overview"
-                ? "North-up, fixed framing"
-                : "Third-person chase: tilted, heading-up follow"
-            }
-          >
-            {option.label}
-          </button>
-        );
-      })}
-    </div>
+      }
+      onChange={(mode) => onChange({ ...prefs, mode })}
+      ariaLabel="Map camera mode"
+      compact={compact}
+      accent
+      groupProps={{
+        "data-apex-pov-toggle": "1",
+        "data-apex-pov-mode": prefs.mode,
+      }}
+    />
   );
 }
 
