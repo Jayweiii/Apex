@@ -620,3 +620,36 @@ video {
   border-color: rgba(251, 113, 133, 0.85);
   color: #fda4af;
 }
+
+
+/* Skip link — visible on keyboard focus only. */
+.apex-skip-link {
+  position: absolute;
+  left: 0.75rem;
+  top: 0.75rem;
+  z-index: 100;
+  transform: translateY(-120%);
+  border-radius: 0.5rem;
+  background: #18181b;
+  color: #fafafa;
+  border: 1px solid #3f3f46;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  text-decoration: none;
+}
+.apex-skip-link:focus {
+  transform: translateY(0);
+  outline: 2px solid #f97316;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -27,7 +27,7 @@ export default async function LapComparisonsRoute() {
   return (
     <>
       <AppHeader email={email} />
-      <main className="apex-page apex-page--medium">
+      <main id="main-content" className="apex-page apex-page--medium">
         <div>
           <Link href="/" className="apex-eyebrow">
             Home

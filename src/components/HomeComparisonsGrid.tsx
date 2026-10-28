@@ -32,7 +32,12 @@ function relativeTime(iso: string) {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
-export function HomeComparisonsGrid() {
+export function HomeComparisonsGrid({
+  initialComparisons,
+}: {
+  /** Server-prefetched public comparisons (skips the first client round-trip). */
+  initialComparisons?: ComparisonRow[] | null;
+} = {}) {
   const [cards, setCards] = useState<CardModel[] | null>(null);
 
   useEffect(() => {
@@ -44,7 +49,10 @@ export function HomeComparisonsGrid() {
       }
       try {
         const supabase = createClient();
-        const list = await listPublicComparisons(supabase, 6);
+        const list =
+          initialComparisons && initialComparisons.length
+            ? initialComparisons
+            : await listPublicComparisons(supabase, 6);
         if (cancelled) return;
         if (!list.length) {
           setCards([]);
@@ -107,7 +115,7 @@ export function HomeComparisonsGrid() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [initialComparisons]);
 
   if (cards === null) {
     return <p className="text-sm text-zinc-500">Loading comparisons…</p>;

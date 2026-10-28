@@ -5,6 +5,7 @@ import { HomeComparisonsGrid } from "@/components/HomeComparisonsGrid";
 import { HomeTracksColumn } from "@/components/HomeTracksColumn";
 import { SiteFooter } from "@/components/SiteFooter";
 import { YourSessions } from "@/components/YourSessions";
+import type { ComparisonRow } from "@/lib/comparisons";
 import { isAnonymousUser } from "@/lib/guest-auth";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
 import dynamic from "next/dynamic";
@@ -26,7 +27,11 @@ const HomeLiveExample = dynamic(
   },
 );
 
-export function HomeLanding() {
+export function HomeLanding({
+  initialComparisons = null,
+}: {
+  initialComparisons?: ComparisonRow[] | null;
+} = {}) {
   const [signedIn, setSignedIn] = useState(false);
   const [emailUser, setEmailUser] = useState(false);
 
@@ -49,7 +54,10 @@ export function HomeLanding() {
   return (
     <>
       <AppHeader />
-      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-8 px-4 py-5 sm:gap-10 sm:px-6 sm:py-8">
+      <main
+        id="main-content"
+        className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-8 px-4 py-5 sm:gap-10 sm:px-6 sm:py-8"
+      >
         <section className="grid items-stretch gap-6 lg:grid-cols-2 lg:gap-8">
           <div className="flex flex-col justify-center gap-5">
             <h1 className="text-3xl font-semibold tracking-tight text-zinc-50 sm:text-4xl lg:text-[2.65rem] lg:leading-tight">
@@ -106,7 +114,7 @@ export function HomeLanding() {
                 All
               </Link>
             </div>
-            <HomeComparisonsGrid />
+            <HomeComparisonsGrid initialComparisons={initialComparisons} />
           </div>
 
           <div className="flex flex-col gap-3">
