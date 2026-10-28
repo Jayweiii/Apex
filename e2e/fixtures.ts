@@ -75,7 +75,10 @@ export async function assertSingleActivate(
     n.dataset.apexTapClicks = "0";
     n.addEventListener(
       "click",
-      () => {
+      (event) => {
+        // Keep multi-control suites on the same page.
+        event.preventDefault();
+        event.stopPropagation();
         n.dataset.apexTapClicks = String(
           Number(n.dataset.apexTapClicks || "0") + 1,
         );
@@ -107,8 +110,9 @@ export async function gotoReady(page: Page, path: string) {
 }
 
 export const test = base.extend<{ useTap: boolean }>({
-  useTap: async ({}, use, testInfo) => {
-    await use(testInfo.project.name === "iphone");
+  // Playwright fixture runner (not React's `use` hook).
+  useTap: async ({}, provide, testInfo) => {
+    await provide(testInfo.project.name === "iphone");
   },
 });
 

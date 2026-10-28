@@ -2,13 +2,16 @@ import { defineConfig, devices } from "@playwright/test";
 
 /**
  * Mobile + desktop e2e regression for Muse / merge gating.
- * Targets a live BASE_URL (prod or preview) — no local Next boot required.
+ * Both projects use Chromium so CI only installs one browser binary; the
+ * iPhone project still sets hasTouch/isMobile and uses tap().
  */
 const baseURL =
   process.env.BASE_URL ||
   process.env.APEX_BASE_URL ||
   process.env.APEX_PROD_URL ||
   "https://apex-ashy-beta.vercel.app";
+
+const iPhone = devices["iPhone 13"];
 
 export default defineConfig({
   testDir: "./e2e",
@@ -33,7 +36,7 @@ export default defineConfig({
     {
       name: "desktop",
       use: {
-        ...devices["Desktop Chrome"],
+        browserName: "chromium",
         viewport: { width: 1280, height: 800 },
         hasTouch: false,
         isMobile: false,
@@ -42,7 +45,10 @@ export default defineConfig({
     {
       name: "iphone",
       use: {
-        ...devices["iPhone 13"],
+        viewport: iPhone.viewport,
+        userAgent: iPhone.userAgent,
+        deviceScaleFactor: iPhone.deviceScaleFactor,
+        browserName: "chromium",
         hasTouch: true,
         isMobile: true,
       },
