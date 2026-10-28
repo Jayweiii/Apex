@@ -430,7 +430,7 @@ export function DriveGame({ trackId, carId: carIdProp }: Props) {
     let hudTick = 0;
     let lastHudMs = 0;
     let sectorMarks = [0, 0, 0];
-    let waitingForGo = phase === "countdown";
+    let waitingForGo = phaseRef.current === "countdown";
 
     const playerGhost: DriveGhostLap | null = loadPlayerGhost(trackId);
     const realGhost = payload.realGhost;
