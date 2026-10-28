@@ -191,28 +191,38 @@ export function AppHeader({ email }: { email?: string }) {
               </Link>
             );
           })}
-          <div className="mt-1 flex flex-wrap items-center gap-2 border-t border-zinc-900/80 pt-2">
-            <SpeedUnitToggle />
-            {signedIn ? (
-              <>
-                <Link href="/account" className="apex-btn apex-btn--ghost">
-                  My Sessions
-                </Link>
-                {guest ? (
-                  <Link href="/login" className="apex-btn apex-btn--accent">
-                    Keep sessions
-                  </Link>
-                ) : (
-                  <SignOutButton />
-                )}
-              </>
-            ) : (
-              <Link href="/login" className="apex-btn">
-                Sign in
-              </Link>
-            )}
-          </div>
         </nav>
+        {/*
+          Speed units live outside <nav> links so mph|km/h remounts cannot
+          hit a sibling Link (Playwright "page changed" / missed taps).
+          stopPropagation keeps the drawer open across unit writes.
+        */}
+        <div
+          className="mt-1 flex flex-wrap items-center gap-2 border-t border-zinc-900/80 pt-2"
+          data-apex-nav-utils="1"
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <SpeedUnitToggle />
+          {signedIn ? (
+            <>
+              <Link href="/account" className="apex-btn apex-btn--ghost">
+                My Sessions
+              </Link>
+              {guest ? (
+                <Link href="/login" className="apex-btn apex-btn--accent">
+                  Keep sessions
+                </Link>
+              ) : (
+                <SignOutButton />
+              )}
+            </>
+          ) : (
+            <Link href="/login" className="apex-btn">
+              Sign in
+            </Link>
+          )}
+        </div>
       </div>
     </header>
   );

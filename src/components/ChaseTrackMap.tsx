@@ -310,12 +310,16 @@ export function ChaseTrackMap({
     if (!hostRef.current || mapRef.current) return;
     // GeoJSON lap lines need the MapLibre v6 worker (public/ copy).
     ensureMapLibreWorker();
+    // Capture the basemap baked into the initial style so later prop
+    // hydration (street vs satellite) always runs applyBasemapTiles —
+    // skipping the first swap left Street pressed with satellite tiles.
+    const initialBasemap = basemapRef.current;
     const map = new MapLibreMap({
       container: hostRef.current,
       style: {
         version: 8,
         sources: basemapStyleSources(),
-        layers: basemapStyleLayers(basemap),
+        layers: basemapStyleLayers(initialBasemap),
       },
       center: [-122.33, 39.54],
       zoom: clampChaseZoom(prefs.chaseZoom || POV_DEFAULT_ZOOM),
@@ -332,6 +336,7 @@ export function ChaseTrackMap({
       cooperativeGestures: true,
     });
     mapRef.current = map;
+    appliedBasemapRef.current = initialBasemap;
 
     map.on("load", () => {
       map.resize();
@@ -445,14 +450,12 @@ export function ChaseTrackMap({
   }, []);
 
   // Swap Street ↔ Satellite via opacity (keeps chase camera + lap layers).
+  // Always apply when the prop differs from the style we last painted —
+  // never "ack" a new mode without calling applyBasemapTiles (POV Street
+  // highlight with satellite tiles was that race).
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    // Initial style already has the correct opacities; skip no-op remount churn.
-    if (appliedBasemapRef.current == null) {
-      appliedBasemapRef.current = basemap;
-      return;
-    }
     if (appliedBasemapRef.current === basemap) return;
     const swap = () => {
       applyBasemapTiles(map, basemap, pitch);
