@@ -86,6 +86,32 @@ assert(basemap.includes("SegmentedControl"), "Street/Satellite segmented");
 
 const trackMap = read("src/components/TrackMap.tsx");
 assert(trackMap.includes("SegmentedControl"), "Overview/POV segmented");
+assert(
+  trackMap.includes("never sits beside Overview|POV") ||
+    trackMap.includes("Basemap and POV are always on separate rows"),
+  "POV chrome keeps basemap off the Overview/POV row",
+);
+
+const chase = read("src/components/ChaseTrackMap.tsx");
+assert(
+  chase.includes("appliedBasemapRef.current = initialBasemap"),
+  "POV basemap ref tracks the style baked at map create",
+);
+assert(
+  !/if \(appliedBasemapRef\.current == null\) \{\s*appliedBasemapRef\.current = basemap;\s*return;/.test(
+    chase,
+  ),
+  "POV must not ack basemap changes without applyBasemapTiles",
+);
+
+const header = read("src/components/AppHeader.tsx");
+assert(header.includes("data-apex-nav-utils"), "mph toggle outside nav links");
+
+const session = read("src/components/CloudSessionView.tsx");
+assert(
+  session.includes("data-apex-session-chrome"),
+  "session chrome marked for mobile fold compaction",
+);
 
 const synced = read("src/components/video/SyncedLapView.tsx");
 assert(synced.includes("aria-expanded={syncOpen}"), "sync disclosure expanded");

@@ -316,9 +316,10 @@ export function LapChips({
 
   return (
     <div
-      className="flex flex-wrap gap-2"
+      className="flex flex-nowrap gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] sm:flex-wrap sm:gap-2 sm:overflow-visible sm:pb-0 [&::-webkit-scrollbar]:hidden"
       role="listbox"
       aria-label="Select lap"
+      data-apex-lap-chips="1"
     >
       {laps.map((lap) => {
         const selected = selectedId === lap.id;
@@ -333,7 +334,7 @@ export function LapChips({
             role="option"
             aria-selected={selected}
             onClick={() => onSelect(lap)}
-            className={`inline-flex min-h-9 items-center gap-2 rounded-lg border px-3 font-mono text-sm transition ${
+            className={`inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 font-mono text-sm transition sm:gap-2 sm:px-3 ${
               excluded ? "opacity-45" : ""
             } ${
               selected

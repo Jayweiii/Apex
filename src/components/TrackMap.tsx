@@ -265,34 +265,43 @@ export function TrackMap(props: MapProps) {
 
     return (
       <div className={shellClass}>
+        {/*
+          Basemap and POV are always on separate rows so Street|Satellite
+          never sits beside Overview|POV (fat-finger on 393px was flipping
+          camera mode when tapping Satellite).
+        */}
         <div
-          className={`flex flex-wrap items-center gap-2 ${
-            props.panel || props.compact ? "mb-1.5 shrink-0" : "mb-3 gap-3"
+          className={`flex flex-col gap-1.5 ${
+            props.panel || props.compact ? "mb-1.5 shrink-0" : "mb-3"
           }`}
         >
-          {props.gpsMode && props.onGpsModeChange ? (
-            <GpsModeToggle
-              mode={props.gpsMode}
-              onChange={props.onGpsModeChange}
-              label="Map"
-              ariaLabel="Map GPS display mode"
-            />
-          ) : (
-            <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
-              Map
-            </p>
-          )}
-          {props.analysisMode && props.onAnalysisModeChange ? (
-            <GpsModeToggle
-              mode={props.analysisMode}
-              onChange={props.onAnalysisModeChange}
-              label="Delta"
-              ariaLabel="Delta calculation mode"
-              disabled={props.analysisDisabled}
-            />
+          <div className="flex flex-wrap items-center gap-2">
+            {props.gpsMode && props.onGpsModeChange ? (
+              <GpsModeToggle
+                mode={props.gpsMode}
+                onChange={props.onGpsModeChange}
+                label="Map"
+                ariaLabel="Map GPS display mode"
+              />
+            ) : (
+              <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
+                Map
+              </p>
+            )}
+            {props.analysisMode && props.onAnalysisModeChange ? (
+              <GpsModeToggle
+                mode={props.analysisMode}
+                onChange={props.onAnalysisModeChange}
+                label="Delta"
+                ariaLabel="Delta calculation mode"
+                disabled={props.analysisDisabled}
+              />
+            ) : null}
+            {basemapControl}
+          </div>
+          {povControl ? (
+            <div className="flex flex-wrap items-center gap-2">{povControl}</div>
           ) : null}
-          {basemapControl}
-          {povControl}
         </div>
         <div className="relative min-h-0 flex-1">
           <ChaseTrackMap

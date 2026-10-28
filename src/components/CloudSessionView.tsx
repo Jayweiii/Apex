@@ -982,35 +982,43 @@ export function CloudSessionView({ id }: { id: string }) {
           onDiscard={discardEdits}
         />
       ) : null}
-      <main className="mx-auto w-full max-w-[90rem] flex-1 px-3 py-1.5 pb-8 sm:px-4">
-        <div className="flex flex-wrap items-center justify-between gap-2 pb-1.5">
+      <main
+        className="mx-auto w-full max-w-[90rem] flex-1 px-3 py-1 pb-8 sm:px-4 sm:py-1.5"
+        data-apex-session-main="1"
+      >
+        <div
+          className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 pb-1"
+          data-apex-session-chrome="1"
+        >
           <div className="min-w-0">
-            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 sm:gap-x-3">
               <Link
                 href={mine ? "/account" : "/lap-comparisons?tab=sessions"}
                 className="text-[10px] uppercase tracking-[0.18em] text-zinc-500 hover:text-zinc-300"
               >
                 {mine ? "My Sessions" : userId ? "Friends" : "Public feed"}
               </Link>
-              <h1 className="truncate text-base font-semibold tracking-tight text-zinc-50 sm:text-lg">
+              <h1 className="truncate text-sm font-semibold tracking-tight text-zinc-50 sm:text-lg">
                 {session.name}
               </h1>
             </div>
-            <p className="mt-0.5 truncate text-xs text-zinc-500">
+            <p className="mt-0.5 truncate text-[11px] text-zinc-500 sm:text-xs">
               {session.car ? `${session.car} · ` : ""}
               {laps.length} laps
               {best != null ? ` · best ${formatLapTime(best)}` : ""}
               {session.driver_name ? ` · ${session.driver_name}` : ""}
-              {session.weather ? ` · ${session.weather}` : ""}
-              {session.tires ? ` · ${session.tires}` : ""}
               {!mine ? ` · ${visibility}` : ""}
+              <span className="hidden sm:inline">
+                {session.weather ? ` · ${session.weather}` : ""}
+                {session.tires ? ` · ${session.tires}` : ""}
+              </span>
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
             {href ? (
               <Link
                 href={href}
-                className="inline-flex min-h-10 items-center text-[11px] uppercase tracking-[0.16em] text-orange-400 hover:text-orange-300"
+                className="inline-flex min-h-9 items-center text-[11px] uppercase tracking-[0.16em] text-orange-400 hover:text-orange-300 sm:min-h-10"
               >
                 Compare
               </Link>
@@ -1032,11 +1040,16 @@ export function CloudSessionView({ id }: { id: string }) {
           </div>
         </div>
 
+        {/*
+          Mobile: collapse the details card into a single GPS badge row so the
+          map + Play sit in the first 393×852 viewport. Desktop keeps the card.
+        */}
         <div
-          className="mb-2 rounded-xl border border-zinc-800/80 bg-zinc-950/50 p-3"
+          className="mb-1 sm:mb-2 sm:rounded-xl sm:border sm:border-zinc-800/80 sm:bg-zinc-950/50 sm:p-3"
           data-testid="session-details-block"
+          data-apex-session-details="1"
         >
-          <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="hidden flex-wrap items-center justify-between gap-2 sm:flex">
             <div className="min-w-0">
               <p className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">
                 Session details
@@ -1075,12 +1088,38 @@ export function CloudSessionView({ id }: { id: string }) {
               ) : null}
             </div>
           </div>
+          {mine ? (
+            <div className="mb-1 flex flex-wrap items-center gap-1.5 sm:hidden">
+              {detailsDirty ? (
+                <SectionSaveHint
+                  dirty
+                  saving={saving}
+                  label="Unsaved details"
+                  onSave={() => void saveEdits()}
+                  onDiscard={discardEdits}
+                />
+              ) : null}
+              <button
+                type="button"
+                data-testid="toolbar-details"
+                className="apex-disclosure"
+                aria-expanded={detailsOpen}
+                aria-controls="session-details-panel"
+                onClick={() => setDetailsOpen((open) => !open)}
+              >
+                <span className="apex-disclosure__label">Details</span>
+                <span className="apex-disclosure__chevron" aria-hidden>
+                  ▾
+                </span>
+              </button>
+            </div>
+          ) : null}
           {detailsOpen && mine ? (
             <div
               id="session-details-panel"
               role="region"
               aria-label="Session details"
-              className="mt-3 space-y-3 border-t border-zinc-800/80 pt-3"
+              className="mt-2 space-y-3 rounded-xl border border-zinc-800/80 bg-zinc-950/50 p-3 sm:mt-3 sm:rounded-none sm:border-0 sm:border-t sm:border-zinc-800/80 sm:bg-transparent sm:p-0 sm:pt-3"
             >
               <SessionDetailsEditor
                 value={{
@@ -1135,7 +1174,7 @@ export function CloudSessionView({ id }: { id: string }) {
               </div>
             </div>
           ) : (
-            <div className="mt-2">
+            <div className="hidden sm:mt-2 sm:block">
               <GpsQualityBadge
                 quality={session.gps_quality}
                 sourceKind={
@@ -1167,13 +1206,13 @@ export function CloudSessionView({ id }: { id: string }) {
         </div>
 
         {unsplit && !reparseOpen ? (
-          <div className="pb-2 lg:hidden">
+          <div className="pb-1 lg:hidden sm:pb-2">
             <UnsplitLapsBanner onClick={openReparse} />
           </div>
         ) : null}
 
         {laps.length ? (
-          <div className="pb-2 lg:hidden">
+          <div className="pb-1 lg:hidden sm:pb-2">
             <LapChips
               laps={laps}
               selectedId={selected?.id}

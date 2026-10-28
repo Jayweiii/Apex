@@ -360,41 +360,53 @@ export function SessionLapDetail({
 
   return (
     <section
-      className={workspace ? "flex flex-col gap-2" : "space-y-4"}
+      className={workspace ? "flex flex-col gap-1.5 sm:gap-2" : "space-y-4"}
       aria-label={`Lap ${lap.lap_number}`}
+      data-apex-lap-detail="1"
     >
       <div
-        className={`flex flex-wrap items-end justify-between gap-2 ${
-          workspace ? "" : "gap-3"
+        className={`flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5 ${
+          workspace ? "" : "items-end gap-3"
         }`}
       >
-        <div>
+        <div className="min-w-0">
           <h2
             className={`font-semibold tracking-tight text-zinc-50 ${
-              workspace ? "text-sm" : "text-lg"
+              workspace ? "text-xs sm:text-sm" : "text-lg"
             }`}
           >
             Lap {lap.lap_number}
-          </h2>
-          <p
-            className={`inline-flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-orange-400 ${
-              workspace ? "text-lg" : "mt-0.5 text-2xl"
-            }`}
-          >
-            {formatLapTime(applied.lap_time_ms)}
-            {deltaSec === 0 ? (
-              <span
-                className="rounded-md border border-orange-500/40 bg-orange-500/15 px-1.5 py-0.5 text-[10px] font-sans uppercase tracking-[0.16em] text-orange-400"
-                data-apex-session-best="1"
-              >
-                Session best
+            {workspace ? (
+              <span className="ml-2 font-mono text-base text-orange-400 sm:text-lg">
+                {formatLapTime(applied.lap_time_ms)}
               </span>
             ) : null}
-          </p>
+            {workspace && deltaSec === 0 ? (
+              <span
+                className="ml-1.5 inline-flex rounded-md border border-orange-500/40 bg-orange-500/15 px-1.5 py-0.5 align-middle text-[10px] font-sans uppercase tracking-[0.16em] text-orange-400"
+                data-apex-session-best="1"
+              >
+                Best
+              </span>
+            ) : null}
+          </h2>
+          {!workspace ? (
+            <p className="mt-0.5 inline-flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-2xl text-orange-400">
+              {formatLapTime(applied.lap_time_ms)}
+              {deltaSec === 0 ? (
+                <span
+                  className="rounded-md border border-orange-500/40 bg-orange-500/15 px-1.5 py-0.5 text-[10px] font-sans uppercase tracking-[0.16em] text-orange-400"
+                  data-apex-session-best="1"
+                >
+                  Session best
+                </span>
+              ) : null}
+            </p>
+          ) : null}
         </div>
         <div
           className={`flex flex-wrap items-center gap-2 text-zinc-500 ${
-            workspace ? "text-xs" : "gap-3 text-sm"
+            workspace ? "text-[11px] sm:text-xs" : "gap-3 text-sm"
           }`}
         >
           <span data-apex-peak-speed="1">

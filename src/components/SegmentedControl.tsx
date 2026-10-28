@@ -61,7 +61,17 @@ export function SegmentedControl<T extends string>({
             key={option.value}
             type="button"
             disabled={disabled}
-            onClick={() => onChange(option.value)}
+            onPointerDown={(event) => {
+              // Keep hamburger / map chrome taps from synthesizing clicks on
+              // neighboring controls or nav links (iOS + Playwright).
+              event.stopPropagation();
+            }}
+            onClick={(event) => {
+              event.stopPropagation();
+              event.preventDefault();
+              if (disabled || option.value === value) return;
+              onChange(option.value);
+            }}
             className={`apex-segment__option${
               accent ? " apex-segment__option--accent" : ""
             }`}

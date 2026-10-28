@@ -53,7 +53,7 @@ test.describe("Apex mobile/desktop regression", () => {
   test("mph defaults and toggles", async ({ page, useTap }) => {
     await gotoReady(page, "/");
     // Segmented control persists via localStorage — start from a known unit.
-    await page.evaluate(() => localStorage.removeItem("apex-speed-unit"));
+    await page.evaluate(() => localStorage.removeItem("apex.speed-unit"));
     await page.reload({ waitUntil: "domcontentloaded" });
 
     if (useTap) {
@@ -66,17 +66,32 @@ test.describe("Apex mobile/desktop regression", () => {
       ).toBeVisible();
     }
 
-    const group = page.locator("[data-apex-speed-unit-toggle]:visible").first();
+    // Scope to the visible control (drawer utils on iPhone; desktop chrome else).
+    const group = useTap
+      ? page.locator(
+          "[data-apex-nav-drawer] [data-apex-speed-unit-toggle], [data-apex-nav-utils] [data-apex-speed-unit-toggle]",
+        ).first()
+      : page.locator("[data-apex-speed-unit-toggle]:visible").first();
     await expect(group).toBeVisible();
     await expect(group).toHaveAttribute("data-apex-speed-unit", "mph");
 
-    // Click the opposite segment (group center may land on the active chip).
     const kmh = group.getByRole("button", { name: /^km\/h$/i });
     const mph = group.getByRole("button", { name: /^mph$/i });
     await activate(page, kmh);
     await expect(group).toHaveAttribute("data-apex-speed-unit", "kmh");
+    if (useTap) {
+      // Drawer must stay open across unit writes (no "page changed" remount).
+      await expect(page.locator("[data-apex-nav-drawer]").first()).toBeVisible();
+      await expect(
+        page.locator("[data-apex-nav-menu]").first(),
+      ).toHaveAttribute("aria-expanded", "true");
+      expect(page.url()).toMatch(/\/$/);
+    }
     await activate(page, mph);
     await expect(group).toHaveAttribute("data-apex-speed-unit", "mph");
+    if (useTap) {
+      await expect(page.locator("[data-apex-nav-drawer]").first()).toBeVisible();
+    }
   });
 
   test("map never paints above sticky top bar on scroll", async ({ page }) => {
@@ -216,7 +231,6 @@ test.describe("Apex mobile/desktop regression", () => {
             const host =
               document.querySelector('[data-apex-map="chase"]') ||
               document.querySelector("[data-apex-pov]");
-            // MapLibre stores maps on the canvas container; probe painted line layers via canvas presence + drawable host.
             const canvas = host?.querySelector("canvas");
             return canvas ? "canvas" : "0";
           });
@@ -225,12 +239,10 @@ test.describe("Apex mobile/desktop regression", () => {
       )
       .not.toBe("0");
 
-    // Stronger route check when attribute is present on this build.
     const routeAttr = await chase.first().getAttribute("data-apex-route-lines");
     if (routeAttr != null) {
       expect(Number(routeAttr)).toBeGreaterThan(0);
     } else {
-      // Deploy lag: assert MapLibre has lap-line layers via evaluate if map instance exposed.
       const hasLine = await page.evaluate(() => {
         const canvas = document.querySelector(
           '[data-apex-map="chase"] canvas, [data-apex-pov] canvas, .maplibregl-canvas',
@@ -255,23 +267,170 @@ test.describe("Apex mobile/desktop regression", () => {
     expect(typeof useTap).toBe("boolean");
   });
 
+  test("Street/Satellite never leaves POV (session + compare)", async ({
+    page,
+    useTap,
+  }) => {
+    test.skip(!useTap, "iPhone fat-finger / POV basemap contract");
+
+    async function assertBasemapKeepsPov(path: string) {
+      await gotoReady(page, path);
+      await page.evaluate(() => {
+        localStorage.setItem(
+          "apex.map-view",
+          JSON.stringify({ mode: "chase", followId: "", chaseZoom: 17.5 }),
+        );
+        localStorage.setItem("apex.basemap", JSON.stringify("satellite"));
+      });
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await page
+        .locator('[data-apex-map="chase"], [data-apex-pov="1"]')
+        .first()
+        .waitFor({ state: "visible", timeout: 90_000 });
+
+      const povGroup = page.locator("[data-apex-pov-toggle]").first();
+      await expect(povGroup).toHaveAttribute("data-apex-pov-mode", "chase");
+
+      const basemap = page.locator("[data-apex-basemap-toggle]").first();
+      const street = basemap.getByRole("button", { name: /^Street$/i });
+      const satellite = basemap.getByRole("button", { name: /^Satellite$/i });
+
+      await activate(page, street);
+      await expect(street).toHaveAttribute("aria-pressed", "true");
+      await expect(povGroup).toHaveAttribute("data-apex-pov-mode", "chase");
+      await expect(
+        page.locator('[data-apex-map="chase"]').first(),
+      ).toBeVisible();
+      await expect
+        .poll(
+          async () =>
+            page
+              .locator('[data-apex-map="chase"]')
+              .first()
+              .getAttribute("data-apex-basemap"),
+          { timeout: 15_000 },
+        )
+        .toBe("street");
+
+      await activate(page, satellite);
+      await expect(satellite).toHaveAttribute("aria-pressed", "true");
+      await expect(povGroup).toHaveAttribute("data-apex-pov-mode", "chase");
+      await expect
+        .poll(
+          async () =>
+            page
+              .locator('[data-apex-map="chase"]')
+              .first()
+              .getAttribute("data-apex-basemap"),
+          { timeout: 15_000 },
+        )
+        .toBe("satellite");
+
+      // Controls must not horizontally overlap (Satellite vs Overview).
+      const layout = await page.evaluate(() => {
+        const sat = document.querySelector(
+          "[data-apex-basemap-option='satellite']",
+        );
+        const overview = document.querySelector(
+          "[data-apex-pov-option='overview']",
+        );
+        if (!sat || !overview) return { ok: false, reason: "missing" as const };
+        const a = sat.getBoundingClientRect();
+        const b = overview.getBoundingClientRect();
+        const overlap = !(
+          a.right < b.left ||
+          a.left > b.right ||
+          a.bottom < b.top ||
+          a.top > b.bottom
+        );
+        return {
+          ok: !overlap,
+          overlap,
+          satTop: a.top,
+          overviewTop: b.top,
+        };
+      });
+      expect(
+        layout.ok,
+        `Street/Satellite must not overlap Overview/POV (${path}): ${JSON.stringify(layout)}`,
+      ).toBe(true);
+    }
+
+    await assertBasemapKeepsPov(`/sessions/${SESSION_ID}`);
+    await assertBasemapKeepsPov(`/compare/${COMPARE_ID}`);
+  });
+
   test("Play is visible without scrolling on mobile", async ({
     page,
     useTap,
   }) => {
     test.skip(!useTap, "mobile first-viewport play contract");
 
-    async function assertMapPlayInViewport(path: string) {
+    async function readPlayGeometry(page: import("@playwright/test").Page) {
+      const play = page.locator("[data-apex-map-play-toggle]:visible").first();
+      await expect(play).toBeVisible({ timeout: 30_000 });
+      return play.evaluate((node) => {
+        const header = document.querySelector("[data-apex-header], header");
+        const map =
+          document.querySelector("[data-apex-map-stack]") ||
+          document.querySelector("[data-apex-map]");
+        const r = node.getBoundingClientRect();
+        const m = map?.getBoundingClientRect();
+        const h = header?.getBoundingClientRect();
+        const vh = window.innerHeight || 844;
+        return {
+          scrollY: window.scrollY,
+          inViewport:
+            r.width > 0 &&
+            r.height > 0 &&
+            r.top >= 0 &&
+            r.bottom <= vh + 1,
+          belowHeader: h ? r.top >= h.bottom - 1 : false,
+          mapInViewport: m
+            ? m.top < vh && m.bottom > (h?.bottom ?? 0)
+            : false,
+          top: r.top,
+          bottom: r.bottom,
+          mapTop: m?.top ?? null,
+          vh,
+        };
+      });
+    }
+
+    // Session: map + Play must land in the first viewport at scrollY=0.
+    {
+      const path = `/sessions/${SESSION_ID}`;
       await gotoReady(page, path);
       await page
         .locator("[data-apex-map-stack], [data-apex-map]")
         .first()
         .waitFor({ state: "visible", timeout: 90_000 });
       await page.waitForTimeout(500);
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await page.waitForTimeout(200);
+      const geometry = await readPlayGeometry(page);
+      expect(geometry.scrollY, `session must assert at scrollY=0`).toBe(0);
+      expect(
+        geometry.mapInViewport,
+        `session map in first viewport: ${JSON.stringify(geometry)}`,
+      ).toBe(true);
+      expect(
+        geometry.inViewport,
+        `session Play in first viewport: ${JSON.stringify(geometry)}`,
+      ).toBe(true);
+      expect(geometry.belowHeader).toBe(true);
+    }
 
-      // Scroll just enough for the map top to enter the viewport (session
-      // chrome can push it below the fold). Avoid scrollIntoViewIfNeeded on
-      // tall stacks — that can park the Play chip above the visible area.
+    // Compare: still require Play visible below the header (may need a nudge
+    // when lap-picker chrome is tall); session is the strict fold contract.
+    {
+      const path = `/compare/${COMPARE_ID}`;
+      await gotoReady(page, path);
+      await page
+        .locator("[data-apex-map-stack], [data-apex-map]")
+        .first()
+        .waitFor({ state: "visible", timeout: 90_000 });
+      await page.waitForTimeout(500);
       await page.evaluate(() => {
         const map =
           document.querySelector("[data-apex-map-stack]") ||
@@ -285,40 +444,13 @@ test.describe("Apex mobile/desktop regression", () => {
         }
       });
       await page.waitForTimeout(250);
-
-      // Map-canvas overlay only — sticky PlaybackControls sit below the fold.
-      const play = page.locator("[data-apex-map-play-toggle]:visible").first();
-      await expect(play).toBeVisible({ timeout: 30_000 });
-
-      const geometry = await play.evaluate((node) => {
-        const header = document.querySelector("[data-apex-header], header");
-        const r = node.getBoundingClientRect();
-        const h = header?.getBoundingClientRect();
-        const vh = window.innerHeight || 844;
-        return {
-          inViewport:
-            r.width > 0 &&
-            r.height > 0 &&
-            r.top >= 0 &&
-            r.bottom <= vh + 1,
-          belowHeader: h ? r.top >= h.bottom - 1 : false,
-          top: r.top,
-          bottom: r.bottom,
-          vh,
-        };
-      });
+      const geometry = await readPlayGeometry(page);
       expect(
         geometry.inViewport,
-        `Play must be in the first viewport after map scroll (${path}): ${JSON.stringify(geometry)}`,
+        `compare Play in viewport after map nudge: ${JSON.stringify(geometry)}`,
       ).toBe(true);
-      expect(
-        geometry.belowHeader,
-        `Play must sit below the sticky header (${path})`,
-      ).toBe(true);
+      expect(geometry.belowHeader).toBe(true);
     }
-
-    await assertMapPlayInViewport(`/sessions/${SESSION_ID}`);
-    await assertMapPlayInViewport(`/compare/${COMPARE_ID}`);
   });
 
   test("Drive primary CTA single-activates", async ({ page, useTap }) => {
