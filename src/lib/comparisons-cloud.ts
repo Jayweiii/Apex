@@ -80,7 +80,7 @@ export async function insertComparison(
     user_id: userId,
     title,
     description: draft.description?.trim() || null,
-    visibility: draft.visibility ?? "public",
+    visibility: draft.visibility ?? "friends",
     items,
     reference_index,
     analysis_mode: draft.analysisMode ?? "snapped",

@@ -29,7 +29,8 @@ export default async function AccountPage() {
             My Sessions
           </h1>
           <p className="mt-1 text-sm text-zinc-500">
-            Uploads and saved comparisons. Default visibility is Friends.
+            Uploads, comparisons, and friends. Friends-visible sessions stay
+            private to people you accept.
           </p>
         </div>
         <AccountWorkbench />

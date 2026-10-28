@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-/** Friends tab folded into Lap Comparisons → Friends & public filter. */
+/** Friends management lives under Account → Friends. */
 export default function FriendsRedirectPage() {
-  redirect("/lap-comparisons?tab=sessions");
+  redirect("/account");
 }
