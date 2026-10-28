@@ -2,14 +2,32 @@
 
 import { pathLength, toLocalMeters } from "@/lib/drive/coords";
 import {
+  createDriveAudio,
+  loadDriveMuted,
+  type DriveAudioHandle,
+} from "@/lib/drive/audio";
+import {
+  getDriveCar,
+  loadSelectedCarId,
+  type DriveCarId,
+  type DriveCarPreset,
+} from "@/lib/drive/cars";
+import {
   buildSfGate,
   crossedStartFinishRobust,
   LAP_FINISH_COVER_FRAC,
   lapCoverFraction,
 } from "@/lib/drive/lap-timing";
 import type { SfGate } from "@/lib/drive/lap-timing";
-import { spawnAtStart, stepCar } from "@/lib/drive/physics";
+import { spawnAtStart, stepCar, DRIVE_PHYSICS } from "@/lib/drive/physics";
 import { projectOnRibbon, ribbonEdges } from "@/lib/drive/ribbon";
+import {
+  alongFromStart,
+  buildSectorSplits,
+  formatDeltaMs,
+  ghostTimeAtAlong,
+  sectorIndexForAlong,
+} from "@/lib/drive/sectors";
 import {
   loadGameLeaderboard,
   loadPersonalBest,
@@ -41,13 +59,15 @@ import {
 
 type Props = {
   trackId: string;
+  carId?: string;
 };
 
 const FIXED_DT = 1 / 60;
 const MAX_STEPS = 4;
 const RECORD_EVERY_MS = 50;
+const COUNTDOWN_MS = 3200;
 
-export function DriveGame({ trackId }: Props) {
+export function DriveGame({ trackId, carId: carIdProp }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [payload, setPayload] = useState<DriveTrackPayload | null>(null);
@@ -55,7 +75,6 @@ export function DriveGame({ trackId }: Props) {
   const [loading, setLoading] = useState(true);
   const [camera, setCamera] = useState<DriveCameraMode>("chase");
   const [hud, setHud] = useState({
-    /** Speed in km/h for unit-aware formatting. */
     speedKmh: 0,
     currentMs: 0,
     lastMs: null as number | null,
@@ -64,32 +83,70 @@ export function DriveGame({ trackId }: Props) {
     onTrack: true,
     sliding: false,
     carPx: 0,
+    surface: "asphalt" as string,
+    sector: 0,
+    deltaMs: null as number | null,
+    sectorDeltaMs: null as number | null,
   });
   const [board, setBoard] = useState<DriveLeaderboardEntry[]>([]);
-  const [started, setStarted] = useState(false);
-  const [paused, setPaused] = useState(false);
+  const [phase, setPhase] = useState<
+    "ready" | "countdown" | "racing" | "paused"
+  >("ready");
+  const [countdownLabel, setCountdownLabel] = useState<string | null>(null);
+  const [celebrate, setCelebrate] = useState<string | null>(null);
+  const [muted, setMuted] = useState(() => loadDriveMuted());
+  const [tiltSteer, setTiltSteer] = useState(false);
+  const [showRealGhost, setShowRealGhost] = useState(true);
   const [speedUnit] = useSpeedUnit();
+  const [carPreset, setCarPreset] = useState<DriveCarPreset>(() =>
+    getDriveCar(
+      (carIdProp as DriveCarId | undefined) ?? loadSelectedCarId(),
+    ),
+  );
+  const [sessionNonce, setSessionNonce] = useState(0);
 
   const keysRef = useRef(new Set<string>());
   const touchRef = useRef({ steer: 0, throttle: 0, brake: 0 });
   const padRef = useRef({ steer: 0, throttle: 0, brake: 0 });
+  const tiltRef = useRef(0);
   const cameraRef = useRef<DriveCameraMode>("chase");
-  const pausedRef = useRef(false);
-  const startedRef = useRef(false);
-  /** Lateral shove (m) applied once in the sim loop — QA / recovery. */
+  const phaseRef = useRef(phase);
+  const carPresetRef = useRef(carPreset);
+  const showRealGhostRef = useRef(showRealGhost);
   const shoveRef = useRef(0);
-  /** Snap car back to the ribbon (Key R / Return to track). */
   const resetTrackRef = useRef(false);
+  const restartRef = useRef(false);
+  const audioRef = useRef<DriveAudioHandle | null>(null);
 
+  // Keep car preset in sync when the hub passes ?car=
+  const resolvedCarId =
+    (carIdProp as DriveCarId | undefined) ?? loadSelectedCarId();
+  const resolvedPreset = getDriveCar(resolvedCarId);
+  if (carPreset.id !== resolvedPreset.id) {
+    setCarPreset(resolvedPreset);
+  }
   useEffect(() => {
     cameraRef.current = camera;
   }, [camera]);
   useEffect(() => {
-    pausedRef.current = paused;
-  }, [paused]);
+    phaseRef.current = phase;
+  }, [phase]);
   useEffect(() => {
-    startedRef.current = started;
-  }, [started]);
+    carPresetRef.current = carPreset;
+  }, [carPreset]);
+  useEffect(() => {
+    showRealGhostRef.current = showRealGhost;
+  }, [showRealGhost]);
+
+  useEffect(() => {
+    const audio = createDriveAudio();
+    audioRef.current = audio;
+    audio.setMuted(loadDriveMuted());
+    return () => {
+      audio.dispose();
+      audioRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -97,7 +154,9 @@ export function DriveGame({ trackId }: Props) {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(`/api/tracks/${encodeURIComponent(trackId)}/drive`);
+        const res = await fetch(
+          `/api/tracks/${encodeURIComponent(trackId)}/drive`,
+        );
         const data = (await res.json()) as DriveTrackPayload & {
           error?: string;
         };
@@ -126,9 +185,10 @@ export function DriveGame({ trackId }: Props) {
     };
   }, [trackId]);
 
-  // Lock page scroll while playing
+  const playing = phase === "racing" || phase === "paused" || phase === "countdown";
+
   useEffect(() => {
-    if (!started) return;
+    if (!playing) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const prevent = (e: TouchEvent) => {
@@ -140,7 +200,28 @@ export function DriveGame({ trackId }: Props) {
       document.body.style.overflow = prev;
       document.removeEventListener("touchmove", prevent);
     };
-  }, [started]);
+  }, [playing]);
+
+  // Tilt-to-steer (optional)
+  useEffect(() => {
+    if (!tiltSteer) {
+      tiltRef.current = 0;
+      return;
+    }
+    const onOrient = (e: DeviceOrientationEvent) => {
+      // gamma: left/right tilt in portrait; beta fallback for landscape
+      const raw =
+        typeof e.gamma === "number" && Math.abs(e.gamma) > 1
+          ? e.gamma
+          : typeof e.beta === "number"
+            ? e.beta
+            : 0;
+      const clamped = Math.max(-1, Math.min(1, raw / 28));
+      tiltRef.current = clamped;
+    };
+    window.addEventListener("deviceorientation", onOrient);
+    return () => window.removeEventListener("deviceorientation", onOrient);
+  }, [tiltSteer]);
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -156,9 +237,19 @@ export function DriveGame({ trackId }: Props) {
         setCamera((c) => (c === "chase" ? "top" : "chase"));
       }
       if (e.code === "KeyP" || e.code === "Escape") {
-        setPaused((p) => !p);
+        setPhase((p) => {
+          if (p === "racing") return "paused";
+          if (p === "paused") return "racing";
+          return p;
+        });
       }
-      // Shove perpendicular to heading onto the grass (also helps QA prove crawl-off).
+      if (e.code === "KeyM") {
+        setMuted((m) => {
+          const next = !m;
+          audioRef.current?.setMuted(next);
+          return next;
+        });
+      }
       if (e.code === "KeyX") {
         shoveRef.current = 22;
       }
@@ -189,8 +280,12 @@ export function DriveGame({ trackId }: Props) {
     if (keys.has("KeyA") || keys.has("ArrowLeft")) steer = -1;
     if (keys.has("KeyD") || keys.has("ArrowRight")) steer = 1;
 
-    // Gamepad
-    const pads = typeof navigator !== "undefined" ? navigator.getGamepads?.() : null;
+    if (Math.abs(tiltRef.current) > 0.08) {
+      steer = tiltRef.current;
+    }
+
+    const pads =
+      typeof navigator !== "undefined" ? navigator.getGamepads?.() : null;
     if (pads) {
       for (const pad of pads) {
         if (!pad) continue;
@@ -216,30 +311,99 @@ export function DriveGame({ trackId }: Props) {
     (timeMs: number, samples: DrivePoint[]) => {
       const isPb = savePersonalBest(trackId, timeMs);
       if (isPb) savePlayerGhost(trackId, timeMs, samples);
-      const nextBoard = submitGameTime(trackId, timeMs);
+      const nextBoard = submitGameTime(
+        trackId,
+        timeMs,
+        "You",
+        carPresetRef.current.id,
+      );
       setBoard(nextBoard);
       setHud((h) => ({
         ...h,
         lastMs: timeMs,
-        bestMs:
-          h.bestMs == null || timeMs < h.bestMs ? timeMs : h.bestMs,
+        bestMs: h.bestMs == null || timeMs < h.bestMs ? timeMs : h.bestMs,
         lap: h.lap + 1,
         currentMs: 0,
+        deltaMs: null,
+        sectorDeltaMs: null,
       }));
+      setCelebrate(
+        isPb
+          ? `New PB! ${formatLapTime(timeMs)}`
+          : `Lap ${formatLapTime(timeMs)}`,
+      );
+      window.setTimeout(() => setCelebrate(null), 1800);
     },
   );
 
+  const beginCountdown = useCallback(() => {
+    audioRef.current?.resume();
+    audioRef.current?.setMuted(muted);
+    setCelebrate(null);
+    setPhase("countdown");
+    setCountdownLabel("3");
+    const t0 = performance.now();
+    const tick = () => {
+      const elapsed = performance.now() - t0;
+      if (elapsed < 900) setCountdownLabel("3");
+      else if (elapsed < 1800) setCountdownLabel("2");
+      else if (elapsed < 2700) setCountdownLabel("1");
+      else if (elapsed < COUNTDOWN_MS) setCountdownLabel("GO");
+      else {
+        setCountdownLabel(null);
+        setSessionNonce((n) => n + 1);
+        setPhase("racing");
+        return;
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }, [muted]);
+
+  const requestRestart = useCallback(() => {
+    restartRef.current = true;
+    setCelebrate(null);
+    setPhase("countdown");
+    setCountdownLabel("3");
+    const t0 = performance.now();
+    const tick = () => {
+      const elapsed = performance.now() - t0;
+      if (elapsed < 900) setCountdownLabel("3");
+      else if (elapsed < 1800) setCountdownLabel("2");
+      else if (elapsed < 2700) setCountdownLabel("1");
+      else if (elapsed < COUNTDOWN_MS) setCountdownLabel("GO");
+      else {
+        setCountdownLabel(null);
+        setSessionNonce((n) => n + 1);
+        setPhase("racing");
+        return;
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }, []);
+
+  const simLive = phase !== "ready";
+
   // Main loop
   useEffect(() => {
-    if (!payload || !started) return;
+    if (!payload) return;
+    if (!simLive) return;
+    if (phase !== "racing" && phase !== "paused" && phase !== "countdown") {
+      return;
+    }
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext("2d", { alpha: false });
+    const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
     if (!ctx) return;
 
     const centerline = payload.centerline;
     const halfW = payload.halfWidthM;
     const edges = ribbonEdges(centerline, halfW);
+    const curbInner = ribbonEdges(
+      centerline,
+      halfW * DRIVE_PHYSICS.curbStartFrac,
+    );
     const grass = ribbonEdges(centerline, halfW + 14);
     const gate: SfGate = buildSfGate(payload.origin, payload.startFinish, 16);
     const sfLocal = toLocalMeters(payload.origin, {
@@ -247,6 +411,7 @@ export function DriveGame({ trackId }: Props) {
       lon: payload.startFinish.lon,
     });
     const trackLenM = Math.max(1, pathLength(centerline));
+    const sectorSplits = buildSectorSplits(centerline);
 
     let car: DriveCarState = spawnAtStart(
       centerline,
@@ -257,7 +422,7 @@ export function DriveGame({ trackId }: Props) {
     let lapStartPerf = performance.now();
     let pausedAt: number | null = null;
     let pausedAccum = 0;
-    let armed = false; // ignore SF until we've left the gate once
+    let armed = false;
     let leaveTimer = 0;
     let lapStartAlong = projectOnRibbon(centerline, car.x, car.y).along;
     let maxCover = 0;
@@ -268,11 +433,12 @@ export function DriveGame({ trackId }: Props) {
     let lastRecord = 0;
     let hudTick = 0;
     let lastHudMs = 0;
+    let sectorMarks = [0, 0, 0];
+    let waitingForGo = phase === "countdown";
 
     const playerGhost: DriveGhostLap | null = loadPlayerGhost(trackId);
     const realGhost = payload.realGhost;
 
-    // World bounds for top-down fit
     let minX = Infinity,
       maxX = -Infinity,
       minY = Infinity,
@@ -288,7 +454,11 @@ export function DriveGame({ trackId }: Props) {
     function resize() {
       const wrap = wrapRef.current;
       if (!wrap || !canvas) return;
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      // Cap DPR on phones for stable 60fps.
+      const coarse =
+        typeof window !== "undefined" &&
+        window.matchMedia?.("(pointer: coarse)")?.matches;
+      const dpr = Math.min(window.devicePixelRatio || 1, coarse ? 1.5 : 2);
       const w = wrap.clientWidth;
       const h = wrap.clientHeight;
       canvas.width = Math.max(1, Math.floor(w * dpr));
@@ -301,6 +471,31 @@ export function DriveGame({ trackId }: Props) {
     const ro = new ResizeObserver(resize);
     if (wrapRef.current) ro.observe(wrapRef.current);
 
+    function resetLapState(spawn = true) {
+      if (spawn) {
+        car = spawnAtStart(centerline, sfLocal, gate.travelHeading);
+        prevPos = { x: car.x, y: car.y };
+      }
+      lapStartPerf = performance.now();
+      pausedAt = null;
+      pausedAccum = 0;
+      armed = false;
+      leaveTimer = 0;
+      lapStartAlong = projectOnRibbon(centerline, car.x, car.y).along;
+      maxCover = 0;
+      recordBuf = [];
+      lastRecord = 0;
+      lastHudMs = 0;
+      sectorMarks = [0, 0, 0];
+      setHud((h) => ({
+        ...h,
+        currentMs: 0,
+        deltaMs: null,
+        sectorDeltaMs: null,
+        sector: 0,
+      }));
+    }
+
     function drawCar(
       c: CanvasRenderingContext2D,
       x: number,
@@ -312,14 +507,12 @@ export function DriveGame({ trackId }: Props) {
       c.save();
       c.translate(x, y);
       c.rotate(heading);
-      // World meters → CSS px; enforce a clearly visible minimum at both cams.
       const pxPerM = Math.max(scale, 0.001);
       const L = Math.max(56, 11 * pxPerM);
       const W = Math.max(30, 5.2 * pxPerM);
       c.fillStyle = color;
       c.strokeStyle = "#09090b";
       c.lineWidth = Math.max(2, L * 0.07);
-      // Nose points along heading (up in chase cam after rotation).
       c.beginPath();
       c.moveTo(0, -L * 0.58);
       c.lineTo(W * 0.52, L * 0.4);
@@ -329,7 +522,6 @@ export function DriveGame({ trackId }: Props) {
       c.closePath();
       c.fill();
       c.stroke();
-      // Cabin + nose stripe so silhouette reads as a car with heading.
       c.fillStyle = "rgba(9,9,11,0.4)";
       c.beginPath();
       c.moveTo(0, -L * 0.18);
@@ -356,8 +548,6 @@ export function DriveGame({ trackId }: Props) {
     ) {
       const size = Math.max(96, Math.min(148, Math.floor(viewW * 0.22)));
       const pad = 10;
-      // Top-right: mobile BRAKE/GAS sit bottom-right and used to cover the
-      // old bottom-anchored minimap even with a 120px lift.
       const left = viewW - size - pad;
       const top = pad + (viewW < 640 ? 58 : 8);
       const bw = maxX - minX + worldPad * 2;
@@ -385,7 +575,6 @@ export function DriveGame({ trackId }: Props) {
       c.fill();
       c.stroke();
 
-      // Full track outline (asphalt edges) so the ribbon shape is verifiable.
       c.fillStyle = "#2f6b38";
       c.beginPath();
       for (let i = 0; i < grass.left.length; i += 1) {
@@ -424,7 +613,6 @@ export function DriveGame({ trackId }: Props) {
       }
       c.stroke();
 
-      // SF tick on minimap
       const g0 = toMini(
         gate.mid.x - gate.gateX * gate.halfWidthM,
         gate.mid.y - gate.gateY * gate.halfWidthM,
@@ -444,7 +632,7 @@ export function DriveGame({ trackId }: Props) {
       c.save();
       c.translate(me.x, me.y);
       c.rotate(carHeading);
-      c.fillStyle = "#f97316";
+      c.fillStyle = carPresetRef.current.color;
       c.beginPath();
       c.moveTo(0, -7);
       c.lineTo(4.5, 5.5);
@@ -477,13 +665,11 @@ export function DriveGame({ trackId }: Props) {
           scale,
         };
       }
-      // Chase: car-up, camera behind
       const scale = Math.min(viewW, viewH) / 95;
       const dx = px - camX;
       const dy = py - camY;
       const cos = Math.cos(camHeading);
       const sin = Math.sin(camHeading);
-      // Rotate so car heading points up (-screenY)
       const rx = dx * cos - dy * sin;
       const ry = dx * sin + dy * cos;
       return {
@@ -507,7 +693,16 @@ export function DriveGame({ trackId }: Props) {
       if (!pts.length) return;
       c.beginPath();
       for (let i = 0; i < pts.length; i += 1) {
-        const s = worldToScreen(mode, viewW, viewH, pts[i]!.x, pts[i]!.y, camX, camY, camH);
+        const s = worldToScreen(
+          mode,
+          viewW,
+          viewH,
+          pts[i]!.x,
+          pts[i]!.y,
+          camX,
+          camY,
+          camH,
+        );
         if (i === 0) c.moveTo(s.x, s.y);
         else c.lineTo(s.x, s.y);
       }
@@ -529,12 +724,30 @@ export function DriveGame({ trackId }: Props) {
       c.fillStyle = fill;
       c.beginPath();
       for (let i = 0; i < left.length; i += 1) {
-        const s = worldToScreen(mode, viewW, viewH, left[i]!.x, left[i]!.y, camX, camY, camH);
+        const s = worldToScreen(
+          mode,
+          viewW,
+          viewH,
+          left[i]!.x,
+          left[i]!.y,
+          camX,
+          camY,
+          camH,
+        );
         if (i === 0) c.moveTo(s.x, s.y);
         else c.lineTo(s.x, s.y);
       }
       for (let i = right.length - 1; i >= 0; i -= 1) {
-        const s = worldToScreen(mode, viewW, viewH, right[i]!.x, right[i]!.y, camX, camY, camH);
+        const s = worldToScreen(
+          mode,
+          viewW,
+          viewH,
+          right[i]!.x,
+          right[i]!.y,
+          camX,
+          camY,
+          camH,
+        );
         c.lineTo(s.x, s.y);
       }
       c.closePath();
@@ -548,22 +761,41 @@ export function DriveGame({ trackId }: Props) {
       const dtWall = Math.min(0.05, (now - last) / 1000);
       last = now;
 
-      if (pausedRef.current) {
+      const ph = phaseRef.current;
+      waitingForGo = ph === "countdown";
+      const paused = ph === "paused" || waitingForGo;
+
+      if (ph === "paused" || waitingForGo) {
         if (pausedAt == null) pausedAt = now;
       } else if (pausedAt != null) {
         pausedAccum += now - pausedAt;
         pausedAt = null;
       }
 
-      const lapElapsedNow = () =>
-        performance.now() - lapStartPerf - pausedAccum - (pausedAt != null ? now - pausedAt : 0);
+      if (restartRef.current) {
+        restartRef.current = false;
+        resetLapState(true);
+      }
 
-      if (!pausedRef.current && startedRef.current) {
+      const lapElapsedNow = () =>
+        performance.now() -
+        lapStartPerf -
+        pausedAccum -
+        (pausedAt != null ? now - pausedAt : 0);
+
+      if (!paused && ph === "racing") {
         acc += dtWall;
         let steps = 0;
         while (acc >= FIXED_DT && steps < MAX_STEPS) {
           const inputs = readInputs();
-          const stepped = stepCar(car, inputs, FIXED_DT, centerline, halfW);
+          const stepped = stepCar(
+            car,
+            inputs,
+            FIXED_DT,
+            centerline,
+            halfW,
+            { carPreset: carPresetRef.current },
+          );
           car = stepped.car;
           if (shoveRef.current !== 0) {
             const lat = shoveRef.current;
@@ -575,6 +807,7 @@ export function DriveGame({ trackId }: Props) {
               x: car.x + lx * lat,
               y: car.y + ly * lat,
               onTrack: false,
+              surface: "grass",
               speed: Math.min(car.speed, 8),
             };
           }
@@ -587,7 +820,6 @@ export function DriveGame({ trackId }: Props) {
             const dx = next.x - seg.x;
             const dy = next.y - seg.y;
             const len = Math.hypot(dx, dy) || 1;
-            // Snap onto the centerline (drop lateral offset).
             const t = Math.max(
               0,
               Math.min(
@@ -603,6 +835,7 @@ export function DriveGame({ trackId }: Props) {
               speed: Math.max(Math.abs(car.speed), 6),
               slip: 0,
               onTrack: true,
+              surface: "asphalt",
             };
           }
           const nextPos = { x: car.x, y: car.y };
@@ -615,7 +848,6 @@ export function DriveGame({ trackId }: Props) {
           );
           if (!armed && leaveTimer > 1.2) {
             const dist = Math.hypot(car.x - sfLocal.x, car.y - sfLocal.y);
-            // Leave the gate area before any finish can arm.
             if (dist > 35 && maxCover > 0.08) armed = true;
           }
 
@@ -625,20 +857,10 @@ export function DriveGame({ trackId }: Props) {
             crossedStartFinishRobust(gate, prevPos, nextPos)
           ) {
             const timeMs = lapElapsedNow();
-            // Directional + coverage gate already applied; keep a short
-            // floor so spawn jitter never posts a tiny "lap".
             if (timeMs > 8_000) {
               onLapComplete(timeMs, recordBuf);
-              recordBuf = [];
-              lastRecord = 0;
-              lapStartPerf = performance.now();
-              pausedAccum = 0;
-              pausedAt = null;
-              lastHudMs = 0;
-              armed = false;
-              leaveTimer = 0;
+              resetLapState(false);
               lapStartAlong = alongHit.along;
-              maxCover = 0;
             }
           }
           prevPos = nextPos;
@@ -654,12 +876,7 @@ export function DriveGame({ trackId }: Props) {
         }
       }
 
-      // Draw
       const mode = cameraRef.current;
-      ctx!.fillStyle = "#1a3d1f";
-      ctx!.fillRect(0, 0, viewW, viewH);
-
-      // soft grass gradient patches
       ctx!.fillStyle = "#16351a";
       ctx!.fillRect(0, 0, viewW, viewH);
 
@@ -675,6 +892,7 @@ export function DriveGame({ trackId }: Props) {
         car.heading,
         "#2f6b38",
       );
+      // Outer asphalt including curb band
       fillRibbon(
         ctx!,
         edges.left,
@@ -685,10 +903,22 @@ export function DriveGame({ trackId }: Props) {
         car.x,
         car.y,
         car.heading,
+        "#6b5a3e",
+      );
+      // Inner asphalt
+      fillRibbon(
+        ctx!,
+        curbInner.left,
+        curbInner.right,
+        mode,
+        viewW,
+        viewH,
+        car.x,
+        car.y,
+        car.heading,
         "#3f3f46",
       );
 
-      // Center dashed line
       ctx!.strokeStyle = "rgba(250,250,250,0.35)";
       ctx!.lineWidth = 1.5;
       ctx!.setLineDash([8, 10]);
@@ -706,7 +936,6 @@ export function DriveGame({ trackId }: Props) {
       ctx!.stroke();
       ctx!.setLineDash([]);
 
-      // SF gate
       const gateLen = gate.halfWidthM;
       const g0 = {
         x: gate.mid.x - gate.gateX * gateLen,
@@ -718,19 +947,40 @@ export function DriveGame({ trackId }: Props) {
       };
       ctx!.strokeStyle = "#fafafa";
       ctx!.lineWidth = 3;
-      strokePoly(ctx!, [g0, g1], mode, viewW, viewH, car.x, car.y, car.heading, false);
+      strokePoly(
+        ctx!,
+        [g0, g1],
+        mode,
+        viewW,
+        viewH,
+        car.x,
+        car.y,
+        car.heading,
+        false,
+      );
       ctx!.stroke();
       ctx!.strokeStyle = "#f97316";
       ctx!.lineWidth = 2;
-      strokePoly(ctx!, [g0, g1], mode, viewW, viewH, car.x, car.y, car.heading, false);
+      strokePoly(
+        ctx!,
+        [g0, g1],
+        mode,
+        viewW,
+        viewH,
+        car.x,
+        car.y,
+        car.heading,
+        false,
+      );
       ctx!.stroke();
 
-      const lapElapsed = lapElapsedNow();
+      const lapElapsed = waitingForGo || ph === "countdown" ? 0 : lapElapsedNow();
 
-      // Ghosts
       const ghosts: Array<{ g: DriveGhostLap; color: string }> = [];
-      if (playerGhost) ghosts.push({ g: playerGhost, color: "rgba(56,189,248,0.85)" });
-      if (realGhost) ghosts.push({ g: realGhost, color: "rgba(250,204,21,0.8)" });
+      if (playerGhost)
+        ghosts.push({ g: playerGhost, color: "rgba(56,189,248,0.85)" });
+      if (showRealGhostRef.current && realGhost)
+        ghosts.push({ g: realGhost, color: "rgba(250,204,21,0.8)" });
       for (const { g, color } of ghosts) {
         const sample = sampleGhost(g, Math.min(lapElapsed, g.timeMs));
         if (!sample) continue;
@@ -744,14 +994,17 @@ export function DriveGame({ trackId }: Props) {
           car.y,
           car.heading,
         );
-        // Approximate ghost heading from path
-        const look = sampleGhost(
-          g,
-          Math.min(lapElapsed + 120, g.timeMs),
-        );
+        const look = sampleGhost(g, Math.min(lapElapsed + 120, g.timeMs));
         let gh = car.heading;
         if (look) gh = Math.atan2(look.x - sample.x, look.y - sample.y);
-        drawCar(ctx!, s.x, s.y, mode === "chase" ? gh - car.heading : gh, color, s.scale);
+        drawCar(
+          ctx!,
+          s.x,
+          s.y,
+          mode === "chase" ? gh - car.heading : gh,
+          color,
+          s.scale,
+        );
       }
 
       const me = worldToScreen(
@@ -771,19 +1024,74 @@ export function DriveGame({ trackId }: Props) {
         me.x,
         me.y,
         mode === "chase" ? 0 : car.heading,
-        car.onTrack ? "#f97316" : "#a1a1aa",
+        car.onTrack ? carPresetRef.current.color : "#a1a1aa",
         carScale,
       );
 
       drawMinimap(ctx!, viewW, viewH, car.x, car.y, car.heading);
 
+      const inputsNow = readInputs();
+      audioRef.current?.tick({
+        speed: car.speed,
+        maxSpeed: DRIVE_PHYSICS.maxSpeedOn * carPresetRef.current.topSpeed,
+        throttle: inputsNow.throttle,
+        brake: inputsNow.brake,
+        slip: car.slip,
+        onTrack: !!car.onTrack,
+        onCurb: car.surface === "curb",
+        paused: paused || ph !== "racing",
+      });
+
       hudTick += dtWall;
       if (hudTick > 0.1) {
         hudTick = 0;
-        // Monotonic within a lap — never jump backwards from pause accounting.
         const displayMs =
           lapElapsed + 40 >= lastHudMs ? lapElapsed : lastHudMs;
         lastHudMs = displayMs;
+        const alongHit = projectOnRibbon(centerline, car.x, car.y);
+        const alongFrom = alongFromStart(
+          alongHit.along,
+          lapStartAlong,
+          trackLenM,
+        );
+        const sector = sectorIndexForAlong(
+          alongHit.along,
+          lapStartAlong,
+          trackLenM,
+          sectorSplits,
+        );
+        sectorMarks[sector] = displayMs;
+
+        let deltaMs: number | null = null;
+        let sectorDeltaMs: number | null = null;
+        const refGhost = playerGhost;
+        if (refGhost && displayMs > 500) {
+          const ghostT = ghostTimeAtAlong(
+            refGhost,
+            centerline,
+            // Ghost was recorded from its own start; approximate using first sample along.
+            (() => {
+              const s0 = refGhost.samples[0]!;
+              return projectOnRibbon(centerline, s0.x, s0.y).along;
+            })(),
+            alongFrom,
+            (x, y) => projectOnRibbon(centerline, x, y).along,
+          );
+          if (ghostT != null) deltaMs = displayMs - ghostT;
+          const sectorEnd = sectorSplits[sector]!.endAlongM;
+          const ghostSectorT = ghostTimeAtAlong(
+            refGhost,
+            centerline,
+            (() => {
+              const s0 = refGhost.samples[0]!;
+              return projectOnRibbon(centerline, s0.x, s0.y).along;
+            })(),
+            Math.min(alongFrom, sectorEnd),
+            (x, y) => projectOnRibbon(centerline, x, y).along,
+          );
+          if (ghostSectorT != null) sectorDeltaMs = displayMs - ghostSectorT;
+        }
+
         setHud((h) => ({
           ...h,
           speedKmh: Math.abs(car.speed) * 3.6,
@@ -791,6 +1099,10 @@ export function DriveGame({ trackId }: Props) {
           onTrack: car.onTrack,
           sliding: Math.abs(car.slip) > 0.55,
           carPx: carLenPx,
+          surface: car.surface ?? (car.onTrack ? "asphalt" : "grass"),
+          sector,
+          deltaMs,
+          sectorDeltaMs,
         }));
       }
     }
@@ -800,9 +1112,15 @@ export function DriveGame({ trackId }: Props) {
       cancelAnimationFrame(raf);
       ro.disconnect();
     };
+<<<<<<< HEAD
     // onLapComplete is useEffectEvent — omit from deps
      
   }, [payload, started, trackId, readInputs]);
+=======
+    // onLapComplete is useEffectEvent; phase gated via simLive + phaseRef
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [payload, simLive, trackId, readInputs, sessionNonce]);
+>>>>>>> 05acfd0 (Improve Drive arcade feel: handling, sectors, ghosts, audio, touch.)
 
   const onSteerTouch = (
     e: React.TouchEvent<HTMLDivElement>,
@@ -818,6 +1136,21 @@ export function DriveGame({ trackId }: Props) {
     const rect = e.currentTarget.getBoundingClientRect();
     const x = (touch.clientX - rect.left) / rect.width;
     touchRef.current.steer = Math.max(-1, Math.min(1, (x - 0.5) * 2));
+  };
+
+  const enableTilt = async () => {
+    const doe = DeviceOrientationEvent as unknown as {
+      requestPermission?: () => Promise<string>;
+    };
+    try {
+      if (typeof doe.requestPermission === "function") {
+        const res = await doe.requestPermission();
+        if (res !== "granted") return;
+      }
+      setTiltSteer(true);
+    } catch {
+      setTiltSteer(true);
+    }
   };
 
   if (loading) {
@@ -850,6 +1183,13 @@ export function DriveGame({ trackId }: Props) {
     );
   }
 
+  const deltaColor =
+    hud.deltaMs == null
+      ? "text-zinc-400"
+      : hud.deltaMs <= 0
+        ? "text-emerald-400"
+        : "text-rose-400";
+
   return (
     <div className="relative flex min-h-[100dvh] flex-col bg-zinc-950">
       <div
@@ -863,7 +1203,9 @@ export function DriveGame({ trackId }: Props) {
           >
             {payload.name}
           </Link>
-          <p className="truncate text-sm text-zinc-200">Drive · arcade</p>
+          <p className="truncate text-sm text-zinc-200">
+            Drive · {carPreset.name}
+          </p>
         </div>
         <div className="flex flex-wrap gap-1.5">
           <button
@@ -873,14 +1215,47 @@ export function DriveGame({ trackId }: Props) {
           >
             Cam: {camera === "chase" ? "Chase" : "Top"}
           </button>
-          {started ? (
+          <button
+            type="button"
+            className="apex-btn apex-btn--ghost text-xs"
+            data-apex-drive-mute={muted ? "1" : "0"}
+            onClick={() => {
+              setMuted((m) => {
+                const next = !m;
+                audioRef.current?.setMuted(next);
+                return next;
+              });
+            }}
+          >
+            {muted ? "Unmute" : "Mute"}
+          </button>
+          {phase !== "ready" ? (
             <>
               <button
                 type="button"
                 className="apex-btn apex-btn--ghost text-xs"
-                onClick={() => setPaused((p) => !p)}
+                onClick={() =>
+                  setPhase((p) =>
+                    p === "paused"
+                      ? "racing"
+                      : p === "racing"
+                        ? "paused"
+                        : p,
+                  )
+                }
               >
-                {paused ? "Resume" : "Pause"}
+                {phase === "paused" ? "Resume" : "Pause"}
+              </button>
+              <button
+                type="button"
+                className="apex-btn apex-btn--ghost text-xs"
+                data-apex-drive-restart="1"
+                onClick={() => {
+                  audioRef.current?.resume();
+                  requestRestart();
+                }}
+              >
+                Restart
               </button>
               <button
                 type="button"
@@ -907,10 +1282,10 @@ export function DriveGame({ trackId }: Props) {
           style={{ touchAction: "none" }}
         />
 
-        {!started ? (
+        {phase === "ready" ? (
           <div
             data-drive-ui
-            className="absolute inset-0 flex flex-col items-center justify-center gap-5 bg-zinc-950/75 px-5 text-center backdrop-blur-sm"
+            className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-zinc-950/75 px-5 text-center backdrop-blur-sm"
           >
             <p className="max-w-md text-base leading-relaxed text-zinc-100 sm:text-lg">
               Arcade drive on a real GPS ribbon
@@ -922,31 +1297,104 @@ export function DriveGame({ trackId }: Props) {
               .
             </p>
             <p className="max-w-md text-sm leading-relaxed text-zinc-300">
-              Ghosts: your best (blue)
-              {payload.realGhost ? ", real lap (yellow)" : ""}. WASD / arrows ·
-              gamepad · on-screen pads · C camera · R return to track · game
-              times stay off real leaderboards.
+              Ghosts: your PB (blue)
+              {payload.realGhost ? ", optional real lap (yellow)" : ""}.
+              Sectors + live delta vs PB. WASD / arrows · pads · tilt · C
+              camera · P pause · M mute · R return. Game times stay off real
+              leaderboards.
             </p>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <button
+                type="button"
+                className={`apex-btn text-xs ${
+                  tiltSteer ? "apex-btn--accent" : "apex-btn--ghost"
+                }`}
+                onClick={() => {
+                  if (tiltSteer) setTiltSteer(false);
+                  else void enableTilt();
+                }}
+              >
+                {tiltSteer ? "Tilt steer on" : "Tilt to steer"}
+              </button>
+              {payload.realGhost ? (
+                <button
+                  type="button"
+                  className={`apex-btn text-xs ${
+                    showRealGhost ? "apex-btn--accent" : "apex-btn--ghost"
+                  }`}
+                  onClick={() => setShowRealGhost((v) => !v)}
+                >
+                  Real ghost {showRealGhost ? "on" : "off"}
+                </button>
+              ) : null}
+            </div>
             <button
               type="button"
               className="apex-btn apex-btn--accent min-h-12 px-8 text-base"
-              onClick={() => {
-                setStarted(true);
-                setPaused(false);
-              }}
+              data-apex-drive-start="1"
+              onClick={() => beginCountdown()}
             >
               Start driving
             </button>
           </div>
         ) : null}
 
-        {started ? (
+        {countdownLabel ? (
           <div
             data-drive-ui
-            className="pointer-events-none absolute left-0 top-0 z-10 flex max-w-[min(100%,220px)] flex-col gap-1.5 p-2 sm:p-3"
+            data-apex-drive-countdown={countdownLabel}
+            className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center"
+          >
+            <p className="text-7xl font-semibold tracking-tight text-orange-400 drop-shadow-[0_4px_24px_rgba(0,0,0,0.65)] sm:text-8xl">
+              {countdownLabel}
+            </p>
+          </div>
+        ) : null}
+
+        {celebrate ? (
+          <div
+            data-drive-ui
+            data-apex-drive-celebrate="1"
+            className="pointer-events-none absolute inset-x-0 top-1/3 z-20 flex justify-center px-4"
+          >
+            <p className="rounded-2xl bg-zinc-950/80 px-5 py-3 text-lg font-semibold text-orange-300 backdrop-blur sm:text-xl">
+              {celebrate}
+            </p>
+          </div>
+        ) : null}
+
+        {phase === "paused" ? (
+          <div
+            data-drive-ui
+            className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-zinc-950/60 backdrop-blur-[2px]"
+          >
+            <p className="text-2xl font-semibold text-zinc-50">Paused</p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className="apex-btn apex-btn--accent"
+                onClick={() => setPhase("racing")}
+              >
+                Resume
+              </button>
+              <button
+                type="button"
+                className="apex-btn apex-btn--ghost"
+                onClick={() => requestRestart()}
+              >
+                Restart
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {phase !== "ready" ? (
+          <div
+            data-drive-ui
+            className="pointer-events-none absolute left-0 top-0 z-10 flex max-w-[min(100%,240px)] flex-col gap-1.5 p-2 sm:p-3"
           >
             <div
-              className="rounded-lg bg-zinc-950/75 px-2.5 py-1.5 font-mono text-xs text-zinc-100 backdrop-blur"
+              className="rounded-lg bg-zinc-950/55 px-2.5 py-1.5 font-mono text-xs text-zinc-100 backdrop-blur"
               data-apex-drive-lap
               data-apex-drive-lap-ms={Math.round(hud.currentMs)}
               data-apex-drive-lap-n={Math.max(1, hud.lap + 1)}
@@ -955,53 +1403,82 @@ export function DriveGame({ trackId }: Props) {
               <div className="text-base text-orange-400">
                 {formatLapTime(hud.currentMs)}
               </div>
+              <div className={`text-[10px] ${deltaColor}`}>
+                Δ PB{" "}
+                {hud.deltaMs != null ? formatDeltaMs(hud.deltaMs) : "—"} · S
+                {hud.sector + 1}{" "}
+                {hud.sectorDeltaMs != null
+                  ? formatDeltaMs(hud.sectorDeltaMs)
+                  : ""}
+              </div>
               <div className="text-[10px] text-zinc-400">
-                Last {hud.lastMs != null ? formatLapTime(hud.lastMs) : "—"} · Best{" "}
-                {hud.bestMs != null ? formatLapTime(hud.bestMs) : "—"}
+                Last {hud.lastMs != null ? formatLapTime(hud.lastMs) : "—"} ·
+                Best {hud.bestMs != null ? formatLapTime(hud.bestMs) : "—"}
               </div>
             </div>
             <div
-              className="rounded-lg bg-zinc-950/75 px-2.5 py-1.5 font-mono text-xs text-zinc-100 backdrop-blur"
+              className="rounded-lg bg-zinc-950/55 px-2.5 py-1.5 font-mono text-xs text-zinc-100 backdrop-blur"
               data-apex-drive-speed
               data-apex-drive-mph={(hud.speedKmh / 1.60934).toFixed(1)}
               data-apex-drive-on-track={hud.onTrack ? "1" : "0"}
               data-apex-drive-car-px={hud.carPx.toFixed(0)}
+              data-apex-drive-surface={hud.surface}
             >
               <div className="text-base">
                 {formatSpeed(hud.speedKmh, speedUnit, 0)}
               </div>
               <div
                 className={`text-[10px] ${
-                  hud.onTrack ? "text-emerald-400" : "text-amber-400"
+                  hud.surface === "grass"
+                    ? "text-amber-400"
+                    : hud.surface === "curb"
+                      ? "text-sky-300"
+                      : hud.sliding
+                        ? "text-orange-300"
+                        : "text-emerald-400"
                 }`}
               >
-                {hud.onTrack ? (hud.sliding ? "Slide" : "On track") : "Grass"}
+                {hud.surface === "grass"
+                  ? "Grass"
+                  : hud.surface === "curb"
+                    ? "Rumble"
+                    : hud.sliding
+                      ? "Slide"
+                      : "On track"}
               </div>
             </div>
           </div>
         ) : null}
 
-        {started ? (
+        {phase === "racing" || phase === "paused" || phase === "countdown" ? (
           <div
             data-drive-ui
             className="absolute inset-x-0 bottom-0 z-10 flex items-end justify-between gap-2 p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:p-3"
           >
-            <div
-              className="h-16 w-[36%] max-w-[140px] touch-none rounded-xl border border-zinc-600/50 bg-zinc-900/40 sm:h-20 sm:max-w-[180px]"
-              onTouchStart={(e) => onSteerTouch(e)}
-              onTouchMove={(e) => onSteerTouch(e)}
-              onTouchEnd={(e) => onSteerTouch(e, true)}
-              onTouchCancel={(e) => onSteerTouch(e, true)}
-              aria-label="Steering"
-            >
-              <p className="pointer-events-none pt-1.5 text-center text-[9px] uppercase tracking-[0.16em] text-zinc-400/90">
-                Steer
-              </p>
-            </div>
+            {!tiltSteer ? (
+              <div
+                className="h-12 w-[30%] max-w-[110px] touch-none rounded-xl border border-white/10 bg-zinc-900/25 sm:h-14 sm:max-w-[140px]"
+                onTouchStart={(e) => onSteerTouch(e)}
+                onTouchMove={(e) => onSteerTouch(e)}
+                onTouchEnd={(e) => onSteerTouch(e, true)}
+                onTouchCancel={(e) => onSteerTouch(e, true)}
+                aria-label="Steering"
+              >
+                <p className="pointer-events-none pt-1 text-center text-[9px] uppercase tracking-[0.16em] text-zinc-300/70">
+                  Steer
+                </p>
+              </div>
+            ) : (
+              <div className="h-12 w-[30%] max-w-[110px] rounded-xl border border-white/5 bg-zinc-900/15 sm:h-14">
+                <p className="pointer-events-none pt-1 text-center text-[9px] uppercase tracking-[0.16em] text-zinc-400/80">
+                  Tilt
+                </p>
+              </div>
+            )}
             <div className="flex gap-1.5">
               <button
                 type="button"
-                className="apex-btn h-14 w-14 touch-none bg-zinc-900/45 text-xs sm:h-16 sm:w-16"
+                className="h-12 w-12 touch-none rounded-xl border border-white/10 bg-zinc-900/30 text-[11px] text-zinc-100 sm:h-14 sm:w-14"
                 style={{ touchAction: "none" }}
                 onTouchStart={(e) => {
                   e.preventDefault();
@@ -1027,7 +1504,7 @@ export function DriveGame({ trackId }: Props) {
               </button>
               <button
                 type="button"
-                className="apex-btn apex-btn--accent h-14 w-14 touch-none bg-orange-500/70 text-xs sm:h-16 sm:w-16"
+                className="h-12 w-12 touch-none rounded-xl border border-orange-400/30 bg-orange-500/35 text-[11px] text-zinc-50 sm:h-14 sm:w-14"
                 style={{ touchAction: "none" }}
                 onTouchStart={(e) => {
                   e.preventDefault();
@@ -1059,15 +1536,21 @@ export function DriveGame({ trackId }: Props) {
       {board.length > 0 ? (
         <div
           data-drive-ui
+          data-apex-drive-local-board="1"
           className="border-t border-zinc-800/80 bg-zinc-950/90 px-3 py-2 text-xs text-zinc-400"
         >
           <span className="uppercase tracking-[0.14em] text-zinc-500">
-            Game board (local only)
+            Local game board (not real laps)
           </span>
           <span className="ml-2">
             {board
               .slice(0, 5)
-              .map((e, i) => `${i + 1}. ${formatLapTime(e.timeMs)}`)
+              .map(
+                (e, i) =>
+                  `${i + 1}. ${formatLapTime(e.timeMs)}${
+                    e.carId ? ` (${e.carId})` : ""
+                  }`,
+              )
               .join(" · ")}
           </span>
         </div>

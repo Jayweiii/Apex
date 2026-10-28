@@ -1,9 +1,11 @@
-import {
-  isOnTrack,
-  projectOnRibbon,
-  type RibbonHit,
-} from "@/lib/drive/ribbon";
-import type { DriveCarState, DriveInputs, DrivePoint } from "@/lib/drive/types";
+import { projectOnRibbon, type RibbonHit } from "@/lib/drive/ribbon";
+import type { DriveCarPreset } from "@/lib/drive/cars";
+import type {
+  DriveCarState,
+  DriveInputs,
+  DrivePoint,
+  DriveSurface,
+} from "@/lib/drive/types";
 
 /** Arcade tuning — fun on phone, not a sim. */
 export const DRIVE_PHYSICS = {
@@ -25,12 +27,40 @@ export const DRIVE_PHYSICS = {
   gripOn: 11,
   /** Max lateral grip on grass. */
   gripOff: 4.5,
+  /** Curb / rumble strip grip (a bit lively). */
+  gripCurb: 9.2,
   /** Slip bleed when grip exceeded. */
   slipGain: 0.55,
   slipDecay: 3.2,
   /** Minimum forward crawl when throttling off-track so the car never sticks. */
   offThrottleCrawl: 2.2,
+  /** Fraction of half-width where curb/rumble begins. */
+  curbStartFrac: 0.78,
+  /** Weight-transfer pitch response (dimensionless). */
+  weightTransfer: 0.42,
+  /** Throttle response lag (1/s) — higher = snappier. */
+  throttleLag: 4.5,
+  /** Brake response lag (1/s). */
+  brakeLag: 6.5,
+  /** Extra drag while on curb. */
+  curbDrag: 3.8,
+  /** Small curb bounce lateral noise scale. */
+  curbRumble: 0.55,
 } as const;
+
+export function surfaceForHit(
+  hit: RibbonHit,
+  halfWidthM: number,
+): DriveSurface {
+  const abs = Math.abs(hit.lateral);
+  if (abs > halfWidthM) return "grass";
+  if (abs >= halfWidthM * DRIVE_PHYSICS.curbStartFrac) return "curb";
+  return "asphalt";
+}
+
+export type StepCarOpts = {
+  carPreset?: DriveCarPreset;
+};
 
 export function stepCar(
   car: DriveCarState,
@@ -38,39 +68,80 @@ export function stepCar(
   dt: number,
   centerline: DrivePoint[],
   halfWidthM: number,
-): { car: DriveCarState; hit: RibbonHit } {
+  opts?: StepCarOpts,
+): { car: DriveCarState; hit: RibbonHit; surface: DriveSurface } {
   const hit = projectOnRibbon(centerline, car.x, car.y);
-  const onTrack = isOnTrack(hit, halfWidthM);
+  const surface = surfaceForHit(hit, halfWidthM);
+  const onTrack = surface !== "grass";
   const p = DRIVE_PHYSICS;
+  const preset = opts?.carPreset;
 
-  const throttle = Math.max(0, Math.min(1, inputs.throttle));
-  const brake = Math.max(0, Math.min(1, inputs.brake));
+  const throttleTarget = Math.max(0, Math.min(1, inputs.throttle));
+  const brakeTarget = Math.max(0, Math.min(1, inputs.brake));
   const steer = Math.max(-1, Math.min(1, inputs.steer));
 
-  const speedFactor = Math.min(1, Math.abs(car.speed) / p.maxSpeedOn);
-  const steerRate =
-    p.steerRateLow * (1 - speedFactor) + p.steerRateHigh * speedFactor;
+  // Pedal feel — lag so throttle/brake aren't binary teleports.
+  let throttle = car.throttlePedal ?? 0;
+  let brakePedal = car.brakePedal ?? 0;
+  throttle += (throttleTarget - throttle) * Math.min(1, p.throttleLag * dt);
+  brakePedal += (brakeTarget - brakePedal) * Math.min(1, p.brakeLag * dt);
 
-  let heading = car.heading + steer * steerRate * dt;
-  // wrap
+  const powerMul = preset?.power ?? 1;
+  const brakeMul = preset?.brake ?? 1;
+  const gripMul = preset?.grip ?? 1;
+  const steerMul = preset?.steer ?? 1;
+  const topMul = preset?.topSpeed ?? 1;
+
+  const speedFactor = Math.min(1, Math.abs(car.speed) / (p.maxSpeedOn * topMul));
+  const steerRate =
+    (p.steerRateLow * (1 - speedFactor) + p.steerRateHigh * speedFactor) *
+    steerMul;
+
+  // Weight transfer: accel loads rear (more exit grip / less turn-in),
+  // braking loads front (more turn-in, easier lock-up feel via slip).
+  const longAccel =
+    (throttle * p.accel * powerMul - brakePedal * p.brake * brakeMul) *
+    (car.speed >= 0 ? 1 : -1);
+  let load = car.load ?? 0;
+  const targetLoad = Math.max(
+    -1,
+    Math.min(1, (longAccel / 36) * p.weightTransfer),
+  );
+  load += (targetLoad - load) * Math.min(1, 7 * dt);
+
+  const turnIn = 1 + Math.max(0, -load) * 0.22 - Math.max(0, load) * 0.12;
+  let heading = car.heading + steer * steerRate * turnIn * dt;
   if (heading > Math.PI) heading -= Math.PI * 2;
   if (heading < -Math.PI) heading += Math.PI * 2;
 
-  const maxSpeed = onTrack ? p.maxSpeedOn : p.maxSpeedOff;
+  const maxSpeed =
+    surface === "grass" ? p.maxSpeedOff : p.maxSpeedOn * topMul;
   let speed = car.speed;
-  if (brake > 0.05) {
-    speed -= p.brake * brake * dt;
+  if (brakePedal > 0.05) {
+    // Brake feel: stronger initially, softens as speed drops (trail-brake).
+    const bite = 0.75 + 0.35 * Math.min(1, Math.abs(speed) / 20);
+    speed -= p.brake * brakeMul * brakePedal * bite * dt;
   } else if (throttle > 0.05) {
     const headroom = Math.max(0, maxSpeed - Math.max(0, speed));
+    // Power delivery: stronger mid-range, softer near redline.
     const pull =
-      p.accel * throttle * (0.35 + 0.65 * (headroom / Math.max(0.001, maxSpeed)));
-    speed += pull * dt;
-    // Guarantee a crawl off-track so releasing then re-throttling always moves.
-    if (!onTrack && speed >= 0 && speed < p.offThrottleCrawl * throttle) {
+      p.accel *
+      powerMul *
+      throttle *
+      (0.28 + 0.72 * (headroom / Math.max(0.001, maxSpeed)));
+    // Rear load helps put power down.
+    const putDown = 1 + Math.max(0, load) * 0.15;
+    speed += pull * putDown * dt;
+    if (surface === "grass" && speed >= 0 && speed < p.offThrottleCrawl * throttle) {
       speed = p.offThrottleCrawl * throttle;
     }
   } else {
-    const drag = onTrack ? p.coastDrag : p.offDrag;
+    const drag =
+      surface === "grass"
+        ? p.offDrag
+        : surface === "curb"
+          ? p.coastDrag + p.curbDrag
+          : p.coastDrag;
     if (speed > 0) speed = Math.max(0, speed - drag * dt);
     else if (speed < 0) speed = Math.min(0, speed + drag * dt);
   }
@@ -78,44 +149,80 @@ export function stepCar(
   if (speed > maxSpeed) speed = maxSpeed;
   if (speed < -8) speed = -8;
 
-  // Lateral grip / slide
-  const grip = onTrack ? p.gripOn : p.gripOff;
-  const yawRate = steer * steerRate;
+  // Lateral grip by surface + weight transfer
+  let gripBase =
+    surface === "grass"
+      ? p.gripOff
+      : surface === "curb"
+        ? p.gripCurb
+        : p.gripOn;
+  gripBase *= gripMul;
+  // Braking reduces rear grip a touch; throttle reduces front (oversteer/understeer arcade).
+  const grip =
+    gripBase *
+    (1 - Math.max(0, brakePedal) * 0.12 + Math.max(0, load) * 0.06);
+
+  const yawRate = steer * steerRate * turnIn;
   const demandedLat = Math.abs(speed) * Math.abs(yawRate);
   let slip = car.slip;
   if (demandedLat > grip) {
-    slip += (demandedLat - grip) * p.slipGain * dt * Math.sign(steer || slip || 1);
+    slip +=
+      (demandedLat - grip) * p.slipGain * dt * Math.sign(steer || slip || 1);
+  }
+  // Curb adds high-frequency slip jitter (rumble strip feel).
+  if (surface === "curb" && Math.abs(speed) > 4) {
+    slip += Math.sin(performanceNowProxy() * 0.09 + hit.along) * p.curbRumble * dt * 18;
   }
   slip *= Math.exp(-p.slipDecay * dt);
   if (Math.abs(slip) < 0.02) slip = 0;
-  // Speed bleed when sliding / off track
   if (Math.abs(slip) > 0.4) {
     speed *= Math.exp(-0.35 * Math.abs(slip) * dt);
   }
-  // Grass decay only while coasting — never pin a throttling car at 0.
-  if (!onTrack && throttle < 0.05) {
+  if (surface === "grass" && throttle < 0.05) {
     speed *= Math.exp(-p.offCoastDecay * dt);
   }
-  // Final off-track crawl floor after drag/slip so the car never sticks at 0
-  // mph on grass while the lap timer keeps running.
-  if (!onTrack && throttle > 0.05 && brake < 0.05) {
+  if (surface === "grass" && throttle > 0.05 && brakePedal < 0.05) {
     const floor = p.offThrottleCrawl * Math.min(1, throttle);
     if (speed >= 0 && speed < floor) speed = floor;
   }
 
-  // Forward in east/north: heading 0 = +y (north), clockwise positive → +x east
   const fwdX = Math.sin(heading);
   const fwdY = Math.cos(heading);
   const latX = Math.cos(heading);
   const latY = -Math.sin(heading);
 
-  const x = car.x + fwdX * speed * dt + latX * slip * dt;
-  const y = car.y + fwdY * speed * dt + latY * slip * dt;
+  let x = car.x + fwdX * speed * dt + latX * slip * dt;
+  let y = car.y + fwdY * speed * dt + latY * slip * dt;
+  // Mild curb bounce toward centerline when riding the strip hard.
+  if (surface === "curb" && Math.abs(speed) > 8) {
+    const toward = -Math.sign(hit.lateral || 1);
+    x += latX * toward * 0.15 * dt * Math.abs(speed) * 0.02;
+    y += latY * toward * 0.15 * dt * Math.abs(speed) * 0.02;
+  }
 
   return {
-    car: { x, y, heading, speed, slip, onTrack },
+    car: {
+      x,
+      y,
+      heading,
+      speed,
+      slip,
+      onTrack,
+      surface,
+      throttlePedal: throttle,
+      brakePedal,
+      load,
+    },
     hit: { ...hit, onTrack },
+    surface,
   };
+}
+
+/** performance.now for rumble phase; safe under Node verify scripts. */
+function performanceNowProxy(): number {
+  return typeof performance !== "undefined" && performance.now
+    ? performance.now()
+    : Date.now();
 }
 
 export function spawnAtStart(
@@ -123,7 +230,6 @@ export function spawnAtStart(
   sfLocal: DrivePoint,
   headingRad: number,
 ): DriveCarState {
-  // Place a few meters past SF along heading so first crossing counts a lap.
   const nest = 6;
   let x = sfLocal.x + Math.sin(headingRad) * nest;
   let y = sfLocal.y + Math.cos(headingRad) * nest;
@@ -145,5 +251,9 @@ export function spawnAtStart(
     speed: 0,
     slip: 0,
     onTrack: true,
+    surface: "asphalt",
+    throttlePedal: 0,
+    brakePedal: 0,
+    load: 0,
   };
 }

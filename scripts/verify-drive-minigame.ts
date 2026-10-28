@@ -176,5 +176,42 @@ assert(game.includes("LAP_FINISH_COVER_FRAC"), "coverage-gated finish");
 assert(game.includes("Math.max(56, 11 * pxPerM)"), "car has screen-space size");
 assert(game.includes("data-apex-drive-car-px"), "exposes car px for QA");
 assert(game.includes("KeyX") && game.includes("shoveRef"), "grass shove for QA");
+assert(game.includes("beginCountdown") || game.includes("countdown"), "countdown start");
+assert(game.includes("data-apex-drive-restart"), "restart control");
+assert(game.includes("createDriveAudio") || game.includes("Mute"), "audio mute");
+assert(game.includes("tiltSteer") || game.includes("Tilt"), "tilt steer option");
+assert(game.includes("formatDeltaMs") || game.includes("deltaMs"), "live PB delta");
+assert(game.includes("buildSectorSplits") || game.includes("sector"), "sectors");
+assert(game.includes("data-apex-drive-local-board"), "local board marker");
+
+assert(existsSync(join(root, "src/lib/drive/cars.ts")), "car presets");
+assert(existsSync(join(root, "src/lib/drive/audio.ts")), "drive audio");
+assert(existsSync(join(root, "src/lib/drive/sectors.ts")), "sectors helper");
+
+const cars = read("src/lib/drive/cars.ts");
+assert(cars.includes("apex.drive.selectedCar"), "car selection namespaced");
+assert(cars.includes("miata") && cars.includes("kart"), "car roster");
+
+const hub = read("src/components/drive/DriveHub.tsx");
+assert(hub.includes("data-apex-drive-car-select"), "hub car select");
+assert(hub.includes("Local PB") || hub.includes("local"), "hub shows local board");
+assert(hub.includes("apex.drive."), "hub documents isolation");
+
+const physicsSrc = read("src/lib/drive/physics.ts");
+assert(physicsSrc.includes("curbStartFrac"), "curb / rumble strip");
+assert(physicsSrc.includes("weightTransfer") || physicsSrc.includes("load"), "weight transfer");
+assert(physicsSrc.includes("throttleLag"), "throttle feel");
+assert(physicsSrc.includes("carPreset"), "car preset tuning");
+
+// Curb is still on-track; grass is not.
+const mid = spawnAtStart(closed, closed[0]!, 0);
+const onAsphalt = stepCar(
+  mid,
+  { throttle: 0.2, brake: 0, steer: 0 },
+  1 / 60,
+  closed,
+  9,
+);
+assert(onAsphalt.surface === "asphalt" || onAsphalt.car.onTrack, "asphalt surface");
 
 console.log("verify-drive-minigame: ok");

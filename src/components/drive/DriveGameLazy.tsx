@@ -14,4 +14,4 @@ export const DriveGameLazy = dynamic(
     ssr: false,
     loading: () => <PageSkeleton label="Loading Drive…" rows={3} />,
   },
-) as ComponentType<{ trackId: string }>;
+) as ComponentType<{ trackId: string; carId?: string }>;
