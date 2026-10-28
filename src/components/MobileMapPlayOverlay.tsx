@@ -6,7 +6,8 @@
  *
  * - Absolute inside the map stack (scrolls with the map — never fixed over
  *   the sticky AppHeader).
- * - Bottom-left keeps Street/Satellite + POV chrome clear (top row).
+ * - Top-left of the map canvas: in the first phone viewport when the map
+ *   is on-screen, and clear of Street/Satellite (top chrome / right side).
  * - sm:hidden — desktop keeps the full PlaybackControls bar.
  * - Single-tap: apex-btn + touch-action:manipulation; ≥44pt tap target.
  */
@@ -21,7 +22,7 @@ export function MobileMapPlayOverlay({
 }) {
   return (
     <div
-      className="pointer-events-none absolute bottom-3 left-3 z-[20] sm:hidden"
+      className="pointer-events-none absolute top-3 left-3 z-[20] sm:hidden"
       data-apex-map-play-overlay="1"
     >
       <button
