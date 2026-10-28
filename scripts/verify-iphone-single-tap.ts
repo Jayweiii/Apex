@@ -103,6 +103,22 @@ assert(
   ),
   "POV must not ack basemap changes without applyBasemapTiles",
 );
+assert(
+  !/if \(map\.isStyleLoaded\(\)\) swap\(\);\s*else map\.once\("load", swap\);/.test(
+    chase,
+  ),
+  "POV Street swap must not gate on isStyleLoaded+once(load) after sat failover",
+);
+assert(
+  chase.includes("apexBasemapStreetOpacity") &&
+    chase.includes("apexBasemapSatOpacity"),
+  "POV publishes raster-opacity for Street↔Satellite e2e",
+);
+assert(
+  chase.includes('map.on("idle", onReady)') ||
+    chase.includes("map.on('idle', onReady)"),
+  "POV retries basemap swap on idle when layers not ready",
+);
 
 const header = read("src/components/AppHeader.tsx");
 assert(header.includes("data-apex-nav-utils"), "mph toggle outside nav links");

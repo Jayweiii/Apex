@@ -577,6 +577,121 @@ test.describe("Apex mobile/desktop regression", () => {
     );
   });
 
+  test("POV Street↔Satellite flips tile opacities both directions", async ({
+    page,
+    useTap,
+  }) => {
+    await gotoReady(page, `/sessions/${SESSION_ID}`);
+    const povBtn = page.getByRole("button", { name: /^POV$/i }).first();
+    const missing = page.getByText(/Session not found/i);
+    const ready = await Promise.race([
+      povBtn.waitFor({ state: "visible", timeout: 90_000 }).then(() => "pov" as const),
+      missing
+        .waitFor({ state: "visible", timeout: 90_000 })
+        .then(() => "missing" as const),
+    ]).catch(() => "timeout" as const);
+    if (ready !== "pov") {
+      test.skip(true, "QA session not available on this BASE_URL");
+    }
+
+    await page.evaluate(() => {
+      localStorage.setItem(
+        "apex.map-view",
+        JSON.stringify({ mode: "chase", followId: "", chaseZoom: 17.5 }),
+      );
+      localStorage.setItem("apex.basemap", JSON.stringify("satellite"));
+    });
+    await page.reload({ waitUntil: "domcontentloaded" });
+
+    const chase = page.locator('[data-apex-map="chase"], [data-apex-pov="1"]');
+    await expect(chase.first()).toBeVisible({ timeout: 90_000 });
+
+    const basemap = page.locator("[data-apex-basemap-toggle]").first();
+    await expect(basemap).toBeVisible({ timeout: 60_000 });
+    const street = basemap.getByRole("button", { name: /^Street$/i });
+    const satellite = basemap.getByRole("button", { name: /^Satellite$/i });
+
+    async function readTileState() {
+      return chase.first().evaluate((node) => ({
+        mode: node.getAttribute("data-apex-basemap"),
+        streetOp: node.getAttribute("data-apex-basemap-street-opacity"),
+        satOp: node.getAttribute("data-apex-basemap-sat-opacity"),
+        streetTile: node.getAttribute("data-apex-basemap-street-tile"),
+        satTile: node.getAttribute("data-apex-basemap-sat-tile"),
+      }));
+    }
+
+    // Start on satellite (default), then Street — must flip paint even if
+    // imagery tiles are still loading (isStyleLoaded false after sat churn).
+    await activate(page, street);
+    await expect(street).toHaveAttribute("aria-pressed", "true");
+    await expect
+      .poll(async () => readTileState(), { timeout: 15_000 })
+      .toMatchObject({
+        mode: "street",
+        streetOp: "1",
+        satOp: "0",
+        streetTile: "osm",
+      });
+
+    await activate(page, satellite);
+    await expect(satellite).toHaveAttribute("aria-pressed", "true");
+    await expect
+      .poll(async () => readTileState(), { timeout: 15_000 })
+      .toMatchObject({
+        mode: "satellite",
+        streetOp: "0",
+        satOp: "1",
+        satTile: "esri",
+      });
+
+    // Street again after satellite (and after failover path) must flip paint.
+    await activate(page, street);
+    await expect(street).toHaveAttribute("aria-pressed", "true");
+    await expect
+      .poll(async () => readTileState(), { timeout: 15_000 })
+      .toMatchObject({
+        mode: "street",
+        streetOp: "1",
+        satOp: "0",
+        streetTile: "osm",
+      });
+
+    // Compare page too.
+    await gotoReady(page, `/compare/${COMPARE_ID}`);
+    await page.evaluate(() => {
+      localStorage.setItem(
+        "apex.map-view",
+        JSON.stringify({ mode: "chase", followId: "", chaseZoom: 17.5 }),
+      );
+      localStorage.setItem("apex.basemap", JSON.stringify("satellite"));
+    });
+    await page.reload({ waitUntil: "domcontentloaded" });
+    const compareChase = page.locator(
+      '[data-apex-map="chase"], [data-apex-pov="1"]',
+    );
+    await expect(compareChase.first()).toBeVisible({ timeout: 90_000 });
+    const compareBasemap = page.locator("[data-apex-basemap-toggle]").first();
+    const compareStreet = compareBasemap.getByRole("button", {
+      name: /^Street$/i,
+    });
+    await activate(page, compareStreet);
+    await expect(compareStreet).toHaveAttribute("aria-pressed", "true");
+    await expect
+      .poll(
+        async () =>
+          compareChase.first().evaluate((node) => ({
+            mode: node.getAttribute("data-apex-basemap"),
+            streetOp: node.getAttribute("data-apex-basemap-street-opacity"),
+            satOp: node.getAttribute("data-apex-basemap-sat-opacity"),
+          })),
+        { timeout: 15_000 },
+      )
+      .toMatchObject({ mode: "street", streetOp: "1", satOp: "0" });
+
+    expect(typeof useTap).toBe("boolean");
+  });
+
   test("Satellite basemap stays pressed and imagery host can fail over", async ({
     page,
     useTap,

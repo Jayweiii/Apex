@@ -23,6 +23,7 @@ import {
   withElevation,
 } from "../src/lib/drive/elevation";
 import { buildTrackMeshBuffers, enuToThree } from "../src/lib/drive/track-mesh";
+import { createTimerClock } from "../src/lib/drive/timer-clock";
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
@@ -301,5 +302,30 @@ assert(typeof onAsphalt.car.roll === "number", "body roll");
 const pkg = read("package.json");
 assert(pkg.includes('"three"'), "three dependency");
 assert(pkg.includes("@react-three/fiber"), "R3F dependency");
+
+const driveScene = read("src/components/drive/scene/DriveScene.tsx");
+assert(driveScene.includes("createTimerClock"), "Drive uses Timer-backed clock");
+assert(driveScene.includes("onCreated"), "R3F clock swapped onCreated");
+assert(!/new\s+Clock\s*\(/.test(driveScene), "DriveScene must not construct THREE.Clock");
+
+const timerClockSrc = read("src/lib/drive/timer-clock.ts");
+assert(
+  timerClockSrc.includes('from "three"') || timerClockSrc.includes("from 'three'"),
+  "timer-clock imports three",
+);
+assert(timerClockSrc.includes("Timer"), "timer-clock uses THREE.Timer");
+assert(timerClockSrc.includes("getDelta"), "Clock-shaped getDelta for R3F");
+assert(!timerClockSrc.includes("new Clock"), "timer-clock must not use deprecated Clock");
+
+const clock = createTimerClock(null);
+assert(typeof clock.getDelta() === "number", "timer clock getDelta");
+const start = Date.now();
+while (Date.now() - start < 16) {
+  /* spin briefly so Timer accumulates a delta */
+}
+const d = clock.getDelta();
+assert(d >= 0 && d < 1, "timer clock delta sane");
+assert(clock.getElapsedTime() >= 0, "timer clock elapsed");
+clock.dispose();
 
 console.log("verify-drive-minigame: ok");
