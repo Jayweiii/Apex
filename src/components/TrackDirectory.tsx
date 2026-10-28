@@ -12,6 +12,7 @@ import { fetchSharedTracks } from "@/lib/cloud-tracks";
 import { formatLapTime } from "@/lib/format";
 import { bestLapTimeMs } from "@/lib/lap-quality";
 import { listLocalSessions, type StoredSession } from "@/lib/local-store";
+import { bestLapMsBySession } from "@/lib/session-best";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
 import {
   getTrack,
@@ -58,6 +59,83 @@ function rowsForTrack(trackId: string, local: StoredSession[]): TrackRow[] {
       };
     })
     .filter((row): row is TrackRow => row != null);
+}
+
+type CloudTrackSession = {
+  id: string;
+  name: string;
+  car: string;
+  best: number;
+  laps: number;
+  kind: DataKind;
+};
+
+/** Accessible cloud sessions for a track (own / friends / public via RLS). */
+function useCloudTrackSessions(trackId: string) {
+  const [rows, setRows] = useState<CloudTrackSession[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      if (!hasSupabaseConfig()) {
+        if (!cancelled) setRows([]);
+        return;
+      }
+      try {
+        const supabase = createClient();
+        const aliases = trackEquivalentIds(trackId);
+        let query = supabase
+          .from("sessions")
+          .select("id, name, track_id, car, created_at")
+          .order("created_at", { ascending: false })
+          .limit(80);
+        query =
+          aliases.length > 1
+            ? query.in("track_id", aliases)
+            : query.eq("track_id", trackId);
+        const { data: sessions } = await query;
+        if (cancelled) return;
+        const list = sessions ?? [];
+        const ids = list.map((row) => row.id as string);
+        if (!ids.length) {
+          setRows([]);
+          return;
+        }
+        const bestBySession = await bestLapMsBySession(supabase, ids);
+        // Lap counts for sessions that have a valid best (same valid-lap rules).
+        const { data: lapRows } = await supabase
+          .from("laps")
+          .select("session_id, lap_time_ms, lap_number, excluded")
+          .in("session_id", ids);
+        const lapCount = new Map<string, number>();
+        for (const lap of lapRows ?? []) {
+          const sid = lap.session_id as string;
+          lapCount.set(sid, (lapCount.get(sid) ?? 0) + 1);
+        }
+        if (cancelled) return;
+        setRows(
+          list
+            .filter((session) => bestBySession.has(session.id as string))
+            .map((session) => ({
+              id: session.id as string,
+              name: session.name as string,
+              car: ((session.car as string | null)?.trim() || "Unknown") as string,
+              best: bestBySession.get(session.id as string)!,
+              laps: lapCount.get(session.id as string) ?? 0,
+              kind: "upload" as DataKind,
+            })),
+        );
+      } catch {
+        if (!cancelled) setRows([]);
+      }
+    }
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [trackId]);
+
+  return rows;
 }
 
 function groupByCar(rows: TrackRow[]) {
@@ -363,6 +441,7 @@ export function TrackDetail({ id }: { id: string }) {
     "sessions",
   );
   const local = useLocalSessions();
+  const cloudSessions = useCloudTrackSessions(id);
   // Warm sharedTracksCache so non-builtin community ids resolve after hydrate.
   useExtraTracks();
 
@@ -399,6 +478,21 @@ export function TrackDetail({ id }: { id: string }) {
     };
   }, [id]);
 
+  const localRows = rowsForTrack(track?.id ?? id, local ?? []);
+  const mergedRows = useMemo(() => {
+    const byId = new Map<string, TrackRow>();
+    for (const row of cloudSessions ?? []) {
+      byId.set(row.id, row);
+    }
+    for (const row of localRows) {
+      const existing = byId.get(row.id);
+      if (!existing || row.best < existing.best) byId.set(row.id, row);
+    }
+    return [...byId.values()];
+  }, [cloudSessions, localRows]);
+  const groups = groupByCar(mergedRows);
+  const loading = local === null || cloudSessions === null;
+
   if (!track) {
     return (
       <>
@@ -414,9 +508,6 @@ export function TrackDetail({ id }: { id: string }) {
       </>
     );
   }
-
-  const groups = groupByCar(rowsForTrack(track.id, local ?? []));
-  const loading = local === null;
 
   return (
     <>
@@ -445,7 +536,7 @@ export function TrackDetail({ id }: { id: string }) {
           <div
             role="tablist"
             aria-label="Track sections"
-            className="flex flex-wrap gap-2"
+            className="flex flex-wrap items-center gap-2"
           >
             {(
               [
@@ -474,13 +565,12 @@ export function TrackDetail({ id }: { id: string }) {
               <TrackOverviewMap track={track} local={local} />
             </div>
             <div className="flex flex-col gap-4">
-              <PublicCloudSessions trackId={track.id} />
               {loading ? (
                 <p className="text-sm text-zinc-500">Loading sessions…</p>
               ) : groups.length === 0 ? (
                 <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-6 text-center text-sm text-zinc-500">
-                  No sessions saved in this browser — public cloud sessions for
-                  this track appear above when available.
+                  No sessions with valid flying laps at this track yet —
+                  upload one or set an existing session to Public / Friends.
                 </p>
               ) : (
                 groups.map((group) => (

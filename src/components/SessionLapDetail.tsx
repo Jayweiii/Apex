@@ -6,7 +6,7 @@ import { SectionSaveHint } from "@/components/SectionSaveHint";
 import type { SessionToolTab } from "@/components/SessionToolsPanel";
 import { useSpeedUnit } from "@/components/useSpeedUnit";
 import { SyncedLapView } from "@/components/video/SyncedLapView";
-import { formatLapTime, formatSpeed } from "@/lib/format";
+import { formatGap, formatLapTime, formatSpeed } from "@/lib/format";
 import {
   applyLapTrimWithSession,
   buildTrimChartContext,
@@ -14,7 +14,7 @@ import {
   resolveLapTrimBounds,
   type TrimableLap,
 } from "@/lib/lap-trim";
-import { bestLapTimeMs } from "@/lib/lap-quality";
+import { bestLapTimeMs, isLapExcluded } from "@/lib/lap-quality";
 import { pickSessionVideoForLap } from "@/lib/pick-session-video";
 import type { StartFinishLine } from "@/lib/start-finish-line";
 import type { SessionVideo, TelemetryPoint } from "@/lib/types";
@@ -389,11 +389,10 @@ export function SessionLapDetail({
           <span data-apex-peak-speed="1">
             Peak {formatSpeed(peak, speedUnit)}
           </span>
-          {deltaSec == null || deltaSec === 0 ? null : (
-            <span className="font-mono">
-              Δ best {deltaSec > 0 ? "+" : ""}
-              {deltaSec.toFixed(3)}s
-            </span>
+          {deltaSec == null ||
+          deltaSec === 0 ||
+          isLapExcluded(lap) ? null : (
+            <span className="font-mono">Δ best {formatGap(deltaSec)}</span>
           )}
           {lap.excluded ? (
             <span className="rounded-md border border-zinc-700 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-zinc-500">

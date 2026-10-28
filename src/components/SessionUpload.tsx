@@ -161,63 +161,62 @@ export function SessionUpload({
 
   useEffect(() => {
     let cancelled = false;
-    async function loadTracks() {
-      const local = listCustomTracks();
-      let shared: Track[] = listSharedTracksCache();
-      if (hasSupabaseConfig()) {
-        try {
-          const supabase = createClient();
-          shared = await fetchSharedTracks(supabase);
-          if (!cancelled) setSharedTracksCache(shared);
-        } catch {
-          // Keep local + cached shared.
-        }
+    // Paint immediately from local/cache, then refresh cloud catalogs in parallel.
+    const local = listCustomTracks();
+    const cachedShared = listSharedTracksCache();
+    const mergedLocal: Track[] = [];
+    for (const track of [...cachedShared, ...local]) {
+      if (!mergedLocal.some((item) => item.id === track.id)) {
+        mergedLocal.push(track);
       }
-      if (cancelled) return;
-      const merged: Track[] = [];
-      for (const track of [...shared, ...local]) {
-        if (!merged.some((item) => item.id === track.id)) merged.push(track);
-      }
-      setExtraTracks(merged);
-
-      const localCars = listKnownCars();
-      let sharedCars: string[] = [];
-      let sessionCars: string[] = [];
-      if (hasSupabaseConfig()) {
-        try {
-          const supabase = createClient();
-          const [fromTable, fromSessions] = await Promise.all([
-            fetchSharedCars(supabase),
-            fetchCarsFromSessions(supabase),
-          ]);
-          sharedCars = fromTable;
-          sessionCars = fromSessions;
-        } catch {
-          // Keep local cars when shared cars are unavailable.
-        }
-      }
-      if (cancelled) return;
-      const carNames = new Set<string>([
-        ...sharedCars,
-        ...sessionCars,
-        ...localCars,
-      ]);
-      const cars = [...carNames].sort((a, b) => a.localeCompare(b));
-      setKnownCars(cars);
-      setCarChoice((current) => {
-        if (current) return current;
-        // Empty list → open "add your own" so the picker isn't a blank dead-end.
-        return cars.length ? "" : NEW_CAR;
-      });
     }
-    const frame = window.requestAnimationFrame(() => {
-      void loadTracks();
-    });
+    setExtraTracks(mergedLocal);
+    const localCars = listKnownCars();
+    if (localCars.length) {
+      setKnownCars([...localCars].sort((a, b) => a.localeCompare(b)));
+    }
+
+    async function loadCloudCatalogs() {
+      if (!hasSupabaseConfig()) {
+        setCarChoice((current) => current || (localCars.length ? "" : NEW_CAR));
+        return;
+      }
+      try {
+        const supabase = createClient();
+        const [shared, fromTable, fromSessions] = await Promise.all([
+          fetchSharedTracks(supabase).catch(() => cachedShared),
+          fetchSharedCars(supabase).catch(() => [] as string[]),
+          fetchCarsFromSessions(supabase).catch(() => [] as string[]),
+        ]);
+        if (cancelled) return;
+        setSharedTracksCache(shared);
+        const merged: Track[] = [];
+        for (const track of [...shared, ...local]) {
+          if (!merged.some((item) => item.id === track.id)) merged.push(track);
+        }
+        setExtraTracks(merged);
+        const carNames = new Set<string>([
+          ...fromTable,
+          ...fromSessions,
+          ...localCars,
+        ]);
+        const cars = [...carNames].sort((a, b) => a.localeCompare(b));
+        setKnownCars(cars);
+        setCarChoice((current) => {
+          if (current) return current;
+          return cars.length ? "" : NEW_CAR;
+        });
+      } catch {
+        if (!cancelled) {
+          setCarChoice((current) => current || (localCars.length ? "" : NEW_CAR));
+        }
+      }
+    }
+    void loadCloudCatalogs();
     return () => {
       cancelled = true;
-      window.cancelAnimationFrame(frame);
     };
-  }, [busy]);
+  }, []);
 
   const tracks = useMemo(
     () => popularTracks("", extraTracks),
@@ -724,7 +723,7 @@ export function SessionUpload({
   return (
     <form
       onSubmit={onSubmit}
-      className="rounded-2xl border border-zinc-800/80 bg-zinc-950/60 p-4 sm:p-5"
+      className="min-w-0 overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950/60 p-4 sm:p-5"
     >
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -782,15 +781,15 @@ export function SessionUpload({
         </p>
       ) : null}
 
-      <div className="grid gap-3">
+      <div className="grid min-w-0 gap-3">
         {!trackId ? (
-          <div className="grid gap-3">
-            <label className="flex flex-col gap-1.5 text-sm">
+          <div className="grid min-w-0 gap-3">
+            <label className="flex min-w-0 flex-col gap-1.5 text-sm">
               <span className="text-zinc-400">Track</span>
               <select
                 value={pickedTrack}
                 onChange={(event) => setPickedTrack(event.target.value)}
-                className="min-h-12 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
+                className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
               >
                 <option value="">Auto-detect from GPS…</option>
                 {tracks.map((track) => (
@@ -820,15 +819,15 @@ export function SessionUpload({
             ) : null}
           </div>
         ) : null}
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="grid gap-3">
-            <label className="flex flex-col gap-1.5 text-sm">
+        <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+          <div className="grid min-w-0 gap-3">
+            <label className="flex min-w-0 flex-col gap-1.5 text-sm">
               <span className="text-zinc-400">Car</span>
               <select
                 required
                 value={carChoice}
                 onChange={(event) => onCarChoice(event.target.value)}
-                className="min-h-12 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
+                className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
               >
                 <option value="" disabled={knownCars.length === 0}>
                   Choose a car
@@ -854,12 +853,12 @@ export function SessionUpload({
               </label>
             ) : null}
           </div>
-          <label className="flex flex-col gap-1.5 text-sm">
+          <label className="flex min-w-0 flex-col gap-1.5 text-sm">
             <span className="text-zinc-400">Class</span>
             <select
               value={carClass}
               onChange={(event) => setCarClass(event.target.value)}
-              className="min-h-12 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
+              className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
             >
               {CAR_CLASSES.map((value) => (
                 <option key={value} value={value}>
@@ -869,15 +868,15 @@ export function SessionUpload({
             </select>
           </label>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="flex flex-col gap-1.5 text-sm">
+        <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+          <label className="flex min-w-0 flex-col gap-1.5 text-sm">
             <span className="text-zinc-400">Driver</span>
             <input
               list="apex-drivers"
               value={driver}
               onChange={(e) => setDriver(e.target.value)}
               placeholder="Alex"
-              className="min-h-12 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
+              className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
             />
             <datalist id="apex-drivers">
               {drivers.map((item) => (
@@ -885,33 +884,33 @@ export function SessionUpload({
               ))}
             </datalist>
           </label>
-          <label className="flex flex-col gap-1.5 text-sm">
+          <label className="flex min-w-0 flex-col gap-1.5 text-sm">
             <span className="text-zinc-400">Car tags</span>
             <input
               value={carTags}
               onChange={(e) => setCarTags(e.target.value)}
               placeholder="205 tires, stock sway"
-              className="min-h-12 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
+              className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
             />
           </label>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="flex flex-col gap-1.5 text-sm">
+        <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+          <label className="flex min-w-0 flex-col gap-1.5 text-sm">
             <span className="text-zinc-400">Weather</span>
             <input
               value={weather}
               onChange={(e) => setWeather(e.target.value)}
               placeholder="Dry, 18°C, light wind"
-              className="min-h-12 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
+              className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
             />
           </label>
-          <label className="flex flex-col gap-1.5 text-sm">
+          <label className="flex min-w-0 flex-col gap-1.5 text-sm">
             <span className="text-zinc-400">Tires</span>
             <input
               value={tires}
               onChange={(e) => setTires(e.target.value)}
               placeholder="RE-71RS, heat cycle 2"
-              className="min-h-12 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
+              className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
             />
           </label>
         </div>

@@ -3,7 +3,7 @@
 import { ExcludeFromBestControl } from "@/components/ExcludeFromBestControl";
 import { UnsplitLapsBanner } from "@/components/ReparseLapsCallout";
 import { SectionSaveHint } from "@/components/SectionSaveHint";
-import { formatLapTime } from "@/lib/format";
+import { formatGap, formatLapTime } from "@/lib/format";
 import {
   bestLapTimeMs,
   isLapExcluded,
@@ -167,8 +167,15 @@ export function LapList({
           const suspicion = flags.get(lap.id);
           const isFastest =
             !excluded && fastest != null && lap.lap_time_ms === fastest;
+          const outOrIn = Boolean(
+            suspicion?.reasons.some(
+              (reason) => reason === "out_lap" || reason === "in_lap",
+            ),
+          );
           const delta =
-            !excluded && fastest != null ? lap.lap_time_ms - fastest : null;
+            !excluded && !outOrIn && fastest != null
+              ? lap.lap_time_ms - fastest
+              : null;
           const selected = selectedId === lap.id;
           const busy = excludeBusyId === lap.id;
           const vid = videoMark(lap.id, dedicated, sessionVideo, synced);
@@ -254,11 +261,11 @@ export function LapList({
                 {vid?.text ?? "—"}
               </span>
               <span className="font-mono text-sm text-zinc-500">
-                {delta == null
-                  ? "—"
-                  : delta === 0
+                {excluded || outOrIn
+                  ? "n/a"
+                  : delta == null || delta === 0
                     ? "—"
-                    : `+${(delta / 1000).toFixed(3)}`}
+                    : formatGap(delta / 1000)}
               </span>
               {excludeControl}
             </>

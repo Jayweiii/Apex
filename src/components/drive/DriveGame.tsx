@@ -28,7 +28,8 @@ import type {
   DrivePoint,
   DriveTrackPayload,
 } from "@/lib/drive/types";
-import { formatLapTime } from "@/lib/format";
+import { useSpeedUnit } from "@/components/useSpeedUnit";
+import { formatLapTime, formatSpeed } from "@/lib/format";
 import Link from "next/link";
 import {
   useCallback,
@@ -54,7 +55,8 @@ export function DriveGame({ trackId }: Props) {
   const [loading, setLoading] = useState(true);
   const [camera, setCamera] = useState<DriveCameraMode>("chase");
   const [hud, setHud] = useState({
-    speedMph: 0,
+    /** Speed in km/h for unit-aware formatting. */
+    speedKmh: 0,
     currentMs: 0,
     lastMs: null as number | null,
     bestMs: null as number | null,
@@ -66,6 +68,7 @@ export function DriveGame({ trackId }: Props) {
   const [board, setBoard] = useState<DriveLeaderboardEntry[]>([]);
   const [started, setStarted] = useState(false);
   const [paused, setPaused] = useState(false);
+  const [speedUnit] = useSpeedUnit();
 
   const keysRef = useRef(new Set<string>());
   const touchRef = useRef({ steer: 0, throttle: 0, brake: 0 });
@@ -75,6 +78,8 @@ export function DriveGame({ trackId }: Props) {
   const startedRef = useRef(false);
   /** Lateral shove (m) applied once in the sim loop — QA / recovery. */
   const shoveRef = useRef(0);
+  /** Snap car back to the ribbon (Key R / Return to track). */
+  const resetTrackRef = useRef(false);
 
   useEffect(() => {
     cameraRef.current = camera;
@@ -156,6 +161,9 @@ export function DriveGame({ trackId }: Props) {
       // Shove perpendicular to heading onto the grass (also helps QA prove crawl-off).
       if (e.code === "KeyX") {
         shoveRef.current = 22;
+      }
+      if (e.code === "KeyR") {
+        resetTrackRef.current = true;
       }
     };
     const up = (e: KeyboardEvent) => {
@@ -570,6 +578,33 @@ export function DriveGame({ trackId }: Props) {
               speed: Math.min(car.speed, 8),
             };
           }
+          if (resetTrackRef.current) {
+            resetTrackRef.current = false;
+            const hit = projectOnRibbon(centerline, car.x, car.y);
+            const seg = centerline[hit.segIndex]!;
+            const next =
+              centerline[Math.min(centerline.length - 1, hit.segIndex + 1)]!;
+            const dx = next.x - seg.x;
+            const dy = next.y - seg.y;
+            const len = Math.hypot(dx, dy) || 1;
+            // Snap onto the centerline (drop lateral offset).
+            const t = Math.max(
+              0,
+              Math.min(
+                1,
+                ((car.x - seg.x) * dx + (car.y - seg.y) * dy) / (len * len),
+              ),
+            );
+            car = {
+              ...car,
+              x: seg.x + (dx / len) * (t * len),
+              y: seg.y + (dy / len) * (t * len),
+              heading: hit.pathHeading || Math.atan2(dx, dy),
+              speed: Math.max(Math.abs(car.speed), 6),
+              slip: 0,
+              onTrack: true,
+            };
+          }
           const nextPos = { x: car.x, y: car.y };
 
           leaveTimer += FIXED_DT;
@@ -751,7 +786,7 @@ export function DriveGame({ trackId }: Props) {
         lastHudMs = displayMs;
         setHud((h) => ({
           ...h,
-          speedMph: Math.abs(car.speed) * 2.23694,
+          speedKmh: Math.abs(car.speed) * 3.6,
           currentMs: displayMs,
           onTrack: car.onTrack,
           sliding: Math.abs(car.slip) > 0.55,
@@ -795,9 +830,20 @@ export function DriveGame({ trackId }: Props) {
 
   if (error || !payload) {
     return (
-      <div className="mx-auto max-w-lg space-y-3 px-4 py-10 text-center">
-        <p className="text-sm text-zinc-300">{error ?? "Track unavailable"}</p>
-        <Link href="/drive" className="apex-btn inline-flex">
+      <div className="mx-auto flex min-h-[50vh] max-w-lg flex-col items-center justify-center gap-4 px-4 py-10 text-center">
+        <div className="w-full rounded-2xl border border-amber-500/30 bg-amber-500/10 px-5 py-6">
+          <p className="text-[11px] uppercase tracking-[0.2em] text-amber-300/90">
+            Unknown track
+          </p>
+          <p className="mt-2 text-base font-medium text-zinc-100">
+            {error ?? "This track has no driveable GPS path yet."}
+          </p>
+          <p className="mt-2 text-sm text-zinc-400">
+            Pick a circuit with a saved centerline or a public session GPS
+            ribbon.
+          </p>
+        </div>
+        <Link href="/drive" className="apex-btn apex-btn--accent inline-flex">
           Pick another track
         </Link>
       </div>
@@ -828,13 +874,25 @@ export function DriveGame({ trackId }: Props) {
             Cam: {camera === "chase" ? "Chase" : "Top"}
           </button>
           {started ? (
-            <button
-              type="button"
-              className="apex-btn apex-btn--ghost text-xs"
-              onClick={() => setPaused((p) => !p)}
-            >
-              {paused ? "Resume" : "Pause"}
-            </button>
+            <>
+              <button
+                type="button"
+                className="apex-btn apex-btn--ghost text-xs"
+                onClick={() => setPaused((p) => !p)}
+              >
+                {paused ? "Resume" : "Pause"}
+              </button>
+              <button
+                type="button"
+                className="apex-btn apex-btn--ghost text-xs"
+                data-apex-drive-reset="1"
+                onClick={() => {
+                  resetTrackRef.current = true;
+                }}
+              >
+                Return to track
+              </button>
+            </>
           ) : null}
           <Link href="/drive" className="apex-btn apex-btn--ghost text-xs">
             Exit
@@ -852,21 +910,22 @@ export function DriveGame({ trackId }: Props) {
         {!started ? (
           <div
             data-drive-ui
-            className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-zinc-950/70 px-4 text-center backdrop-blur-sm"
+            className="absolute inset-0 flex flex-col items-center justify-center gap-5 bg-zinc-950/75 px-5 text-center backdrop-blur-sm"
           >
-            <p className="max-w-md text-sm text-zinc-300">
+            <p className="max-w-md text-base leading-relaxed text-zinc-100 sm:text-lg">
               Arcade drive on a real GPS ribbon
               {payload.source === "session_gps"
                 ? " from a session at this track"
                 : payload.source === "centerline"
                   ? " from the saved centerline"
-                  : " (builtin layout)"}.
-              Ghosts: your best (blue)
-              {payload.realGhost ? ", real lap (yellow)" : ""}.
+                  : " (builtin layout)"}
+              .
             </p>
-            <p className="text-xs text-zinc-500">
-              WASD / arrows · gamepad · on-screen controls · C camera · game
-              times stay off real leaderboards
+            <p className="max-w-md text-sm leading-relaxed text-zinc-300">
+              Ghosts: your best (blue)
+              {payload.realGhost ? ", real lap (yellow)" : ""}. WASD / arrows ·
+              gamepad · on-screen pads · C camera · R return to track · game
+              times stay off real leaderboards.
             </p>
             <button
               type="button"
@@ -884,7 +943,7 @@ export function DriveGame({ trackId }: Props) {
         {started ? (
           <div
             data-drive-ui
-            className="pointer-events-none absolute inset-x-0 top-0 flex justify-between gap-2 p-2 sm:p-3"
+            className="pointer-events-none absolute left-0 top-0 z-10 flex max-w-[min(100%,220px)] flex-col gap-1.5 p-2 sm:p-3"
           >
             <div
               className="rounded-lg bg-zinc-950/75 px-2.5 py-1.5 font-mono text-xs text-zinc-100 backdrop-blur"
@@ -902,13 +961,15 @@ export function DriveGame({ trackId }: Props) {
               </div>
             </div>
             <div
-              className="rounded-lg bg-zinc-950/75 px-2.5 py-1.5 text-right font-mono text-xs text-zinc-100 backdrop-blur"
+              className="rounded-lg bg-zinc-950/75 px-2.5 py-1.5 font-mono text-xs text-zinc-100 backdrop-blur"
               data-apex-drive-speed
-              data-apex-drive-mph={hud.speedMph.toFixed(1)}
+              data-apex-drive-mph={(hud.speedKmh / 1.60934).toFixed(1)}
               data-apex-drive-on-track={hud.onTrack ? "1" : "0"}
               data-apex-drive-car-px={hud.carPx.toFixed(0)}
             >
-              <div className="text-base">{hud.speedMph.toFixed(0)} mph</div>
+              <div className="text-base">
+                {formatSpeed(hud.speedKmh, speedUnit, 0)}
+              </div>
               <div
                 className={`text-[10px] ${
                   hud.onTrack ? "text-emerald-400" : "text-amber-400"
@@ -923,24 +984,24 @@ export function DriveGame({ trackId }: Props) {
         {started ? (
           <div
             data-drive-ui
-            className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-3 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-4"
+            className="absolute inset-x-0 bottom-0 z-10 flex items-end justify-between gap-2 p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:p-3"
           >
             <div
-              className="h-28 w-[42%] max-w-[220px] touch-none rounded-2xl border border-zinc-700/80 bg-zinc-900/55 sm:h-32"
+              className="h-16 w-[36%] max-w-[140px] touch-none rounded-xl border border-zinc-600/50 bg-zinc-900/40 sm:h-20 sm:max-w-[180px]"
               onTouchStart={(e) => onSteerTouch(e)}
               onTouchMove={(e) => onSteerTouch(e)}
               onTouchEnd={(e) => onSteerTouch(e, true)}
               onTouchCancel={(e) => onSteerTouch(e, true)}
               aria-label="Steering"
             >
-              <p className="pointer-events-none pt-2 text-center text-[10px] uppercase tracking-[0.16em] text-zinc-500">
+              <p className="pointer-events-none pt-1.5 text-center text-[9px] uppercase tracking-[0.16em] text-zinc-400/90">
                 Steer
               </p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-1.5">
               <button
                 type="button"
-                className="apex-btn h-24 w-20 touch-none sm:h-28 sm:w-24"
+                className="apex-btn h-14 w-14 touch-none bg-zinc-900/45 text-xs sm:h-16 sm:w-16"
                 style={{ touchAction: "none" }}
                 onTouchStart={(e) => {
                   e.preventDefault();
@@ -966,7 +1027,7 @@ export function DriveGame({ trackId }: Props) {
               </button>
               <button
                 type="button"
-                className="apex-btn apex-btn--accent h-24 w-20 touch-none sm:h-28 sm:w-24"
+                className="apex-btn apex-btn--accent h-14 w-14 touch-none bg-orange-500/70 text-xs sm:h-16 sm:w-16"
                 style={{ touchAction: "none" }}
                 onTouchStart={(e) => {
                   e.preventDefault();

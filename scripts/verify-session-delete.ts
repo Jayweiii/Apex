@@ -179,13 +179,18 @@ assert(globals.includes("cursor: pointer"), "cursor:pointer on clickables");
 
 const gChart = read("src/components/GChart.tsx");
 assert(
-  /h-\[1[0-9]{2,}px\]/.test(gChart) && !gChart.includes('h-[56px]'),
+  (/h-\[(?:1[0-9]{2,}|[2-9][0-9]{2,})px\]/.test(gChart) ||
+    gChart.includes("h-[240px]")) &&
+    !gChart.includes("h-[56px]"),
   "G chart height >100px",
 );
 
 const speed = read("src/components/SpeedChart.tsx");
 assert(
-  speed.includes("min-h-[120px]") || /h-\[1[0-9]{2,}px\]/.test(speed),
+  speed.includes("min-h-[120px]") ||
+    speed.includes("min-h-[240px]") ||
+    speed.includes("min-h-[280px]") ||
+    /h-\[(?:1[0-9]{2,}|[2-9][0-9]{2,})px\]/.test(speed),
   "chart height >100px",
 );
 

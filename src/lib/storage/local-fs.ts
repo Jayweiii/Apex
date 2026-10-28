@@ -10,7 +10,15 @@ async function ensureParent(filePath: string) {
 
 function resolveKey(key: string) {
   const safe = key.replace(/\.\./g, "").replace(/^\/+/, "");
-  return path.join(ROOT, safe);
+  const resolved = path.resolve(ROOT, safe);
+  const rootResolved = path.resolve(ROOT);
+  if (
+    resolved !== rootResolved &&
+    !resolved.startsWith(rootResolved + path.sep)
+  ) {
+    throw new Error("Invalid storage path");
+  }
+  return resolved;
 }
 
 export function createLocalFsStorage(): ObjectStorage {

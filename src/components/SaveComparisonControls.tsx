@@ -153,15 +153,20 @@ export function SaveComparisonControls({
 
   const shareId = savedId ?? existing?.id;
 
+  // Read-only shared view: only copy link — hide save/fork/title/visibility.
+  const readOnlyShared = Boolean(existing) && !canEdit;
+
   return (
     <div className="space-y-3 rounded-2xl border border-zinc-800/80 bg-zinc-950/50 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
-            Save comparison
+            {readOnlyShared ? "Shared comparison" : "Save comparison"}
           </p>
           <p className="mt-1 text-sm text-zinc-400">
-            Shareable link · duplicate into your account · works as a guest.
+            {readOnlyShared
+              ? "Read-only link · duplicate into your account to edit."
+              : "Shareable link · duplicate into your account · works as a guest."}
           </p>
         </div>
         {shareId ? (
@@ -172,68 +177,67 @@ export function SaveComparisonControls({
         ) : null}
       </div>
 
-      <label className="flex flex-col gap-1.5 text-sm">
-        <span className="text-zinc-400">Title</span>
-        <input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          disabled={Boolean(existing) && !canEdit}
-          placeholder="Untitled comparison"
-          className="min-h-10 rounded-lg border border-zinc-800 bg-zinc-950 px-3 text-sm text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 disabled:opacity-60"
-        />
-      </label>
-
-      {canEdit || !existing ? (
-        <SessionVisibilityControl
-          value={visibility}
-          onChange={changeVisibility}
-          disabled={busy}
-          compact
-          legend="Who can see this comparison?"
-        />
-      ) : (
+      {readOnlyShared ? (
         <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">
-          Visibility · {existing.visibility}
+          Read-only · {existing?.visibility}
+          {existing?.title ? ` · ${existing.title}` : ""}
         </p>
+      ) : (
+        <>
+          <label className="flex flex-col gap-1.5 text-sm">
+            <span className="text-zinc-400">Title</span>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              disabled={Boolean(existing) && !canEdit}
+              placeholder="Untitled comparison"
+              className="min-h-10 rounded-lg border border-zinc-800 bg-zinc-950 px-3 text-sm text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 disabled:opacity-60"
+            />
+          </label>
+
+          <SessionVisibilityControl
+            value={visibility}
+            onChange={changeVisibility}
+            disabled={busy}
+            compact
+            legend="Who can see this comparison?"
+          />
+
+          <div className="flex flex-wrap gap-2">
+            {existing && canEdit ? (
+              <button
+                type="button"
+                disabled={busy || !canSave}
+                onClick={() => void saveExisting()}
+                className="apex-btn apex-btn--primary apex-btn--cta"
+              >
+                {busy ? "Saving…" : "Update"}
+              </button>
+            ) : null}
+            {!existing ? (
+              <button
+                type="button"
+                disabled={busy || !canSave}
+                onClick={() => void saveNew()}
+                className="apex-btn apex-btn--primary apex-btn--cta"
+              >
+                {busy ? "Working…" : "Save comparison"}
+              </button>
+            ) : canEdit ? (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void fork()}
+                className="apex-btn apex-btn--cta"
+              >
+                Duplicate / Fork
+              </button>
+            ) : null}
+          </div>
+        </>
       )}
 
-      <div className="flex flex-wrap gap-2">
-        {existing && canEdit ? (
-          <button
-            type="button"
-            disabled={busy || !canSave}
-            onClick={() => void saveExisting()}
-            className="apex-btn apex-btn--primary apex-btn--cta"
-          >
-            {busy ? "Saving…" : "Update"}
-          </button>
-        ) : null}
-        {!existing || !canEdit ? (
-          <button
-            type="button"
-            disabled={busy || !canSave}
-            onClick={() => void (existing ? fork() : saveNew())}
-            className="apex-btn apex-btn--primary apex-btn--cta"
-          >
-            {busy
-              ? "Working…"
-              : existing
-                ? "Duplicate / Fork"
-                : "Save comparison"}
-          </button>
-        ) : (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void fork()}
-            className="apex-btn apex-btn--cta"
-          >
-            Duplicate / Fork
-          </button>
-        )}
-      </div>
-
-      {!canSave ? (
+      {!canSave && !readOnlyShared ? (
         <p className="text-xs text-zinc-600">Pick at least two laps first.</p>
       ) : null}
       {message ? <p className="text-sm text-zinc-400">{message}</p> : null}

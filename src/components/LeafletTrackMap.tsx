@@ -1064,15 +1064,15 @@ export function LeafletTrackMap({
       </div>
       {tooltipMarkers.length ? (
         <div
-          className="pointer-events-none absolute z-[10] min-w-36 rounded-xl border border-zinc-800 bg-zinc-950/95 px-3 py-2 text-xs text-zinc-100 shadow-lg"
+          className="pointer-events-none absolute z-[5] min-w-36 rounded-xl border border-zinc-800 bg-zinc-950/95 px-3 py-2 text-xs text-zinc-100 shadow-lg"
           style={{
+            // Keep clear of Raw/Snapped toggles + legend in the top chrome.
             left: hoverPos
               ? `clamp(12px, ${hoverPos.x + 12}px, calc(100% - 160px))`
-              : "auto",
-            right: hoverPos ? "auto" : "20px",
-            top: hoverPos
-              ? `clamp(56px, ${hoverPos.y + 48}px, calc(100% - 120px))`
-              : "64px",
+              : "12px",
+            right: "auto",
+            top: "auto",
+            bottom: "12px",
           }}
           data-apex-scrub-tooltip="1"
           data-apex-hover-tooltip={hoverPos != null ? "1" : "0"}

@@ -91,8 +91,8 @@ const leafletSrc = require("node:fs").readFileSync(
   "utf8",
 );
 assert(
-  leafletSrc.includes('className="h-full w-full"') &&
-    leafletSrc.includes("data-apex-map=\"fixed-scrub\""),
+  /className="[^"]*\bh-full\b[^"]*\bw-full\b[^"]*"/.test(leafletSrc) &&
+    leafletSrc.includes('data-apex-map="fixed-scrub"'),
   "SF map mount node is stable (avoids black tiles on edit)",
 );
 assert(

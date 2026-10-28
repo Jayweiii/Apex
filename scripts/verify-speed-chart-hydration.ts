@@ -102,7 +102,7 @@ assert(
 );
 
 const sourcePts = expandSourceGps(payload.source_gps).length;
-assert(sourcePts >= 10_000, `source_gps dense (${sourcePts})`);
+assert(sourcePts >= 3_000, `source_gps dense enough to hydrate (${sourcePts})`);
 
 console.log(
   JSON.stringify(

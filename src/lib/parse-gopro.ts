@@ -9,7 +9,6 @@ import { detectNearestTrack } from "./detect-track";
 import { enrichTelemetry } from "./gforce";
 import type { LatLon } from "./map-match";
 import { splitLapsByStartFinish } from "./split-laps";
-import { resolveTrackCenterline } from "./cloud-tracks";
 import { resolveTrackStartFinish } from "./track-start-finish";
 import type { ParsedLap, TelemetryPoint } from "./types";
 
@@ -519,13 +518,11 @@ export function splitGoProLaps(
   }
 
   let startFinish = options.startFinish ?? null;
+  // Builtin ellipse centerlines poison progress-wrap lap detection (e.g.
+  // Thunderhill West → 4 laps instead of ~11). Only use an explicit caller
+  // centerline (real GPS / stored tracks.centerline) — never auto-fill ellipse.
   let centerline = options.centerline ?? null;
   if (trackId) {
-    // Do not pass the whole session as sampleLaps — that builds a multi-lap
-    // blob centerline and over-splits on progress wraps.
-    if (!centerline) {
-      centerline = resolveTrackCenterline(trackId, null);
-    }
     if (!startFinish) {
       startFinish = resolveTrackStartFinish(trackId);
     }
