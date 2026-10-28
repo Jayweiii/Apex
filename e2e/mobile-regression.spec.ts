@@ -52,6 +52,9 @@ test.describe("Apex mobile/desktop regression", () => {
 
   test("mph defaults and toggles", async ({ page, useTap }) => {
     await gotoReady(page, "/");
+    // Segmented control persists via localStorage — start from a known unit.
+    await page.evaluate(() => localStorage.removeItem("apex-speed-unit"));
+    await page.reload({ waitUntil: "domcontentloaded" });
 
     if (useTap) {
       await page
@@ -59,18 +62,21 @@ test.describe("Apex mobile/desktop regression", () => {
         .first()
         .tap();
       await expect(
-        page.locator("[data-apex-nav-drawer], nav[aria-label='Mobile']"),
+        page.locator("[data-apex-nav-drawer]").first(),
       ).toBeVisible();
     }
 
-    const toggle = page.locator("[data-apex-speed-unit-toggle]:visible").first();
-    await expect(toggle).toBeVisible();
-    await expect(toggle).toHaveAttribute("data-apex-speed-unit", "mph");
+    const group = page.locator("[data-apex-speed-unit-toggle]:visible").first();
+    await expect(group).toBeVisible();
+    await expect(group).toHaveAttribute("data-apex-speed-unit", "mph");
 
-    await activate(page, toggle);
-    await expect(toggle).toHaveAttribute("data-apex-speed-unit", "kmh");
-    await activate(page, toggle);
-    await expect(toggle).toHaveAttribute("data-apex-speed-unit", "mph");
+    // Click the opposite segment (group center may land on the active chip).
+    const kmh = group.getByRole("button", { name: /^km\/h$/i });
+    const mph = group.getByRole("button", { name: /^mph$/i });
+    await activate(page, kmh);
+    await expect(group).toHaveAttribute("data-apex-speed-unit", "kmh");
+    await activate(page, mph);
+    await expect(group).toHaveAttribute("data-apex-speed-unit", "mph");
   });
 
   test("map never paints above sticky top bar on scroll", async ({ page }) => {
@@ -255,45 +261,64 @@ test.describe("Apex mobile/desktop regression", () => {
   }) => {
     test.skip(!useTap, "mobile first-viewport play contract");
 
-    await gotoReady(page, `/sessions/${SESSION_ID}`);
-    await page.getByRole("button", { name: /^POV$/i }).first().waitFor({
-      state: "visible",
-      timeout: 90_000,
-    });
+    async function assertMapPlayInViewport(path: string) {
+      await gotoReady(page, path);
+      await page
+        .locator("[data-apex-map-stack], [data-apex-map]")
+        .first()
+        .waitFor({ state: "visible", timeout: 90_000 });
+      await page.waitForTimeout(500);
 
-    // Bring map into view once — Play must already sit on the map (overlay)
-    // so no further scrolling past the map is required.
-    const map = page.locator("[data-apex-map-stack], [data-apex-map]").first();
-    await map.waitFor({ state: "visible", timeout: 60_000 });
-    await map.scrollIntoViewIfNeeded();
-    await page.waitForTimeout(300);
+      // Scroll just enough for the map top to enter the viewport (session
+      // chrome can push it below the fold). Avoid scrollIntoViewIfNeeded on
+      // tall stacks — that can park the Play chip above the visible area.
+      await page.evaluate(() => {
+        const map =
+          document.querySelector("[data-apex-map-stack]") ||
+          document.querySelector("[data-apex-map]");
+        if (!map) return;
+        const header = document.querySelector("[data-apex-header], header");
+        const headerBottom = header?.getBoundingClientRect().bottom ?? 0;
+        const top = map.getBoundingClientRect().top;
+        if (top > headerBottom + 8) {
+          window.scrollBy(0, top - headerBottom - 8);
+        }
+      });
+      await page.waitForTimeout(250);
 
-    // Map-canvas overlay is the contract; sticky PlaybackControls sit below
-    // the fold on phones and must not satisfy this check against older deploys.
-    const play = page.locator("[data-apex-map-play-toggle]:visible").first();
-    if ((await play.count()) === 0) {
-      test.skip(
-        true,
-        "map Play overlay missing on BASE_URL — need the PR Vercel preview",
-      );
+      // Map-canvas overlay only — sticky PlaybackControls sit below the fold.
+      const play = page.locator("[data-apex-map-play-toggle]:visible").first();
+      await expect(play).toBeVisible({ timeout: 30_000 });
+
+      const geometry = await play.evaluate((node) => {
+        const header = document.querySelector("[data-apex-header], header");
+        const r = node.getBoundingClientRect();
+        const h = header?.getBoundingClientRect();
+        const vh = window.innerHeight || 844;
+        return {
+          inViewport:
+            r.width > 0 &&
+            r.height > 0 &&
+            r.top >= 0 &&
+            r.bottom <= vh + 1,
+          belowHeader: h ? r.top >= h.bottom - 1 : false,
+          top: r.top,
+          bottom: r.bottom,
+          vh,
+        };
+      });
+      expect(
+        geometry.inViewport,
+        `Play must be in the first viewport after map scroll (${path}): ${JSON.stringify(geometry)}`,
+      ).toBe(true);
+      expect(
+        geometry.belowHeader,
+        `Play must sit below the sticky header (${path})`,
+      ).toBe(true);
     }
-    await expect(play).toBeVisible({ timeout: 30_000 });
 
-    const geometry = await play.evaluate((node) => {
-      const header = document.querySelector("[data-apex-header], header");
-      const r = node.getBoundingClientRect();
-      const h = header?.getBoundingClientRect();
-      return {
-        inViewport:
-          r.width > 0 &&
-          r.height > 0 &&
-          r.top >= 0 &&
-          r.bottom <= (window.innerHeight || 844) + 1,
-        belowHeader: h ? r.top >= h.bottom - 1 : false,
-      };
-    });
-    expect(geometry.inViewport).toBe(true);
-    expect(geometry.belowHeader).toBe(true);
+    await assertMapPlayInViewport(`/sessions/${SESSION_ID}`);
+    await assertMapPlayInViewport(`/compare/${COMPARE_ID}`);
   });
 
   test("Drive primary CTA single-activates", async ({ page, useTap }) => {
