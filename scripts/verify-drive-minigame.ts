@@ -183,6 +183,15 @@ assert(game.includes("tiltSteer") || game.includes("Tilt"), "tilt steer option")
 assert(game.includes("formatDeltaMs") || game.includes("deltaMs"), "live PB delta");
 assert(game.includes("buildSectorSplits") || game.includes("sector"), "sectors");
 assert(game.includes("data-apex-drive-local-board"), "local board marker");
+assert(game.includes("SpeedUnitToggle"), "drive hosts mph/kmh toggle");
+assert(game.includes("data-apex-drive-change-car-track"), "change car/track CTA");
+assert(game.includes("showTouchPads"), "touch pads gated by input modality");
+assert(game.includes("onPointerUp"), "pads release on pointerup");
+assert(game.includes("onPointerCancel"), "pads release on pointercancel");
+assert(game.includes("onLostPointerCapture"), "pads release on lost capture");
+assert(game.includes("visibilitychange"), "pads release when page hidden");
+assert(game.includes('touchAction: "none"'), "pads use touch-action none");
+assert(!game.includes("onTouchStart"), "pads use pointer events not touch*");
 
 assert(existsSync(join(root, "src/lib/drive/cars.ts")), "car presets");
 assert(existsSync(join(root, "src/lib/drive/audio.ts")), "drive audio");
@@ -194,6 +203,10 @@ assert(cars.includes("miata") && cars.includes("kart"), "car roster");
 
 const hub = read("src/components/drive/DriveHub.tsx");
 assert(hub.includes("data-apex-drive-car-select"), "hub car select");
+assert(
+  hub.includes("data-apex-drive-car-track-select"),
+  "hub is car/track selection screen",
+);
 assert(hub.includes("Local PB") || hub.includes("local"), "hub shows local board");
 assert(hub.includes("apex.drive."), "hub documents isolation");
 

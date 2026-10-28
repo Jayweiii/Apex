@@ -97,7 +97,10 @@ export function DriveHub() {
   return (
     <>
       <AppHeader />
-      <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8">
+      <main
+        data-apex-drive-car-track-select="1"
+        className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8"
+      >
         <div>
           <p className="text-[11px] uppercase tracking-[0.22em] text-orange-400/90">
             Arcade

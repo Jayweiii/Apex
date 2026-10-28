@@ -46,6 +46,7 @@ import type {
   DrivePoint,
   DriveTrackPayload,
 } from "@/lib/drive/types";
+import { SpeedUnitToggle } from "@/components/SpeedUnitToggle";
 import { useSpeedUnit } from "@/components/useSpeedUnit";
 import { formatLapTime, formatSpeed } from "@/lib/format";
 import Link from "next/link";
@@ -55,7 +56,16 @@ import {
   useEffectEvent,
   useRef,
   useState,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
+
+type TouchPadAxes = { steer: number; throttle: number; brake: number };
+type TouchPadAxis = keyof TouchPadAxes;
+
+function clearPadAxes(ref: { current: TouchPadAxes }, axes?: TouchPadAxis[]) {
+  const clear = axes ?? (["steer", "throttle", "brake"] as TouchPadAxis[]);
+  for (const axis of clear) ref.current[axis] = 0;
+}
 
 type Props = {
   trackId: string;
@@ -104,6 +114,14 @@ export function DriveGame({ trackId, carId: carIdProp }: Props) {
     ),
   );
   const [sessionNonce, setSessionNonce] = useState(0);
+  /** Coarse pointer devices always get pads; desktop only after touch until keyboard. */
+  const [coarsePointer, setCoarsePointer] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      !!window.matchMedia?.("(pointer: coarse)")?.matches,
+  );
+  const [touchWasLast, setTouchWasLast] = useState(false);
+  const showTouchPads = coarsePointer || touchWasLast;
 
   const keysRef = useRef(new Set<string>());
   const touchRef = useRef({ steer: 0, throttle: 0, brake: 0 });
@@ -202,6 +220,46 @@ export function DriveGame({ trackId, carId: carIdProp }: Props) {
     };
   }, [playing]);
 
+  // Touch-pad visibility: coarse always; desktop after touch until keyboard.
+  useEffect(() => {
+    const mq = window.matchMedia("(pointer: coarse)");
+    const syncCoarse = () => setCoarsePointer(mq.matches);
+    syncCoarse();
+    mq.addEventListener("change", syncCoarse);
+
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.pointerType === "touch") setTouchWasLast(true);
+    };
+    const onKeyDown = () => {
+      setTouchWasLast(false);
+    };
+    window.addEventListener("pointerdown", onPointerDown, { passive: true });
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      mq.removeEventListener("change", syncCoarse);
+      window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, []);
+
+  // Release stuck gas/brake/steer when the page blurs or is hidden.
+  useEffect(() => {
+    const releaseAll = () => {
+      clearPadAxes(touchRef);
+      clearPadAxes(padRef);
+      keysRef.current.clear();
+    };
+    const onVis = () => {
+      if (document.visibilityState === "hidden") releaseAll();
+    };
+    window.addEventListener("blur", releaseAll);
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.removeEventListener("blur", releaseAll);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, []);
+
   // Tilt-to-steer (optional)
   useEffect(() => {
     if (!tiltSteer) {
@@ -226,6 +284,7 @@ export function DriveGame({ trackId, carId: carIdProp }: Props) {
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       keysRef.current.add(e.code);
+      setTouchWasLast(false);
       if (
         ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(
           e.code,
@@ -1112,20 +1171,36 @@ export function DriveGame({ trackId, carId: carIdProp }: Props) {
      
   }, [payload, simLive, trackId, readInputs, sessionNonce]);
 
-  const onSteerTouch = (
-    e: React.TouchEvent<HTMLDivElement>,
+  const releasePadAxis = (axis: TouchPadAxis) => {
+    clearPadAxes(touchRef, [axis]);
+  };
+
+  const onSteerPointer = (
+    e: ReactPointerEvent<HTMLDivElement>,
     end = false,
   ) => {
-    e.preventDefault();
     if (end) {
-      touchRef.current.steer = 0;
+      releasePadAxis("steer");
       return;
     }
-    const touch = e.changedTouches[0] ?? e.touches[0];
-    if (!touch) return;
+    if (e.pointerType === "touch") setTouchWasLast(true);
     const rect = e.currentTarget.getBoundingClientRect();
-    const x = (touch.clientX - rect.left) / rect.width;
+    const x = (e.clientX - rect.left) / rect.width;
     touchRef.current.steer = Math.max(-1, Math.min(1, (x - 0.5) * 2));
+  };
+
+  const pressPadAxis = (
+    e: ReactPointerEvent<HTMLButtonElement>,
+    axis: "throttle" | "brake",
+    value = 1,
+  ) => {
+    if (e.pointerType === "touch") setTouchWasLast(true);
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // ignore — capture is best-effort
+    }
+    touchRef.current[axis] = value;
   };
 
   const enableTilt = async () => {
@@ -1198,6 +1273,7 @@ export function DriveGame({ trackId, carId: carIdProp }: Props) {
           </p>
         </div>
         <div className="flex flex-wrap gap-1.5">
+          <SpeedUnitToggle className="text-xs" />
           <button
             type="button"
             className="apex-btn apex-btn--ghost text-xs"
@@ -1259,8 +1335,12 @@ export function DriveGame({ trackId, carId: carIdProp }: Props) {
               </button>
             </>
           ) : null}
-          <Link href="/drive" className="apex-btn apex-btn--ghost text-xs">
-            Exit
+          <Link
+            href="/drive"
+            data-apex-drive-change-car-track="1"
+            className="apex-btn apex-btn--ghost text-xs"
+          >
+            Change car/track
           </Link>
         </div>
       </div>
@@ -1318,14 +1398,23 @@ export function DriveGame({ trackId, carId: carIdProp }: Props) {
                 </button>
               ) : null}
             </div>
-            <button
-              type="button"
-              className="apex-btn apex-btn--accent min-h-12 px-8 text-base"
-              data-apex-drive-start="1"
-              onClick={() => beginCountdown()}
-            >
-              Start driving
-            </button>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <button
+                type="button"
+                className="apex-btn apex-btn--accent min-h-12 px-8 text-base"
+                data-apex-drive-start="1"
+                onClick={() => beginCountdown()}
+              >
+                Start driving
+              </button>
+              <Link
+                href="/drive"
+                data-apex-drive-change-car-track="1"
+                className="apex-btn apex-btn--ghost min-h-12 px-5 text-sm"
+              >
+                Change car/track
+              </Link>
+            </div>
           </div>
         ) : null}
 
@@ -1440,18 +1529,37 @@ export function DriveGame({ trackId, carId: carIdProp }: Props) {
           </div>
         ) : null}
 
-        {phase === "racing" || phase === "paused" || phase === "countdown" ? (
+        {showTouchPads &&
+        (phase === "racing" || phase === "paused" || phase === "countdown") ? (
           <div
             data-drive-ui
+            data-apex-drive-touch-pads="1"
             className="absolute inset-x-0 bottom-0 z-10 flex items-end justify-between gap-2 p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:p-3"
           >
             {!tiltSteer ? (
               <div
                 className="h-12 w-[30%] max-w-[110px] touch-none rounded-xl border border-white/10 bg-zinc-900/25 sm:h-14 sm:max-w-[140px]"
-                onTouchStart={(e) => onSteerTouch(e)}
-                onTouchMove={(e) => onSteerTouch(e)}
-                onTouchEnd={(e) => onSteerTouch(e, true)}
-                onTouchCancel={(e) => onSteerTouch(e, true)}
+                style={{ touchAction: "none" }}
+                onPointerDown={(e) => {
+                  try {
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                  } catch {
+                    /* ignore */
+                  }
+                  onSteerPointer(e);
+                }}
+                onPointerMove={(e) => {
+                  if (e.buttons === 0) return;
+                  onSteerPointer(e);
+                }}
+                onPointerUp={(e) => onSteerPointer(e, true)}
+                onPointerCancel={(e) => onSteerPointer(e, true)}
+                onPointerLeave={(e) => {
+                  if (!e.currentTarget.hasPointerCapture(e.pointerId)) {
+                    onSteerPointer(e, true);
+                  }
+                }}
+                onLostPointerCapture={(e) => onSteerPointer(e, true)}
                 aria-label="Steering"
               >
                 <p className="pointer-events-none pt-1 text-center text-[9px] uppercase tracking-[0.16em] text-zinc-300/70">
@@ -1470,25 +1578,15 @@ export function DriveGame({ trackId, carId: carIdProp }: Props) {
                 type="button"
                 className="h-12 w-12 touch-none rounded-xl border border-white/10 bg-zinc-900/30 text-[11px] text-zinc-100 sm:h-14 sm:w-14"
                 style={{ touchAction: "none" }}
-                onTouchStart={(e) => {
-                  e.preventDefault();
-                  touchRef.current.brake = 1;
+                onPointerDown={(e) => pressPadAxis(e, "brake")}
+                onPointerUp={() => releasePadAxis("brake")}
+                onPointerCancel={() => releasePadAxis("brake")}
+                onPointerLeave={(e) => {
+                  if (!e.currentTarget.hasPointerCapture(e.pointerId)) {
+                    releasePadAxis("brake");
+                  }
                 }}
-                onTouchEnd={() => {
-                  touchRef.current.brake = 0;
-                }}
-                onTouchCancel={() => {
-                  touchRef.current.brake = 0;
-                }}
-                onMouseDown={() => {
-                  touchRef.current.brake = 1;
-                }}
-                onMouseUp={() => {
-                  touchRef.current.brake = 0;
-                }}
-                onMouseLeave={() => {
-                  touchRef.current.brake = 0;
-                }}
+                onLostPointerCapture={() => releasePadAxis("brake")}
               >
                 Brake
               </button>
@@ -1496,25 +1594,16 @@ export function DriveGame({ trackId, carId: carIdProp }: Props) {
                 type="button"
                 className="h-12 w-12 touch-none rounded-xl border border-orange-400/30 bg-orange-500/35 text-[11px] text-zinc-50 sm:h-14 sm:w-14"
                 style={{ touchAction: "none" }}
-                onTouchStart={(e) => {
-                  e.preventDefault();
-                  touchRef.current.throttle = 1;
+                data-apex-drive-gas="1"
+                onPointerDown={(e) => pressPadAxis(e, "throttle")}
+                onPointerUp={() => releasePadAxis("throttle")}
+                onPointerCancel={() => releasePadAxis("throttle")}
+                onPointerLeave={(e) => {
+                  if (!e.currentTarget.hasPointerCapture(e.pointerId)) {
+                    releasePadAxis("throttle");
+                  }
                 }}
-                onTouchEnd={() => {
-                  touchRef.current.throttle = 0;
-                }}
-                onTouchCancel={() => {
-                  touchRef.current.throttle = 0;
-                }}
-                onMouseDown={() => {
-                  touchRef.current.throttle = 1;
-                }}
-                onMouseUp={() => {
-                  touchRef.current.throttle = 0;
-                }}
-                onMouseLeave={() => {
-                  touchRef.current.throttle = 0;
-                }}
+                onLostPointerCapture={() => releasePadAxis("throttle")}
               >
                 Gas
               </button>

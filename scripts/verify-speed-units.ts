@@ -47,6 +47,7 @@ for (const [rel, needle] of [
   ["src/components/LeafletTrackMap.tsx", "formatSpeed"],
   ["src/components/video/SyncedLapView.tsx", "formatSpeed"],
   ["src/components/LapCompare.tsx", "speedUnitLabel"],
+  ["src/components/drive/DriveGame.tsx", "SpeedUnitToggle"],
 ] as const) {
   const src = read(rel);
   assert(src.includes(needle), `${rel} uses ${needle}`);
