@@ -46,7 +46,7 @@
     "test:exclude-laps": "tsx scripts/verify-exclude-laps.ts",
     "test:stacked-telemetry": "tsx scripts/verify-stacked-telemetry.ts",
     "test:chart-heights": "tsx scripts/verify-chart-heights.ts",
-    "test": "tsx scripts/verify-parse.ts && tsx scripts/verify-storage.ts && tsx scripts/verify-analysis.ts && tsx scripts/verify-sync.ts && tsx scripts/verify-cloud-save.ts && tsx scripts/verify-visibility.ts && tsx scripts/verify-compare-sessions.ts && tsx scripts/verify-cross-session-slots.ts && tsx scripts/verify-map-route-stable.ts && tsx scripts/verify-cloud-tracks.ts && tsx scripts/verify-track-dedupe.ts && tsx scripts/verify-cloud-cars.ts && tsx scripts/verify-guest-auth.ts && tsx scripts/verify-signup-outcome.ts && tsx scripts/verify-no-demo-seed.ts && tsx scripts/verify-public-browse.ts && tsx scripts/verify-map-match.ts && tsx scripts/verify-satellite-map.ts && tsx scripts/verify-map-height.ts && tsx scripts/verify-speed-units.ts && tsx scripts/verify-scrub-sync.ts && tsx scripts/verify-delta-align.ts && tsx scripts/verify-analysis-mode.ts && tsx scripts/verify-gopro.ts && tsx scripts/verify-dual-video.ts && tsx scripts/verify-compare-time-sync.ts && tsx scripts/verify-lap-videos.ts && tsx scripts/verify-multi-compare.ts && tsx scripts/verify-comparisons.ts && tsx scripts/verify-chase-map.ts && tsx scripts/verify-gps-logger.ts && tsx scripts/verify-dragy-vbo.ts && tsx scripts/verify-video-gps-sync.ts && tsx scripts/verify-home-nav.ts && tsx scripts/verify-session-lap-url.ts && tsx scripts/verify-exclude-laps.ts && tsx scripts/verify-stacked-telemetry.ts && tsx scripts/verify-chart-heights.ts && tsx scripts/verify-playback.ts && tsx scripts/verify-lap-trim.ts && tsx scripts/verify-trim-save-toolbar.ts && tsx scripts/verify-point-match-sync.ts && tsx scripts/verify-playback-sync.ts && tsx scripts/verify-video-sync-guide.ts && tsx scripts/verify-session-reparse.ts && tsx scripts/verify-reparse-reset-derived.ts && tsx scripts/verify-hover-preview.ts && tsx scripts/verify-hover-cursor.ts && tsx scripts/verify-reparse-toolbar-e2e.ts && tsx scripts/verify-session-delete.ts && tsx scripts/verify-source-gps-fullres.ts && tsx scripts/verify-speed-chart-hydration.ts && tsx scripts/verify-sf-line-edit.ts && tsx scripts/verify-lap-sf-boundary.ts && tsx scripts/verify-sf-crossing-source-of-truth.ts && tsx scripts/verify-drive-minigame.ts",
+    "test": "tsx scripts/verify-parse.ts && tsx scripts/verify-storage.ts && tsx scripts/verify-analysis.ts && tsx scripts/verify-sync.ts && tsx scripts/verify-cloud-save.ts && tsx scripts/verify-visibility.ts && tsx scripts/verify-compare-sessions.ts && tsx scripts/verify-cross-session-slots.ts && tsx scripts/verify-map-route-stable.ts && tsx scripts/verify-cloud-tracks.ts && tsx scripts/verify-track-dedupe.ts && tsx scripts/verify-cloud-cars.ts && tsx scripts/verify-guest-auth.ts && tsx scripts/verify-signup-outcome.ts && tsx scripts/verify-no-demo-seed.ts && tsx scripts/verify-public-browse.ts && tsx scripts/verify-map-match.ts && tsx scripts/verify-satellite-map.ts && tsx scripts/verify-map-height.ts && tsx scripts/verify-speed-units.ts && tsx scripts/verify-scrub-sync.ts && tsx scripts/verify-delta-align.ts && tsx scripts/verify-analysis-mode.ts && tsx scripts/verify-gopro.ts && tsx scripts/verify-dual-video.ts && tsx scripts/verify-compare-time-sync.ts && tsx scripts/verify-lap-videos.ts && tsx scripts/verify-multi-compare.ts && tsx scripts/verify-comparisons.ts && tsx scripts/verify-chase-map.ts && tsx scripts/verify-pov-route.ts && tsx scripts/verify-gps-logger.ts && tsx scripts/verify-dragy-vbo.ts && tsx scripts/verify-video-gps-sync.ts && tsx scripts/verify-home-nav.ts && tsx scripts/verify-session-lap-url.ts && tsx scripts/verify-exclude-laps.ts && tsx scripts/verify-stacked-telemetry.ts && tsx scripts/verify-chart-heights.ts && tsx scripts/verify-playback.ts && tsx scripts/verify-lap-trim.ts && tsx scripts/verify-trim-save-toolbar.ts && tsx scripts/verify-point-match-sync.ts && tsx scripts/verify-playback-sync.ts && tsx scripts/verify-video-sync-guide.ts && tsx scripts/verify-session-reparse.ts && tsx scripts/verify-reparse-reset-derived.ts && tsx scripts/verify-hover-preview.ts && tsx scripts/verify-hover-cursor.ts && tsx scripts/verify-reparse-toolbar-e2e.ts && tsx scripts/verify-session-delete.ts && tsx scripts/verify-source-gps-fullres.ts && tsx scripts/verify-speed-chart-hydration.ts && tsx scripts/verify-sf-line-edit.ts && tsx scripts/verify-lap-sf-boundary.ts && tsx scripts/verify-sf-crossing-source-of-truth.ts && tsx scripts/verify-drive-minigame.ts && tsx scripts/verify-iphone-single-tap.ts",
     "import:youtube": "tsx scripts/import-youtube.ts",
     "build:datasets": "tsx scripts/build-public-dataset.ts",
     "test:point-match-sync": "tsx scripts/verify-point-match-sync.ts",
@@ -65,7 +65,18 @@
     "test:lap-sf-boundary": "tsx scripts/verify-lap-sf-boundary.ts",
     "test:sf-crossing": "tsx scripts/verify-sf-crossing-source-of-truth.ts",
     "test:speed-units": "tsx scripts/verify-speed-units.ts",
-    "test:drive": "tsx scripts/verify-drive-minigame.ts"
+    "test:drive": "tsx scripts/verify-drive-minigame.ts",
+    "test:iphone-single-tap": "tsx scripts/verify-iphone-single-tap.ts",
+    "test:video-sync-disclosure": "tsx scripts/verify-video-sync-disclosure.ts",
+    "test:e2e": "playwright test",
+    "test:e2e:iphone": "playwright test --project=iphone",
+    "test:e2e:desktop": "playwright test --project=desktop",
+    "qa:iphone-single-tap": "node scripts/qa-iphone-single-tap.mjs",
+    "qa:mobile-map-play": "node scripts/qa-mobile-map-play.mjs",
+    "prebuild": "node scripts/copy-maplibre-worker.mjs",
+    "postinstall": "node scripts/copy-maplibre-worker.mjs",
+    "test:pov-route": "tsx scripts/verify-pov-route.ts",
+    "qa:pov-route": "node scripts/qa-pov-route.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1146.0",
@@ -84,6 +95,7 @@
     "recharts": "^3.10.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "@tailwindcss/postcss": "^4",
     "@types/leaflet": "^1.9.22",
     "@types/node": "^20.19.43",

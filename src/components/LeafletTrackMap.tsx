@@ -273,6 +273,7 @@ export function LeafletTrackMap({
   durationMs,
   progressSubscribe,
   referenceId,
+  mapPlayOverlay = null,
 }: {
   traces: TrackTrace[];
   activeProgress?: number | null;
@@ -309,6 +310,8 @@ export function LeafletTrackMap({
   onBasemapChange?: (mode: BasemapMode) => void;
   /** Compare reference for gap labels (defaults to first drawable). */
   referenceId?: string;
+  /** Mobile Play/Pause overlay (absolute inside map stack). */
+  mapPlayOverlay?: ReactNode;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -1061,6 +1064,7 @@ export function LeafletTrackMap({
           className="relative z-0 h-full w-full isolate"
           data-apex-map="fixed-scrub"
         />
+        {mapPlayOverlay}
       </div>
       {tooltipMarkers.length ? (
         <div

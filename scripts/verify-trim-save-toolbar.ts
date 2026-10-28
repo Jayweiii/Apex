@@ -114,7 +114,12 @@ assert(
   "Exclude",
 );
 const synced = read("src/components/video/SyncedLapView.tsx");
-assert(synced.includes("Sync video") || synced.includes("toolbar-sync"), "Sync video");
+assert(
+  synced.includes("Video sync") ||
+    synced.includes("Sync video") ||
+    synced.includes("toolbar-sync"),
+  "Video sync",
+);
 const detail = read("src/components/SessionLapDetail.tsx");
 assert(detail.includes("toolbar-trim") || detail.includes("Trim"), "Trim");
 assert(

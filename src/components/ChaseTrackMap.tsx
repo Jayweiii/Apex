@@ -8,6 +8,7 @@ import {
 } from "@/lib/basemap-prefs";
 import { formatGap } from "@/lib/format";
 import { MAP_EMBED_HEIGHT_CLASS } from "@/lib/map-height";
+import { ensureMapLibreWorker } from "@/lib/maplibre-worker";
 import {
   clampChaseZoom,
   POV_DEFAULT_ZOOM,
@@ -307,6 +308,8 @@ export function ChaseTrackMap({
   // Create map once (both basemaps; later swaps via opacity only).
   useEffect(() => {
     if (!hostRef.current || mapRef.current) return;
+    // GeoJSON lap lines need the MapLibre v6 worker (public/ copy).
+    ensureMapLibreWorker();
     const map = new MapLibreMap({
       container: hostRef.current,
       style: {
@@ -507,6 +510,8 @@ export function ChaseTrackMap({
 
   // Draw / update polylines only when geometry / follow identity changes —
   // never on every playback progress React re-render (session-page flicker).
+  // Stamp drawnChaseKeyRef only after a successful apply so a missed load
+  // race cannot permanently skip route layers.
   const drawnChaseKeyRef = useRef<string>("");
   useEffect(() => {
     const map = mapRef.current;
@@ -522,15 +527,20 @@ export function ChaseTrackMap({
       .join("|");
     const chaseKey = `${geometryKey}|follow:${followId ?? ""}`;
     if (drawnChaseKeyRef.current === chaseKey) return;
-    drawnChaseKeyRef.current = chaseKey;
+
+    let cancelled = false;
 
     const apply = () => {
-      for (const layer of [...(map.getStyle().layers ?? [])]) {
+      if (cancelled || drawnChaseKeyRef.current === chaseKey) return true;
+      const style = map.getStyle();
+      if (!style) return false;
+
+      for (const layer of [...(style.layers ?? [])]) {
         if (layer.id.startsWith("lap-line-")) {
           if (map.getLayer(layer.id)) map.removeLayer(layer.id);
         }
       }
-      for (const key of Object.keys(map.getStyle().sources ?? {})) {
+      for (const key of Object.keys(style.sources ?? {})) {
         if (key.startsWith("lap-src-")) {
           if (map.getSource(key)) map.removeSource(key);
         }
@@ -565,10 +575,33 @@ export function ChaseTrackMap({
           },
         });
       });
+
+      const host = hostRef.current;
+      if (host) {
+        host.setAttribute(
+          "data-apex-route-lines",
+          drawable.length > 0 ? String(drawable.length) : "0",
+        );
+      }
+      drawnChaseKeyRef.current = chaseKey;
+      return true;
     };
 
-    if (map.isStyleLoaded()) apply();
-    else map.once("load", apply);
+    const runWhenStyleReady = () => {
+      if (cancelled) return;
+      if (apply()) return;
+      map.once("style.load", runWhenStyleReady);
+    };
+
+    if (map.isStyleLoaded()) runWhenStyleReady();
+    else {
+      map.once("load", runWhenStyleReady);
+      map.once("style.load", runWhenStyleReady);
+    }
+
+    return () => {
+      cancelled = true;
+    };
   }, [drawable, prefs.followId]);
 
   // Camera + markers follow progress (playback, hover preview, click seek).
@@ -728,6 +761,7 @@ export function ChaseTrackMap({
       data-apex-map="chase"
       data-apex-map-stack="1"
       data-apex-pov="1"
+      data-apex-route-lines="0"
       data-apex-map-hover={hoverPreviewEnabled ? "1" : "0"}
       onMouseLeave={() => clearHoverPreview()}
       onPointerLeave={() => clearHoverPreview()}

@@ -7,3 +7,12 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
+
+## UI rules (Cursor + Muse)
+
+All UI changes must follow **[docs/UI_RULES.md](docs/UI_RULES.md)** (Apple HIG +
+WAI-ARIA APG): one visual style per control type, segmented mode toggles,
+disclosure rows with `aria-expanded` + chevron, 44×44pt tap targets, hover only
+under `(hover: hover)`, `:active` pressed states, `touch-action: manipulation`,
+controls next to what they affect, no nested scroll panes, primary playback
+reachable without scrolling on mobile.

@@ -56,7 +56,10 @@ const browser = await chromium.launch({ headless: true });
   ok("desktop-unit-toggle-present", unitBefore === "mph" || unitBefore === "kmh", {
     unitBefore,
   });
-  await unitToggle.click();
+  // Segmented mph | km/h — click the inactive option.
+  const nextUnit = unitBefore === "mph" ? "kmh" : "mph";
+  const nextLabel = nextUnit === "mph" ? "mph" : "km/h";
+  await unitToggle.getByRole("button", { name: nextLabel, exact: true }).click();
   await page.waitForTimeout(200);
   const unitAfter = await unitToggle.getAttribute("data-apex-speed-unit");
   ok("desktop-unit-toggle-switches", unitAfter && unitAfter !== unitBefore, {
@@ -64,7 +67,9 @@ const browser = await chromium.launch({ headless: true });
     unitAfter,
   });
   // restore mph default for rest of suite
-  if (unitAfter !== "mph") await unitToggle.click();
+  if (unitAfter !== "mph") {
+    await unitToggle.getByRole("button", { name: "mph", exact: true }).click();
+  }
 
   await page.locator("[data-apex-drive-start]").click();
   await page.waitForTimeout(3500); // past countdown

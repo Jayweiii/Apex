@@ -1,7 +1,20 @@
 @import "tailwindcss";
 
-/* Hover utilities only on real hover devices — iOS sticky :hover steals first tap. */
-@custom-variant hover (@media (hover: hover) and (pointer: fine):hover);
+/*
+ * Hover utilities only on real hover + fine pointer devices.
+ * Broken shorthand `@custom-variant hover (@media …:hover)` compiled to the
+ * invalid media `@media (hover: hover) and (pointer: fine):hover`, which
+ * dropped every Tailwind `hover:` rule — and any fallback bare `:hover`
+ * (or layout-shifting hover) still steals the first tap on iOS.
+ * Nest media → &:hover → @slot so hover never applies on coarse pointers.
+ */
+@custom-variant hover {
+  @media (hover: hover) and (pointer: fine) {
+    &:hover {
+      @slot;
+    }
+  }
+}
 
 
 :root {
@@ -9,6 +22,15 @@
   --foreground: #f4f4f5;
   --panel: rgba(9, 9, 11, 0.6);
   --accent: #f97316;
+  /* Spacing / tap tokens (see docs/UI_RULES.md) */
+  --apex-tap-min: 2.75rem; /* 44px */
+  --apex-space-1: 0.375rem;
+  --apex-space-2: 0.5rem;
+  --apex-space-3: 0.75rem;
+  --apex-space-4: 1rem;
+  --apex-space-5: 1.5rem;
+  --apex-radius-control: 0.5rem;
+  --apex-radius-panel: 0.75rem;
 }
 
 @theme inline {
@@ -189,9 +211,9 @@ button[aria-busy="true"],
   align-items: center;
   justify-content: center;
   gap: 0.375rem;
-  min-height: 2.5rem;
+  min-height: var(--apex-tap-min);
   padding: 0.5rem 0.625rem;
-  border-radius: 0.5rem;
+  border-radius: var(--apex-radius-control);
   border: 1px solid rgb(39 39 42);
   background: rgb(24 24 27 / 0.8);
   color: rgb(228 228 231);
@@ -221,7 +243,7 @@ button[aria-busy="true"],
     border-color: rgb(212 212 216);
     color: rgb(255 255 255);
     background: rgb(82 82 91);
-    transform: scale(1.04);
+    /* No transform/layout shift on hover — that steals the first tap on touch. */
   }
 }
 
@@ -309,7 +331,8 @@ button[aria-busy="true"],
 }
 
 .apex-btn--icon {
-  min-width: 2.5rem;
+  min-width: var(--apex-tap-min);
+  min-height: var(--apex-tap-min);
   padding-left: 0.5rem;
   padding-right: 0.5rem;
 }
@@ -328,7 +351,6 @@ button[aria-busy="true"],
     border-color: rgb(253 186 116);
     background: rgb(249 115 22 / 0.65);
     color: rgb(255 255 255);
-    transform: scale(1.04);
   }
 }
 
@@ -337,6 +359,174 @@ button[aria-busy="true"],
   background: rgb(234 88 12);
   border-color: rgb(255 237 213);
   transform: scale(0.96);
+}
+
+/*
+ * Segmented control — mutually exclusive modes (mph/km/h, Street/Satellite,
+ * Overview/POV, Time/Distance). Not for primary actions or disclosures.
+ */
+.apex-segment {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 0;
+  padding: 0.125rem;
+  border-radius: var(--apex-radius-control);
+  border: 1px solid rgb(39 39 42);
+  background: rgb(9 9 11 / 0.85);
+  touch-action: manipulation;
+}
+
+.apex-segment__option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--apex-tap-min);
+  min-width: var(--apex-tap-min);
+  padding: 0.375rem 0.75rem;
+  margin: 0;
+  border: none;
+  border-radius: calc(var(--apex-radius-control) - 0.125rem);
+  background: transparent;
+  color: rgb(161 161 170);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 1.2;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+.apex-segment__option[aria-pressed="true"] {
+  background: rgb(244 244 245);
+  color: rgb(9 9 11);
+}
+
+.apex-segment__option--accent[aria-pressed="true"] {
+  background: rgb(249 115 22);
+  color: rgb(0 0 0);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .apex-segment__option:hover:not(:disabled):not([aria-pressed="true"]) {
+    color: rgb(244 244 245);
+    background: rgb(39 39 42 / 0.7);
+  }
+}
+
+.apex-segment__option:active:not(:disabled) {
+  filter: brightness(0.92);
+}
+
+.apex-segment__option:focus-visible {
+  outline: 2px solid rgb(249 115 22 / 0.7);
+  outline-offset: 2px;
+}
+
+.apex-segment__option:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.apex-segment--compact .apex-segment__option {
+  min-height: var(--apex-tap-min);
+  padding: 0.25rem 0.625rem;
+  font-size: 10px;
+}
+
+/*
+ * Disclosure — expand/collapse adjacent content. Chevron + aria-expanded.
+ * Not a primary action button.
+ */
+.apex-disclosure {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-height: var(--apex-tap-min);
+  padding: 0.25rem 0.5rem;
+  margin: 0;
+  border: none;
+  border-radius: var(--apex-radius-control);
+  background: transparent;
+  color: rgb(161 161 170);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  line-height: 1.2;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  transition:
+    color 120ms ease,
+    background-color 120ms ease;
+}
+
+.apex-disclosure__label {
+  color: inherit;
+}
+
+.apex-disclosure__meta {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: rgb(113 113 122);
+}
+
+.apex-disclosure__meta--warn {
+  color: rgb(251 146 60);
+}
+
+.apex-disclosure__chevron {
+  display: inline-block;
+  font-size: 0.7rem;
+  line-height: 1;
+  color: rgb(113 113 122);
+  transition:
+    transform 160ms ease,
+    color 120ms ease;
+}
+
+.apex-disclosure[aria-expanded="true"] .apex-disclosure__chevron {
+  transform: rotate(180deg);
+  color: rgb(212 212 216);
+}
+
+.apex-disclosure[aria-expanded="true"] {
+  color: rgb(228 228 231);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .apex-disclosure:hover {
+    color: rgb(244 244 245);
+    background: rgb(24 24 27 / 0.8);
+  }
+
+  .apex-disclosure:hover .apex-disclosure__meta {
+    color: rgb(161 161 170);
+  }
+
+  .apex-disclosure:hover .apex-disclosure__chevron {
+    color: rgb(212 212 216);
+  }
+}
+
+.apex-disclosure:active {
+  color: rgb(254 215 170);
+  background: rgb(249 115 22 / 0.12);
+}
+
+.apex-disclosure:focus-visible {
+  outline: 2px solid rgb(249 115 22 / 0.7);
+  outline-offset: 2px;
 }
 
 /* Header nav links — clear hover / active (not just color nudge). */
@@ -355,7 +545,6 @@ button[aria-busy="true"],
   .apex-nav-link:hover {
     color: rgb(255 255 255);
     background-color: rgb(63 63 70);
-    transform: translateY(-1px);
   }
 }
 
@@ -459,8 +648,10 @@ textarea.apex-field {
   color: rgb(113 113 122);
 }
 
-a.apex-eyebrow:hover {
-  color: rgb(212 212 216);
+@media (hover: hover) and (pointer: fine) {
+  a.apex-eyebrow:hover {
+    color: rgb(212 212 216);
+  }
 }
 
 .apex-empty {

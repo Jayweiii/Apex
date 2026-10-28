@@ -286,11 +286,20 @@ export function SessionLapDetail({
             <button
               type="button"
               data-testid="toolbar-trim"
-              aria-pressed={trimOpen}
+              className="apex-disclosure"
+              aria-expanded={trimOpen}
+              aria-controls="lap-trim-panel"
               onClick={() => setTrimOpen((open) => !open)}
-              className={`apex-btn ${trimOpen || hasTrimOverride ? "apex-btn--pressed" : ""}`}
             >
-              <span aria-hidden>✂</span> Trim
+              <span className="apex-disclosure__label">Trim</span>
+              {!trimOpen && hasTrimOverride ? (
+                <span className="apex-disclosure__meta apex-disclosure__meta--warn">
+                  override
+                </span>
+              ) : null}
+              <span className="apex-disclosure__chevron" aria-hidden>
+                ▾
+              </span>
             </button>
           </div>
         </div>
@@ -310,32 +319,34 @@ export function SessionLapDetail({
           />
         ) : null}
         {trimOpen ? (
-          <LapTrimControls
-            lap={trimable}
-            sessionMin={trimChart.sessionMin}
-            sessionMax={trimChart.sessionMax}
-            previewLapTimeMs={applied.lap_time_ms}
-            canMergeNext={canMergeNext}
-            canSplit={canSplit}
-            busy={trimBusy}
-            onChange={commitTrim}
-            onReset={() => {
-              onTrimReset?.(lap.id);
-            }}
-            onMergeNext={onMergeNext ? () => onMergeNext(lap.id) : undefined}
-            onSplit={
-              onSplit
-                ? () => {
-                    const b = resolveLapTrimBounds(trimable);
-                    const mid = (b.effectiveStart + b.effectiveEnd) / 2;
-                    const progress =
-                      (mid - b.effectiveStart) /
-                      Math.max(0.001, b.effectiveEnd - b.effectiveStart);
-                    onSplit(lap.id, progress);
-                  }
-                : undefined
-            }
-          />
+          <div id="lap-trim-panel" role="region" aria-label="Trim">
+            <LapTrimControls
+              lap={trimable}
+              sessionMin={trimChart.sessionMin}
+              sessionMax={trimChart.sessionMax}
+              previewLapTimeMs={applied.lap_time_ms}
+              canMergeNext={canMergeNext}
+              canSplit={canSplit}
+              busy={trimBusy}
+              onChange={commitTrim}
+              onReset={() => {
+                onTrimReset?.(lap.id);
+              }}
+              onMergeNext={onMergeNext ? () => onMergeNext(lap.id) : undefined}
+              onSplit={
+                onSplit
+                  ? () => {
+                      const b = resolveLapTrimBounds(trimable);
+                      const mid = (b.effectiveStart + b.effectiveEnd) / 2;
+                      const progress =
+                        (mid - b.effectiveStart) /
+                        Math.max(0.001, b.effectiveEnd - b.effectiveStart);
+                      onSplit(lap.id, progress);
+                    }
+                  : undefined
+              }
+            />
+          </div>
         ) : (
           <p className="text-[11px] text-zinc-600">
             Drag orange handles on the chart · tap Trim for numeric edit · Save

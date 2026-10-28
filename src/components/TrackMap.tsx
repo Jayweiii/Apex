@@ -2,6 +2,8 @@
 
 import { BasemapToggle } from "@/components/BasemapToggle";
 import { GpsModeToggle } from "@/components/GpsModeToggle";
+import { MobileMapPlayOverlay } from "@/components/MobileMapPlayOverlay";
+import { SegmentedControl } from "@/components/SegmentedControl";
 import {
   BASEMAP_PREFS_EVENT,
   DEFAULT_BASEMAP,
@@ -73,6 +75,13 @@ type MapProps = {
   sfLine?: StartFinishLine | null;
   sfEditing?: boolean;
   onSfEndpointMove?: (which: "a" | "b", lat: number, lon: number) => void;
+  /**
+   * Mobile map Play/Pause overlay (session + compare). Shown only below `sm`
+   * so phone users can play without scrolling past video/charts.
+   */
+  mapPlaying?: boolean;
+  onMapTogglePlay?: () => void;
+  mapPlayDisabled?: boolean;
 };
 
 const mapLoading = (
@@ -91,7 +100,7 @@ const ChaseTrackMap = dynamic(
   { ssr: false, loading: () => mapLoading },
 );
 
-/** Single Overview ↔ POV control (chase camera). */
+/** Overview | POV segmented control (chase camera). */
 function PovToggle({
   prefs,
   onChange,
@@ -102,41 +111,33 @@ function PovToggle({
   compact?: boolean;
 }) {
   return (
-    <div
-      className={`inline-flex rounded-lg border border-zinc-800 bg-zinc-950/80 p-0.5 ${
-        compact ? "text-[11px]" : "text-xs"
-      }`}
-      role="group"
-      aria-label="Map camera mode"
-    >
-      {(
+    <SegmentedControl
+      value={prefs.mode}
+      options={
         [
-          { value: "overview" as const, label: "Overview" },
-          { value: "chase" as const, label: "POV" },
+          {
+            value: "overview" as const,
+            label: "Overview",
+            title: "North-up, fixed framing",
+            dataAttrs: { "data-apex-pov-option": "overview" },
+          },
+          {
+            value: "chase" as const,
+            label: "POV",
+            title: "Third-person chase: tilted, heading-up follow",
+            dataAttrs: { "data-apex-pov-option": "chase" },
+          },
         ] as const
-      ).map((option) => {
-        const active = prefs.mode === option.value;
-        return (
-          <button
-            key={option.value}
-            type="button"
-            onClick={() => onChange({ ...prefs, mode: option.value })}
-            className={`cursor-pointer rounded-md px-2.5 py-1 transition ${
-              active
-                ? "bg-orange-500 text-black"
-                : "text-zinc-400 hover:text-zinc-200"
-            }`}
-            title={
-              option.value === "overview"
-                ? "North-up, fixed framing"
-                : "Third-person chase: tilted, heading-up follow"
-            }
-          >
-            {option.label}
-          </button>
-        );
-      })}
-    </div>
+      }
+      onChange={(mode) => onChange({ ...prefs, mode })}
+      ariaLabel="Map camera mode"
+      compact={compact}
+      accent
+      groupProps={{
+        "data-apex-pov-toggle": "1",
+        "data-apex-pov-mode": prefs.mode,
+      }}
+    />
   );
 }
 
@@ -246,6 +247,15 @@ export function TrackMap(props: MapProps) {
     />
   );
 
+  const mapPlayOverlay =
+    props.onMapTogglePlay != null ? (
+      <MobileMapPlayOverlay
+        playing={Boolean(props.mapPlaying)}
+        onTogglePlay={props.onMapTogglePlay}
+        disabled={props.mapPlayDisabled}
+      />
+    ) : null;
+
   if (useChase) {
     const shellClass = props.panel
       ? "relative flex flex-col overflow-hidden rounded-xl border border-zinc-800/80 bg-zinc-950/40 p-2"
@@ -284,22 +294,25 @@ export function TrackMap(props: MapProps) {
           {basemapControl}
           {povControl}
         </div>
-        <ChaseTrackMap
-          traces={props.traces}
-          activeProgress={props.activeProgress}
-          progressBasis={props.progressBasis}
-          durationMs={props.durationMs}
-          progressSubscribe={props.progressSubscribe}
-          previewProgress={props.previewProgress}
-          onPreviewProgress={props.onPreviewProgress}
-          hoverPreviewEnabled={props.hoverPreviewEnabled}
-          onProgress={props.onProgress}
-          prefs={prefs}
-          compact={props.compact}
-          panel={props.panel}
-          basemap={basemap}
-          referenceId={props.referenceId ?? props.defaultFollowId}
-        />
+        <div className="relative min-h-0 flex-1">
+          <ChaseTrackMap
+            traces={props.traces}
+            activeProgress={props.activeProgress}
+            progressBasis={props.progressBasis}
+            durationMs={props.durationMs}
+            progressSubscribe={props.progressSubscribe}
+            previewProgress={props.previewProgress}
+            onPreviewProgress={props.onPreviewProgress}
+            hoverPreviewEnabled={props.hoverPreviewEnabled}
+            onProgress={props.onProgress}
+            prefs={prefs}
+            compact={props.compact}
+            panel={props.panel}
+            basemap={basemap}
+            referenceId={props.referenceId ?? props.defaultFollowId}
+          />
+          {mapPlayOverlay}
+        </div>
       </div>
     );
   }
@@ -315,6 +328,7 @@ export function TrackMap(props: MapProps) {
       progressBasis={props.progressBasis}
       durationMs={props.durationMs}
       progressSubscribe={props.progressSubscribe}
+      mapPlayOverlay={mapPlayOverlay}
     />
   );
 }

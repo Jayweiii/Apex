@@ -38,11 +38,11 @@ export function SignOutButton() {
 }
 
 const NAV = [
-  { href: "/", label: "Home" },
-  { href: "/upload", label: "Upload" },
-  { href: "/lap-comparisons", label: "Lap Comparisons" },
-  { href: "/tracks", label: "Tracks" },
-  { href: "/drive", label: "Drive" },
+  { href: "/", label: "Home", apex: "home" },
+  { href: "/upload", label: "Upload", apex: "upload" },
+  { href: "/lap-comparisons", label: "Lap Comparisons", apex: "compare" },
+  { href: "/tracks", label: "Tracks", apex: "session" },
+  { href: "/drive", label: "Drive", apex: "drive" },
 ] as const;
 
 function navActive(pathname: string, href: string) {
@@ -81,16 +81,24 @@ export function AppHeader({ email }: { email?: string }) {
   const signedIn = Boolean(sessionEmail) || guest;
 
   return (
-    <header className="sticky top-0 z-40 border-b border-zinc-900/90 bg-zinc-950/85 backdrop-blur">
+    <header
+      data-apex-header="1"
+      className="sticky top-0 z-40 border-b border-zinc-900/90 bg-zinc-950/85 backdrop-blur"
+    >
       <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-2 px-4 py-2.5 sm:gap-3 sm:px-6 sm:py-3.5">
         <div className="flex min-w-0 items-center gap-3 sm:gap-6">
-          <Link href="/" className="flex min-h-10 shrink-0 items-baseline gap-2">
+          <Link
+            href="/"
+            data-apex-nav="brand"
+            className="flex min-h-10 shrink-0 items-baseline gap-2"
+          >
             <span className="text-lg font-semibold tracking-[0.28em] text-zinc-50">
               APEX
             </span>
           </Link>
           <nav
             aria-label="Primary"
+            data-apex-nav-desktop="1"
             className="hidden items-center gap-1 md:flex"
           >
             {NAV.map((item) => {
@@ -100,6 +108,7 @@ export function AppHeader({ email }: { email?: string }) {
                   key={item.href}
                   href={item.href}
                   prefetch
+                  data-apex-nav={item.apex}
                   aria-current={active ? "page" : undefined}
                   className={`apex-nav-link inline-flex min-h-10 items-center rounded-lg px-2.5 text-xs uppercase tracking-[0.16em] ${
                     active ? "apex-nav-link--active" : ""
@@ -144,6 +153,7 @@ export function AppHeader({ email }: { email?: string }) {
           <button
             type="button"
             className="apex-btn apex-btn--icon md:hidden"
+            data-apex-nav-menu="1"
             aria-expanded={menuOpen}
             aria-controls={menuId}
             aria-label={menuOpen ? "Close menu" : "Open menu"}
@@ -156,9 +166,14 @@ export function AppHeader({ email }: { email?: string }) {
       <div
         id={menuId}
         hidden={!menuOpen}
+        data-apex-nav-drawer="1"
         className="border-t border-zinc-900/80 px-3 py-2 md:hidden"
       >
-        <nav aria-label="Mobile" className="flex flex-col gap-1">
+        <nav
+          aria-label="Mobile"
+          data-apex-nav-mobile="1"
+          className="flex flex-col gap-1"
+        >
           {NAV.map((item) => {
             const active = navActive(pathname, item.href);
             return (
@@ -166,6 +181,7 @@ export function AppHeader({ email }: { email?: string }) {
                 key={item.href}
                 href={item.href}
                 prefetch
+                data-apex-nav={item.apex}
                 aria-current={active ? "page" : undefined}
                 className={`apex-nav-link inline-flex min-h-10 items-center rounded-md px-3 text-xs uppercase tracking-[0.14em] ${
                   active ? "apex-nav-link--active" : ""

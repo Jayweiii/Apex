@@ -1,8 +1,24 @@
 "use client";
 
+import { SegmentedControl } from "@/components/SegmentedControl";
 import type { BasemapMode } from "@/lib/basemap-prefs";
 
-/** Single Street | Satellite control shared by Overview, POV, and SF editor. */
+const OPTIONS = [
+  {
+    value: "street" as const,
+    label: "Street",
+    title: "OpenStreetMap (street)",
+    dataAttrs: { "data-apex-basemap-option": "street" },
+  },
+  {
+    value: "satellite" as const,
+    label: "Satellite",
+    title: "Esri World Imagery (satellite)",
+    dataAttrs: { "data-apex-basemap-option": "satellite" },
+  },
+] as const;
+
+/** Street | Satellite segmented control shared by Overview, POV, and SF editor. */
 export function BasemapToggle({
   value,
   onChange,
@@ -13,42 +29,14 @@ export function BasemapToggle({
   compact?: boolean;
 }) {
   return (
-    <div
-      className={`inline-flex rounded-lg border border-zinc-800 bg-zinc-950/80 p-0.5 ${
-        compact ? "text-[11px]" : "text-xs"
-      }`}
-      role="group"
-      aria-label="Basemap"
-      data-apex-basemap-toggle="1"
-    >
-      {(
-        [
-          { value: "street" as const, label: "Street" },
-          { value: "satellite" as const, label: "Satellite" },
-        ] as const
-      ).map((option) => {
-        const active = value === option.value;
-        return (
-          <button
-            key={option.value}
-            type="button"
-            onClick={() => onChange(option.value)}
-            className={`cursor-pointer rounded-md px-2.5 py-1 transition ${
-              active
-                ? "bg-zinc-100 text-zinc-950"
-                : "text-zinc-400 hover:text-zinc-200"
-            }`}
-            aria-pressed={active}
-            title={
-              option.value === "satellite"
-                ? "Esri World Imagery (satellite)"
-                : "OpenStreetMap (street)"
-            }
-          >
-            {option.label}
-          </button>
-        );
-      })}
-    </div>
+    <SegmentedControl<BasemapMode>
+      value={value}
+      options={OPTIONS}
+      onChange={onChange}
+      ariaLabel="Basemap"
+      compact={compact}
+      className="cursor-pointer"
+      groupProps={{ "data-apex-basemap-toggle": "1" }}
+    />
   );
 }
