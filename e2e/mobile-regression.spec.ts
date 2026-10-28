@@ -268,15 +268,18 @@ test.describe("Apex mobile/desktop regression", () => {
     await map.scrollIntoViewIfNeeded();
     await page.waitForTimeout(300);
 
+    // Map-canvas overlay is the contract; sticky PlaybackControls sit below
+    // the fold on phones and must not satisfy this check against older deploys.
     const play = page.locator("[data-apex-map-play-toggle]:visible").first();
-    // Prefer map overlay; fall back to sticky playback when overlay not deployed.
-    const playFallback = page.locator(
-      "[data-apex-map-play-toggle]:visible, [data-apex-play-toggle]:visible",
-    ).first();
-    const target = (await play.count()) > 0 ? play : playFallback;
-    await expect(target).toBeVisible({ timeout: 30_000 });
+    if ((await play.count()) === 0) {
+      test.skip(
+        true,
+        "map Play overlay missing on BASE_URL — need the PR Vercel preview",
+      );
+    }
+    await expect(play).toBeVisible({ timeout: 30_000 });
 
-    const geometry = await target.evaluate((node) => {
+    const geometry = await play.evaluate((node) => {
       const header = document.querySelector("[data-apex-header], header");
       const r = node.getBoundingClientRect();
       const h = header?.getBoundingClientRect();
@@ -287,7 +290,6 @@ test.describe("Apex mobile/desktop regression", () => {
           r.top >= 0 &&
           r.bottom <= (window.innerHeight || 844) + 1,
         belowHeader: h ? r.top >= h.bottom - 1 : false,
-        isMapOverlay: node.hasAttribute("data-apex-map-play-toggle"),
       };
     });
     expect(geometry.inViewport).toBe(true);

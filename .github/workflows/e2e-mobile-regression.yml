@@ -51,18 +51,43 @@ jobs:
         run: |
           set -euo pipefail
           URL="${BASE_URL}"
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            # Wait briefly for Vercel to comment a preview URL.
-            for _ in 1 2 3 4 5 6; do
+          PROD_HOST="apex-ashy-beta.vercel.app"
+          # Never treat production as a "preview" — PR body often links it first.
+          pick_preview() {
+            grep -Eo 'https://[^[:space:]\"<>]+vercel\.app' \
+              | grep -vF "${PROD_HOST}" \
+              | head -1 || true
+          }
+          # Stable Vercel git alias for this branch (PR + push).
+          BRANCH_SLUG="$(echo "${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}" | tr '/' '-')"
+          if [ -n "${BRANCH_SLUG}" ] && [ "${BRANCH_SLUG}" != "main" ]; then
+            CANDIDATE="https://apex-git-${BRANCH_SLUG}-apex-93e0.vercel.app"
+            if curl -fsI --max-time 15 "${CANDIDATE}" >/dev/null 2>&1; then
+              URL="${CANDIDATE}"
+            fi
+          fi
+          if [ "${URL}" = "${BASE_URL}" ] && [ "${{ github.event_name }}" = "pull_request" ]; then
+            for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
               PREVIEW="$(gh pr view ${{ github.event.pull_request.number }} --json comments,body \
                 --jq '[.comments[].body, .body] | join("\n")' 2>/dev/null \
-                | grep -Eo 'https://[^[:space:]]+vercel\.app' | head -1 || true)"
+                | pick_preview || true)"
               if [ -n "${PREVIEW}" ]; then
                 URL="${PREVIEW}"
                 break
               fi
               sleep 10
             done
+          fi
+          if [ "${URL}" = "${BASE_URL}" ] && [ "${{ github.event_name }}" = "push" ]; then
+            PR="$(gh pr list --head "${GITHUB_REF_NAME}" --state open --json number --jq '.[0].number // empty' 2>/dev/null || true)"
+            if [ -n "${PR}" ]; then
+              PREVIEW="$(gh pr view "${PR}" --json comments,body \
+                --jq '[.comments[].body, .body] | join("\n")' 2>/dev/null \
+                | pick_preview || true)"
+              if [ -n "${PREVIEW}" ]; then
+                URL="${PREVIEW}"
+              fi
+            fi
           fi
           echo "Using BASE_URL=${URL}"
           echo "url=${URL}" >> "$GITHUB_OUTPUT"
