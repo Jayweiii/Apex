@@ -34,8 +34,13 @@ assert(trackMap.includes("LeafletTrackMap") || trackMap.includes("leaflet"), "dy
 assert(prefs.includes("World_Imagery"), "Esri World Imagery tiles");
 assert(
   prefs.includes("server.arcgisonline.com") &&
-    prefs.includes("services.arcgisonline.com"),
-  "Esri primary + alternate imagery hosts",
+    prefs.includes("services.arcgisonline.com") &&
+    prefs.includes("clarity.maptiles.arcgis.com"),
+  "Esri primary + alternate + clarity imagery hosts",
+);
+assert(
+  !leaflet.includes("crossOrigin: true") && !leaflet.includes("crossOrigin:true"),
+  "Leaflet satellite must not force CORS crossOrigin",
 );
 assert(prefs.includes("openstreetmap.org"), "OSM street basemap");
 assert(/Esri/i.test(prefs), "Esri attribution");

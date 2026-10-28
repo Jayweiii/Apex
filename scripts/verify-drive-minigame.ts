@@ -236,6 +236,18 @@ assert(hub.includes("data-apex-drive-track-select"), "hub track select");
 assert(hub.includes("data-apex-drive-go"), "hub Drive CTA after select");
 assert(hub.includes("Local PB") || hub.includes("local"), "hub shows local board");
 assert(hub.includes("apex.drive."), "hub documents isolation");
+assert(
+  hub.includes("DEFAULT_CAR") || hub.includes('"miata"'),
+  "hub SSR-stable car default",
+);
+assert(
+  hub.includes("loadSelectedCarId()") && hub.includes("useEffect"),
+  "hub loads car prefs after mount (no hydration mismatch)",
+);
+assert(!/onClick=\{[^}]*preventDefault/.test(hub), "hub click handlers skip preventDefault");
+assert(!/onPointerDown=\{[^}]*preventDefault/.test(hub), "hub pointer handlers skip preventDefault");
+assert(hub.includes("isDriveableTrack") || hub.includes("builtinCenterline"), "hub filters driveable tracks");
+assert(hub.includes("onRadioKeyDown") || hub.includes("ArrowRight"), "hub radio keyboard");
 
 const physicsSrc = read("src/lib/drive/physics.ts");
 assert(physicsSrc.includes("curbStartFrac"), "curb / rumble strip");

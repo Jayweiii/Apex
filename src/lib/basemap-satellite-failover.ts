@@ -24,9 +24,8 @@ export function attachMapLibreSatelliteFailover(
   onRotated?: () => void,
 ): () => void {
   let hostIndex = 0;
-  let errorBurst = 0;
   let lastRotateAt = 0;
-  const COOLDOWN_MS = 2500;
+  const COOLDOWN_MS = 1200;
 
   const rotate = () => {
     const now = Date.now();
@@ -41,27 +40,31 @@ export function attachMapLibreSatelliteFailover(
 
   const onError = (event: { error?: unknown }) => {
     const err = event.error as
-      | { status?: number; message?: string; url?: string }
+      | { status?: number; message?: string; url?: string; name?: string }
       | string
       | undefined;
     const message =
       typeof err === "string"
         ? err
-        : [err?.message, err?.url, err?.status].filter(Boolean).join(" ");
+        : [err?.message, err?.url, err?.status, err?.name]
+            .filter(Boolean)
+            .join(" ");
     const status = typeof err === "object" && err ? err.status : undefined;
     const looksSatellite = isSatelliteTileErrorMessage(message);
     const hardFail =
       status === 502 ||
       status === 503 ||
       status === 0 ||
-      /cors|failed to fetch|networkerror|loaderror/i.test(message);
-    // Only rotate for satellite tile failures (or hard fails that name imagery).
-    if (!looksSatellite && !(hardFail && /tile|imagery|raster/i.test(message))) {
+      /cors|failed to fetch|networkerror|loaderror|ajaxerror|tile/i.test(
+        message,
+      );
+    // Rotate for satellite tile failures, or any hard fail that smells like imagery.
+    if (
+      !looksSatellite &&
+      !(hardFail && /tile|imagery|raster|arcgis|esri|jpeg|png/i.test(message))
+    ) {
       return;
     }
-    errorBurst += 1;
-    if (errorBurst < 2) return;
-    errorBurst = 0;
     rotate();
   };
 

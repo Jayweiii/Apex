@@ -36,19 +36,16 @@ function makeBasemapTileLayer(mode: BasemapMode): L.TileLayer {
     });
   }
   let hostIndex = 0;
-  let errorBurst = 0;
   let lastRotateAt = 0;
+  // No crossOrigin: forcing CORS mode makes opaque Esri edges fail the
+  // whole tile; display-only imagery does not need canvas pixel access.
   const layer = L.tileLayer(ESRI_IMAGERY.urls[0]!, {
     attribution: ESRI_IMAGERY.attribution,
     maxZoom: 19,
-    crossOrigin: true,
   });
   layer.on("tileerror", () => {
-    errorBurst += 1;
-    if (errorBurst < 2) return;
     const now = Date.now();
-    if (now - lastRotateAt < 2500) return;
-    errorBurst = 0;
+    if (now - lastRotateAt < 1200) return;
     lastRotateAt = now;
     hostIndex = (hostIndex + 1) % ESRI_IMAGERY.urls.length;
     layer.setUrl(ESRI_IMAGERY.urls[hostIndex]!);
