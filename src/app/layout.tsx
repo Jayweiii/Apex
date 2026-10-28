@@ -27,6 +27,9 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col text-foreground">
+        <a href="#main-content" className="apex-skip-link">
+          Skip to content
+        </a>
         {children}
       </body>
     </html>

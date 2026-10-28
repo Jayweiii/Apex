@@ -11,7 +11,7 @@ export default function LoginPage() {
   return (
     <>
       <AppHeader />
-      <main className="apex-page apex-page--narrow items-center justify-center py-10 sm:py-14">
+      <main id="main-content" className="apex-page apex-page--narrow items-center justify-center py-10 sm:py-14">
         <div className="w-full max-w-md">
           <p className="text-[11px] font-medium uppercase tracking-[0.2em] text-orange-400">
             Apex

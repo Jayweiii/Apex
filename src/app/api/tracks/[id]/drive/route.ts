@@ -180,12 +180,13 @@ export async function GET(
       }
     }
 
-    // Prefer a real session GPS outline for the ribbon.
+    // Prefer a real session GPS outline for the ribbon — one laps query
+    // across recent sessions (no N+1 per session).
     let sessionsQuery = supabase
       .from("sessions")
       .select("id")
       .order("created_at", { ascending: false })
-      .limit(16);
+      .limit(12);
     sessionsQuery =
       aliases.length > 1
         ? sessionsQuery.in("track_id", aliases)
@@ -199,34 +200,55 @@ export async function GET(
       lapNumber: number | null;
     } | null = null;
 
-    for (const sessionId of ids) {
+    if (ids.length) {
       const { data: laps } = await supabase
         .from("laps")
-        .select("telemetry, lap_time_ms, lap_number")
-        .eq("session_id", sessionId)
+        .select("session_id, telemetry, lap_time_ms, lap_number")
+        .in("session_id", ids)
         .order("lap_number", { ascending: true })
-        .limit(24);
-      const picked = pickBestGpsLap(
-        (laps ?? []).map((lap) => ({
+        .limit(160);
+
+      const bySession = new Map<
+        string,
+        Array<{
+          telemetry: TelemetryPoint[] | null;
+          lap_time_ms: number;
+          lap_number: number;
+        }>
+      >();
+      for (const lap of laps ?? []) {
+        const sid = lap.session_id as string;
+        const list = bySession.get(sid) ?? [];
+        list.push({
           telemetry: (lap.telemetry ?? null) as TelemetryPoint[] | null,
           lap_time_ms: lap.lap_time_ms as number,
           lap_number: lap.lap_number as number,
-        })),
-      );
-      if (!picked) continue;
-      if (source !== "session_gps" && picked.path.length >= 40) {
-        centerlineGps = picked.path;
-        source = "session_gps";
+        });
+        bySession.set(sid, list);
       }
-      if (
-        !bestGhostCandidate ||
-        (picked.timeMs > 0 &&
-          (bestGhostCandidate.timeMs <= 0 ||
-            picked.timeMs < bestGhostCandidate.timeMs))
-      ) {
-        bestGhostCandidate = picked;
+
+      for (const sessionId of ids) {
+        const sessionLaps = bySession.get(sessionId) ?? [];
+        const picked = pickBestGpsLap(sessionLaps);
+        if (!picked) continue;
+        if (source !== "session_gps" && picked.path.length >= 40) {
+          // Downsample path for the drive payload — keep ribbon light.
+          centerlineGps =
+            picked.path.length > 400
+              ? picked.path.filter((_, i) => i % Math.ceil(picked.path.length / 400) === 0)
+              : picked.path;
+          source = "session_gps";
+        }
+        if (
+          !bestGhostCandidate ||
+          (picked.timeMs > 0 &&
+            (bestGhostCandidate.timeMs <= 0 ||
+              picked.timeMs < bestGhostCandidate.timeMs))
+        ) {
+          bestGhostCandidate = picked;
+        }
+        if (source === "session_gps" && bestGhostCandidate?.timeMs > 0) break;
       }
-      if (source === "session_gps" && bestGhostCandidate?.timeMs > 0) break;
     }
 
     if (bestGhostCandidate && bestGhostCandidate.timeMs > 0) {

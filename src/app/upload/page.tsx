@@ -28,7 +28,7 @@ export default async function UploadPage() {
   return (
     <>
       <AppHeader email={email} />
-      <main className="apex-page apex-page--narrow">
+      <main id="main-content" className="apex-page apex-page--narrow">
         <div>
           <Link href="/" className="apex-eyebrow">
             Home
