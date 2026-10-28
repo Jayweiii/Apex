@@ -1144,6 +1144,11 @@ export function LapCompare({
                   defaultFollowId={ordered[0]?.lap.id}
                   referenceId={ordered[0]?.lap.id}
                   panel
+                  mapPlaying={playing}
+                  onMapTogglePlay={() => {
+                    if ((progress ?? 0) >= 1) setProgress(0);
+                    setPlaying((prev) => !prev);
+                  }}
                 />
               ) : (
                 <div className="flex items-center">

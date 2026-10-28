@@ -2,6 +2,7 @@
 
 import { BasemapToggle } from "@/components/BasemapToggle";
 import { GpsModeToggle } from "@/components/GpsModeToggle";
+import { MobileMapPlayOverlay } from "@/components/MobileMapPlayOverlay";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import {
   BASEMAP_PREFS_EVENT,
@@ -74,6 +75,13 @@ type MapProps = {
   sfLine?: StartFinishLine | null;
   sfEditing?: boolean;
   onSfEndpointMove?: (which: "a" | "b", lat: number, lon: number) => void;
+  /**
+   * Mobile map Play/Pause overlay (session + compare). Shown only below `sm`
+   * so phone users can play without scrolling past video/charts.
+   */
+  mapPlaying?: boolean;
+  onMapTogglePlay?: () => void;
+  mapPlayDisabled?: boolean;
 };
 
 const mapLoading = (
@@ -239,6 +247,15 @@ export function TrackMap(props: MapProps) {
     />
   );
 
+  const mapPlayOverlay =
+    props.onMapTogglePlay != null ? (
+      <MobileMapPlayOverlay
+        playing={Boolean(props.mapPlaying)}
+        onTogglePlay={props.onMapTogglePlay}
+        disabled={props.mapPlayDisabled}
+      />
+    ) : null;
+
   if (useChase) {
     const shellClass = props.panel
       ? "relative flex flex-col overflow-hidden rounded-xl border border-zinc-800/80 bg-zinc-950/40 p-2"
@@ -277,22 +294,25 @@ export function TrackMap(props: MapProps) {
           {basemapControl}
           {povControl}
         </div>
-        <ChaseTrackMap
-          traces={props.traces}
-          activeProgress={props.activeProgress}
-          progressBasis={props.progressBasis}
-          durationMs={props.durationMs}
-          progressSubscribe={props.progressSubscribe}
-          previewProgress={props.previewProgress}
-          onPreviewProgress={props.onPreviewProgress}
-          hoverPreviewEnabled={props.hoverPreviewEnabled}
-          onProgress={props.onProgress}
-          prefs={prefs}
-          compact={props.compact}
-          panel={props.panel}
-          basemap={basemap}
-          referenceId={props.referenceId ?? props.defaultFollowId}
-        />
+        <div className="relative min-h-0 flex-1">
+          <ChaseTrackMap
+            traces={props.traces}
+            activeProgress={props.activeProgress}
+            progressBasis={props.progressBasis}
+            durationMs={props.durationMs}
+            progressSubscribe={props.progressSubscribe}
+            previewProgress={props.previewProgress}
+            onPreviewProgress={props.onPreviewProgress}
+            hoverPreviewEnabled={props.hoverPreviewEnabled}
+            onProgress={props.onProgress}
+            prefs={prefs}
+            compact={props.compact}
+            panel={props.panel}
+            basemap={basemap}
+            referenceId={props.referenceId ?? props.defaultFollowId}
+          />
+          {mapPlayOverlay}
+        </div>
       </div>
     );
   }
@@ -308,6 +328,7 @@ export function TrackMap(props: MapProps) {
       progressBasis={props.progressBasis}
       durationMs={props.durationMs}
       progressSubscribe={props.progressSubscribe}
+      mapPlayOverlay={mapPlayOverlay}
     />
   );
 }

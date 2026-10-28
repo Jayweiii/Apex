@@ -819,6 +819,8 @@ export function SyncedLapView({
       compact={workspace}
       panel={workspace}
       defaultFollowId="lap"
+      mapPlaying={clock.playing}
+      onMapTogglePlay={onTogglePlay}
       {...mapProps}
     />
   ) : (

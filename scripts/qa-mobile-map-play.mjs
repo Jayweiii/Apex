@@ -12,7 +12,7 @@ import { resolve } from "node:path";
 
 const BASE = process.env.BASE_URL || "http://127.0.0.1:3000";
 const SESSION =
-  process.env.APEX_SESSION_ID || "1aa2fb88-8204-4abb-b745-520ea99819dd";
+  process.env.APEX_SESSION_ID || "340f914a-49f7-4c6e-bccc-33a3fe2de689";
 const OUT =
   process.env.OUT_DIR || "/opt/cursor/artifacts/mobile-map-play";
 mkdirSync(OUT, { recursive: true });
