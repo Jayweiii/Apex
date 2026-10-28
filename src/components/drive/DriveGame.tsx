@@ -387,11 +387,7 @@ export function DriveGame({ trackId, carId: carIdProp }: Props) {
 
   // Main loop
   useEffect(() => {
-    if (!payload) return;
-    if (!simLive) return;
-    if (phase !== "racing" && phase !== "paused" && phase !== "countdown") {
-      return;
-    }
+    if (!payload || !simLive) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
@@ -1112,15 +1108,9 @@ export function DriveGame({ trackId, carId: carIdProp }: Props) {
       cancelAnimationFrame(raf);
       ro.disconnect();
     };
-<<<<<<< HEAD
-    // onLapComplete is useEffectEvent — omit from deps
-     
-  }, [payload, started, trackId, readInputs]);
-=======
     // onLapComplete is useEffectEvent; phase gated via simLive + phaseRef
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [payload, simLive, trackId, readInputs, sessionNonce]);
->>>>>>> 05acfd0 (Improve Drive arcade feel: handling, sectors, ghosts, audio, touch.)
 
   const onSteerTouch = (
     e: React.TouchEvent<HTMLDivElement>,
