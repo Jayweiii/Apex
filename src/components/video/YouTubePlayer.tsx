@@ -83,6 +83,8 @@ export const YouTubePlayer = forwardRef<
   onEventRef.current = onPlayerEvent;
   const lastTimeRef = useRef(0);
   const [ready, setReady] = useState(false);
+  const [showPoster, setShowPoster] = useState(true);
+  const posterUrl = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
 
   // Empty deps — handle identity must stay stable. Methods read playerRef.
   useImperativeHandle(
@@ -129,6 +131,8 @@ export const YouTubePlayer = forwardRef<
   useEffect(() => {
     let cancelled = false;
     let player: YtPlayer | null = null;
+    setShowPoster(true);
+    setReady(false);
     loadYoutubeApi().then(() => {
       if (cancelled || !hostRef.current || !window.YT?.Player) return;
       player = new window.YT.Player(hostRef.current, {
@@ -154,6 +158,14 @@ export const YouTubePlayer = forwardRef<
               typeof player?.getCurrentTime === "function"
                 ? player.getCurrentTime()
                 : lastTimeRef.current;
+            if (
+              state === window.YT.PlayerState.PLAYING ||
+              state === window.YT.PlayerState.PAUSED ||
+              state === window.YT.PlayerState.BUFFERING ||
+              state === window.YT.PlayerState.CUED
+            ) {
+              setShowPoster(false);
+            }
             if (state === window.YT.PlayerState.PLAYING) {
               // Large jump while transitioning often means a user seek.
               if (Math.abs(time - lastTimeRef.current) > 0.45) {
@@ -223,8 +235,33 @@ export const YouTubePlayer = forwardRef<
 
   return (
     <div className={className}>
-      <div className="relative mx-auto aspect-video h-[min(34vh,280px)] w-auto max-w-full overflow-hidden rounded-xl bg-black lg:h-[min(32vh,260px)]">
-        <div ref={hostRef} className="absolute inset-0 h-full w-full" />
+      <div className="relative mx-auto aspect-video h-[min(34vh,280px)] w-auto max-w-full overflow-hidden rounded-xl bg-zinc-950 lg:h-[min(32vh,260px)]">
+        {/* Poster until the iframe paints — avoids a black box before Play. */}
+        {showPoster ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={posterUrl}
+            alt=""
+            className="absolute inset-0 z-[1] h-full w-full object-cover"
+            data-apex-yt-poster="1"
+          />
+        ) : null}
+        <div ref={hostRef} className="absolute inset-0 z-0 h-full w-full" />
+        {showPoster ? (
+          <button
+            type="button"
+            className="absolute inset-0 z-[2] flex items-center justify-center bg-zinc-950/25"
+            aria-label="Play video"
+            onClick={() => {
+              setShowPoster(false);
+              playerRef.current?.playVideo?.();
+            }}
+          >
+            <span className="rounded-full border border-orange-400/50 bg-zinc-950/80 px-4 py-2 text-xs font-medium uppercase tracking-[0.16em] text-orange-300">
+              Play
+            </span>
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={() => {

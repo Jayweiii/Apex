@@ -23,7 +23,7 @@ export function SpeedUnitToggle({
       title={`Speed units: ${label} (click for ${nextLabel})`}
       aria-label={`Speed units ${label}. Switch to ${nextLabel}`}
       onClick={() => setUnit(next)}
-      className={`apex-btn ${className}`.trim()}
+      className={`apex-btn cursor-pointer ${className}`.trim()}
     >
       {label}
     </button>

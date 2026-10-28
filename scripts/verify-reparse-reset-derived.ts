@@ -8,6 +8,11 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { theoreticalBestLap } from "../src/lib/analysis";
 import {
+  bestLapTimeMs,
+  lapsEligibleForBest,
+  MIN_FULL_LAP_MS,
+} from "../src/lib/lap-quality";
+import {
   autoBoundsForParsedLap,
   autoBoundsForStoredLap,
   buildReparsedLapRows,
@@ -181,26 +186,37 @@ const derivedAll = sessionDerivedFromLaps(
     excluded: Boolean(row.excluded),
   })),
 );
-const expectedBest = Math.min(...split.laps.map((l) => l.lapTimeMs));
+// Session best ignores out/in/too-short laps (same rules as leaderboards).
+const expectedBest = bestLapTimeMs(
+  split.laps.map((l, i) => ({
+    id: `lap-${i}`,
+    lap_number: i + 1,
+    lap_time_ms: l.lapTimeMs,
+    points: l.points,
+  })),
+);
+assert(
+  expectedBest != null && expectedBest >= MIN_FULL_LAP_MS,
+  "plausible flying-lap best",
+);
 assert(
   derivedAll.sessionBestMs === expectedBest,
-  `session best ${derivedAll.sessionBestMs} === min lap ${expectedBest}`,
+  `session best ${derivedAll.sessionBestMs} === eligible best ${expectedBest}`,
 );
 
 const bestIdx = split.laps.findIndex((l) => l.lapTimeMs === expectedBest);
 assert(bestIdx >= 0, "best index found");
 const withBestExcluded = split.laps.map((lap, i) => ({
+  id: `lap-${i}`,
+  lap_number: i + 1,
   lap_time_ms: lap.lapTimeMs,
   excluded: i === bestIdx,
+  points: lap.points,
 }));
 const derivedEx = sessionDerivedFromLaps(withBestExcluded);
-const expectedExBest = Math.min(
-  ...split.laps
-    .filter((_, i) => i !== bestIdx)
-    .map((l) => l.lapTimeMs),
-);
+const expectedExBest = bestLapTimeMs(withBestExcluded);
 assert(
-  derivedEx.sessionBestMs === expectedExBest,
+  expectedExBest != null && derivedEx.sessionBestMs === expectedExBest,
   `session best respects excludes (got ${derivedEx.sessionBestMs}, want ${expectedExBest})`,
 );
 assert(
@@ -208,15 +224,21 @@ assert(
   "excluding the best changes session best",
 );
 
-// Theoretical best / sectors from non-excluded parsed laps
-const parsedForTheo: ParsedLap[] = split.laps
-  .filter((_, i) => i !== bestIdx)
-  .map((lap) => ({
-    lapNumber: lap.lapNumber,
-    lapTimeMs: lap.lapTimeMs,
+// Theoretical best / sectors from eligible flying laps (excl. best + out/in).
+const parsedForTheo: ParsedLap[] = lapsEligibleForBest(
+  withBestExcluded.map((lap, i) => ({
+    ...lap,
+    lapNumber: split.laps[i]!.lapNumber,
+    lapTimeMs: lap.lap_time_ms,
     points: lap.points,
-    startOffsetSec: lap.startOffsetSec,
-  }));
+    startOffsetSec: split.laps[i]!.startOffsetSec,
+  })),
+).map((lap) => ({
+  lapNumber: lap.lapNumber!,
+  lapTimeMs: lap.lap_time_ms,
+  points: lap.points!,
+  startOffsetSec: lap.startOffsetSec,
+}));
 const theo = theoreticalBestLap(parsedForTheo, 8);
 assert(theo != null, "theoretical best computed");
 assert(

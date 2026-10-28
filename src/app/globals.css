@@ -443,6 +443,8 @@ textarea.apex-field {
 
 .apex-page--narrow {
   max-width: 48rem;
+  min-width: 0;
+  overflow-x: clip;
 }
 
 .apex-page--medium {

@@ -17,12 +17,12 @@ export type { StartFinishLine, StartFinishSplitRef };
 /**
  * Best-effort start/finish for lap detection:
  * 1) explicit tracks.start_finish (owner-edited gate) — includes heading
- * 2) first centerline point (track geometry / builtin)
- * 3) track catalog lat/lon (custom id → builtin alias, then shared/custom)
+ * 2) track catalog / saved timing line lat/lon (custom id → builtin alias)
+ * 3) first centerline point only as last-resort geometry assist
  * 4) null → caller falls back to first moving GPS sample
  *
- * Prefer this over catalog aliases whenever `storedStartFinish` is the
- * Supabase tracks.start_finish jsonb (map / re-split / upload share one source).
+ * Prefer catalog timing line over synthetic ellipse centerline[0] — the
+ * builtin oval’s first point is not the Thunderhill West front-straight gate.
  */
 export function resolveTrackStartFinish(
   trackId: string | null | undefined,
@@ -34,10 +34,6 @@ export function resolveTrackStartFinish(
   );
   if (fromStored) return fromStored;
 
-  const centerline = resolveTrackCenterline(trackId, null, sampleLaps);
-  if (centerline && centerline.length > 0) {
-    return { lat: centerline[0].lat, lon: centerline[0].lon };
-  }
   const alias = resolveBuiltinAlias(trackId);
   const track =
     (trackId ? getTrack(trackId) : null) ??
@@ -45,6 +41,12 @@ export function resolveTrackStartFinish(
     (alias ? getTrack(alias) : null);
   if (track && Number.isFinite(track.lat) && Number.isFinite(track.lon)) {
     return { lat: track.lat, lon: track.lon };
+  }
+
+  // Last resort only — never prefer ellipse[0] over a known catalog gate.
+  const centerline = resolveTrackCenterline(trackId, null, sampleLaps);
+  if (centerline && centerline.length > 0) {
+    return { lat: centerline[0].lat, lon: centerline[0].lon };
   }
   return null;
 }

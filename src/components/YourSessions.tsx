@@ -36,13 +36,41 @@ export function YourSessions() {
 
   useEffect(() => {
     let cancelled = false;
-    async function load() {
-      if (!hasSupabaseConfig()) {
-        if (!cancelled) setSessions([]);
+    if (!hasSupabaseConfig()) {
+      setSessions([]);
+      return;
+    }
+    const supabase = createClient();
+
+    async function loadForUser(userId: string) {
+      const { data: rows, error } = await supabase
+        .from("sessions")
+        .select("id, name, user_id, track_id, car, visibility, created_at")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(40);
+      if (cancelled) return;
+      if (error) {
+        setSessions([]);
         return;
       }
+      const list = (rows ?? []) as CloudSessionListItem[];
+      const ids = list.map((row) => row.id);
+      const bestBySession = ids.length
+        ? await bestLapMsBySession(supabase, ids)
+        : new Map<string, number>();
+      if (!cancelled) {
+        setSessions(
+          list.map((row) => ({
+            ...row,
+            bestMs: bestBySession.get(row.id),
+          })),
+        );
+      }
+    }
+
+    async function bootstrap() {
       try {
-        const supabase = createClient();
         const {
           data: { user },
         } = await supabase.auth.getUser();
@@ -55,35 +83,32 @@ export function YourSessions() {
         }
         setSignedIn(true);
         setUserId(user.id);
-
-        const { data: rows } = await supabase
-          .from("sessions")
-          .select("id, name, user_id, track_id, car, visibility, created_at")
-          .eq("user_id", user.id)
-          .order("created_at", { ascending: false })
-          .limit(20);
-        if (cancelled) return;
-        const list = (rows ?? []) as CloudSessionListItem[];
-        const ids = list.map((row) => row.id);
-        const bestBySession = await bestLapMsBySession(supabase, ids);
-        if (!cancelled) {
-          setSessions(
-            list.map((row) => ({
-              ...row,
-              bestMs: bestBySession.get(row.id),
-            })),
-          );
-        }
+        await loadForUser(user.id);
       } catch {
         if (!cancelled) setSessions([]);
       }
     }
-    const frame = window.requestAnimationFrame(() => {
-      void load();
+
+    void bootstrap();
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (cancelled) return;
+      const user = session?.user ?? null;
+      if (!user) {
+        setSignedIn(false);
+        setUserId(null);
+        setSessions([]);
+        return;
+      }
+      setSignedIn(true);
+      setUserId(user.id);
+      void loadForUser(user.id);
     });
+
     return () => {
       cancelled = true;
-      window.cancelAnimationFrame(frame);
+      subscription.unsubscribe();
     };
   }, []);
 

@@ -3,7 +3,6 @@
 import { AppHeader } from "@/components/AppHeader";
 import { ComparePageSkeleton } from "@/components/PageSkeleton";
 import { SaveComparisonControls } from "@/components/SaveComparisonControls";
-import { ShareLinkButton } from "@/components/ShareLinkButton";
 import {
   groupLapsBySession,
   type CompareSessionOption,
@@ -279,10 +278,7 @@ export function SavedComparisonView({ id }: { id: string }) {
                 {mine ? " · yours" : ""}
               </p>
             </div>
-            <ShareLinkButton
-              path={comparisonSharePath(comparison.id)}
-              label="Copy link"
-            />
+            {/* Copy link lives in SaveComparisonControls — avoid duplicate. */}
           </div>
         </div>
 

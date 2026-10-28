@@ -96,6 +96,12 @@ export function stepCar(
   if (!onTrack && throttle < 0.05) {
     speed *= Math.exp(-p.offCoastDecay * dt);
   }
+  // Final off-track crawl floor after drag/slip so the car never sticks at 0
+  // mph on grass while the lap timer keeps running.
+  if (!onTrack && throttle > 0.05 && brake < 0.05) {
+    const floor = p.offThrottleCrawl * Math.min(1, throttle);
+    if (speed >= 0 && speed < floor) speed = floor;
+  }
 
   // Forward in east/north: heading 0 = +y (north), clockwise positive → +x east
   const fwdX = Math.sin(heading);

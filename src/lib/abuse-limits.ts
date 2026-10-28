@@ -37,10 +37,12 @@ export function assertFileWithinLimits(
 }
 
 export function assertContentLengthWithinLimits(
-  bytes: number | undefined,
+  bytes: number | undefined | null,
   kind: "raw" | "video",
 ) {
-  if (bytes == null || !Number.isFinite(bytes) || bytes < 0) return;
+  if (bytes == null || !Number.isFinite(bytes) || bytes < 0) {
+    throw new Error("Upload size (bytes) is required and must be a finite number.");
+  }
   const max = kind === "video" ? MAX_VIDEO_BYTES : MAX_CSV_BYTES;
   if (bytes > max) {
     const mb = Math.round(max / (1024 * 1024));

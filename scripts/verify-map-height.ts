@@ -116,7 +116,7 @@ assert(
   "Leaflet documents className wipe / black-map fix",
 );
 assert(
-  /data-apex-map="fixed-scrub"[\s\S]*?className="h-full w-full"|className="h-full w-full"[\s\S]*?data-apex-map="fixed-scrub"/.test(
+  /data-apex-map="fixed-scrub"[\s\S]{0,200}?className="[^"]*\bh-full\b[^"]*\bw-full\b[^"]*"|className="[^"]*\bh-full\b[^"]*\bw-full\b[^"]*"[\s\S]{0,200}?data-apex-map="fixed-scrub"/.test(
     leaflet,
   ),
   "Leaflet map mount uses stable h-full w-full inner node",
