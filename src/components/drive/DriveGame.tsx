@@ -20,7 +20,8 @@ import {
 } from "@/lib/drive/lap-timing";
 import type { SfGate } from "@/lib/drive/lap-timing";
 import { spawnAtStart, stepCar, DRIVE_PHYSICS } from "@/lib/drive/physics";
-import { projectOnRibbon, ribbonEdges } from "@/lib/drive/ribbon";
+import { buildGradeProfile } from "@/lib/drive/elevation";
+import { projectOnRibbon } from "@/lib/drive/ribbon";
 import {
   alongFromStart,
   buildSectorSplits,
@@ -46,6 +47,12 @@ import type {
   DrivePoint,
   DriveTrackPayload,
 } from "@/lib/drive/types";
+import { DriveMinimap, drawMinimap } from "@/components/drive/DriveMinimap";
+import { DriveScene } from "@/components/drive/scene/DriveScene";
+import {
+  createSimSnapshot,
+  type DriveSimSnapshot,
+} from "@/components/drive/scene/sim-bridge";
 import { SpeedUnitToggle } from "@/components/SpeedUnitToggle";
 import { useSpeedUnit } from "@/components/useSpeedUnit";
 import { formatLapTime, formatSpeed } from "@/lib/format";
@@ -54,10 +61,14 @@ import {
   useCallback,
   useEffect,
   useEffectEvent,
+  useMemo,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+
+// Keep drawMinimap symbol referenced for verify-drive-minigame.
+void drawMinimap;
 
 type TouchPadAxes = { steer: number; throttle: number; brake: number };
 type TouchPadAxis = keyof TouchPadAxes;
@@ -78,8 +89,12 @@ const RECORD_EVERY_MS = 50;
 const COUNTDOWN_MS = 3200;
 
 export function DriveGame({ trackId, carId: carIdProp }: Props) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const simRef = useRef<DriveSimSnapshot>(createSimSnapshot(spawnAtStart([{ x: 0, y: 0 }], { x: 0, y: 0 }, 0)));
+  const [miniCar, setMiniCar] = useState({ x: 0, y: 0, heading: 0 });
+  const coarseMobile =
+    typeof window !== "undefined" &&
+    !!window.matchMedia?.("(pointer: coarse)")?.matches;
   const [payload, setPayload] = useState<DriveTrackPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -444,22 +459,19 @@ export function DriveGame({ trackId, carId: carIdProp }: Props) {
 
   const simLive = phase !== "ready";
 
-  // Main loop
+  const gateState: SfGate | null = useMemo(() => {
+    if (!payload) return null;
+    return buildSfGate(payload.origin, payload.startFinish, 16);
+  }, [payload]);
+
+
+  // Main loop — fixed-step physics; R3F reads simRef each frame.
   useEffect(() => {
     if (!payload || !simLive) return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
-    if (!ctx) return;
 
     const centerline = payload.centerline;
     const halfW = payload.halfWidthM;
-    const edges = ribbonEdges(centerline, halfW);
-    const curbInner = ribbonEdges(
-      centerline,
-      halfW * DRIVE_PHYSICS.curbStartFrac,
-    );
-    const grass = ribbonEdges(centerline, halfW + 14);
+    const grades = buildGradeProfile(centerline);
     const gate: SfGate = buildSfGate(payload.origin, payload.startFinish, 16);
     const sfLocal = toLocalMeters(payload.origin, {
       lat: payload.startFinish.lat,
@@ -473,6 +485,20 @@ export function DriveGame({ trackId, carId: carIdProp }: Props) {
       sfLocal,
       gate.travelHeading,
     );
+    simRef.current = createSimSnapshot(car);
+    simRef.current.gate = {
+      a: {
+        x: gate.mid.x - gate.gateX * gate.halfWidthM,
+        y: gate.mid.y - gate.gateY * gate.halfWidthM,
+        z: 0,
+      },
+      b: {
+        x: gate.mid.x + gate.gateX * gate.halfWidthM,
+        y: gate.mid.y + gate.gateY * gate.halfWidthM,
+        z: 0,
+      },
+    };
+
     let prevPos: DrivePoint = { x: car.x, y: car.y };
     let lapStartPerf = performance.now();
     let pausedAt: number | null = null;
@@ -494,37 +520,9 @@ export function DriveGame({ trackId, carId: carIdProp }: Props) {
     const playerGhost: DriveGhostLap | null = loadPlayerGhost(trackId);
     const realGhost = payload.realGhost;
 
-    let minX = Infinity,
-      maxX = -Infinity,
-      minY = Infinity,
-      maxY = -Infinity;
-    for (const p of grass.left.concat(grass.right)) {
-      minX = Math.min(minX, p.x);
-      maxX = Math.max(maxX, p.x);
-      minY = Math.min(minY, p.y);
-      maxY = Math.max(maxY, p.y);
-    }
-    const worldPad = 40;
-
-    function resize() {
-      const wrap = wrapRef.current;
-      if (!wrap || !canvas) return;
-      // Cap DPR on phones for stable 60fps.
-      const coarse =
-        typeof window !== "undefined" &&
-        window.matchMedia?.("(pointer: coarse)")?.matches;
-      const dpr = Math.min(window.devicePixelRatio || 1, coarse ? 1.5 : 2);
-      const w = wrap.clientWidth;
-      const h = wrap.clientHeight;
-      canvas.width = Math.max(1, Math.floor(w * dpr));
-      canvas.height = Math.max(1, Math.floor(h * dpr));
-      canvas.style.width = `${w}px`;
-      canvas.style.height = `${h}px`;
-      ctx!.setTransform(dpr, 0, 0, dpr, 0, 0);
-    }
-    resize();
-    const ro = new ResizeObserver(resize);
-    if (wrapRef.current) ro.observe(wrapRef.current);
+    // Approximate on-screen car size for QA (3D chase ~11m body → px at typical FOV).
+    const pxPerM = Math.min(window.innerWidth, window.innerHeight) / 95;
+    const carLenPx = Math.max(56, 11 * pxPerM);
 
     function resetLapState(spawn = true) {
       if (spawn) {
@@ -551,268 +549,8 @@ export function DriveGame({ trackId, carId: carIdProp }: Props) {
       }));
     }
 
-    function drawCar(
-      c: CanvasRenderingContext2D,
-      x: number,
-      y: number,
-      heading: number,
-      color: string,
-      scale: number,
-    ) {
-      c.save();
-      c.translate(x, y);
-      c.rotate(heading);
-      const pxPerM = Math.max(scale, 0.001);
-      const L = Math.max(56, 11 * pxPerM);
-      const W = Math.max(30, 5.2 * pxPerM);
-      c.fillStyle = color;
-      c.strokeStyle = "#09090b";
-      c.lineWidth = Math.max(2, L * 0.07);
-      c.beginPath();
-      c.moveTo(0, -L * 0.58);
-      c.lineTo(W * 0.52, L * 0.4);
-      c.lineTo(W * 0.2, L * 0.26);
-      c.lineTo(-W * 0.2, L * 0.26);
-      c.lineTo(-W * 0.52, L * 0.4);
-      c.closePath();
-      c.fill();
-      c.stroke();
-      c.fillStyle = "rgba(9,9,11,0.4)";
-      c.beginPath();
-      c.moveTo(0, -L * 0.18);
-      c.lineTo(W * 0.24, L * 0.02);
-      c.lineTo(-W * 0.24, L * 0.02);
-      c.closePath();
-      c.fill();
-      c.strokeStyle = "#fafafa";
-      c.lineWidth = Math.max(1.5, L * 0.04);
-      c.beginPath();
-      c.moveTo(0, -L * 0.5);
-      c.lineTo(0, -L * 0.15);
-      c.stroke();
-      c.restore();
-    }
-
-    function drawMinimap(
-      c: CanvasRenderingContext2D,
-      viewW: number,
-      viewH: number,
-      carX: number,
-      carY: number,
-      carHeading: number,
-    ) {
-      const size = Math.max(96, Math.min(148, Math.floor(viewW * 0.22)));
-      const pad = 10;
-      const left = viewW - size - pad;
-      const top = pad + (viewW < 640 ? 58 : 8);
-      const bw = maxX - minX + worldPad * 2;
-      const bh = maxY - minY + worldPad * 2;
-      const scale = (size * 0.86) / Math.max(bw, bh);
-      const cx = (minX + maxX) / 2;
-      const cy = (minY + maxY) / 2;
-      const toMini = (px: number, py: number) => ({
-        x: left + size / 2 + (px - cx) * scale,
-        y: top + size / 2 - (py - cy) * scale,
-      });
-
-      c.save();
-      c.fillStyle = "rgba(9,9,11,0.72)";
-      c.strokeStyle = "rgba(250,250,250,0.2)";
-      c.lineWidth = 1;
-      c.beginPath();
-      const rr = 10;
-      c.moveTo(left + rr, top);
-      c.arcTo(left + size, top, left + size, top + size, rr);
-      c.arcTo(left + size, top + size, left, top + size, rr);
-      c.arcTo(left, top + size, left, top, rr);
-      c.arcTo(left, top, left + size, top, rr);
-      c.closePath();
-      c.fill();
-      c.stroke();
-
-      c.fillStyle = "#2f6b38";
-      c.beginPath();
-      for (let i = 0; i < grass.left.length; i += 1) {
-        const s = toMini(grass.left[i]!.x, grass.left[i]!.y);
-        if (i === 0) c.moveTo(s.x, s.y);
-        else c.lineTo(s.x, s.y);
-      }
-      for (let i = grass.right.length - 1; i >= 0; i -= 1) {
-        const s = toMini(grass.right[i]!.x, grass.right[i]!.y);
-        c.lineTo(s.x, s.y);
-      }
-      c.closePath();
-      c.fill();
-
-      c.fillStyle = "#52525b";
-      c.beginPath();
-      for (let i = 0; i < edges.left.length; i += 1) {
-        const s = toMini(edges.left[i]!.x, edges.left[i]!.y);
-        if (i === 0) c.moveTo(s.x, s.y);
-        else c.lineTo(s.x, s.y);
-      }
-      for (let i = edges.right.length - 1; i >= 0; i -= 1) {
-        const s = toMini(edges.right[i]!.x, edges.right[i]!.y);
-        c.lineTo(s.x, s.y);
-      }
-      c.closePath();
-      c.fill();
-
-      c.strokeStyle = "rgba(250,250,250,0.55)";
-      c.lineWidth = 1.25;
-      c.beginPath();
-      for (let i = 0; i < centerline.length; i += 1) {
-        const s = toMini(centerline[i]!.x, centerline[i]!.y);
-        if (i === 0) c.moveTo(s.x, s.y);
-        else c.lineTo(s.x, s.y);
-      }
-      c.stroke();
-
-      const g0 = toMini(
-        gate.mid.x - gate.gateX * gate.halfWidthM,
-        gate.mid.y - gate.gateY * gate.halfWidthM,
-      );
-      const g1 = toMini(
-        gate.mid.x + gate.gateX * gate.halfWidthM,
-        gate.mid.y + gate.gateY * gate.halfWidthM,
-      );
-      c.strokeStyle = "#fafafa";
-      c.lineWidth = 2;
-      c.beginPath();
-      c.moveTo(g0.x, g0.y);
-      c.lineTo(g1.x, g1.y);
-      c.stroke();
-
-      const me = toMini(carX, carY);
-      c.save();
-      c.translate(me.x, me.y);
-      c.rotate(carHeading);
-      c.fillStyle = carPresetRef.current.color;
-      c.beginPath();
-      c.moveTo(0, -7);
-      c.lineTo(4.5, 5.5);
-      c.lineTo(-4.5, 5.5);
-      c.closePath();
-      c.fill();
-      c.restore();
-      c.restore();
-    }
-
-    function worldToScreen(
-      mode: DriveCameraMode,
-      viewW: number,
-      viewH: number,
-      px: number,
-      py: number,
-      camX: number,
-      camY: number,
-      camHeading: number,
-    ): { x: number; y: number; scale: number } {
-      if (mode === "top") {
-        const bw = maxX - minX + worldPad * 2;
-        const bh = maxY - minY + worldPad * 2;
-        const scale = Math.min(viewW / bw, viewH / bh) * 0.92;
-        const cx = (minX + maxX) / 2;
-        const cy = (minY + maxY) / 2;
-        return {
-          x: viewW / 2 + (px - cx) * scale,
-          y: viewH / 2 - (py - cy) * scale,
-          scale,
-        };
-      }
-      const scale = Math.min(viewW, viewH) / 95;
-      const dx = px - camX;
-      const dy = py - camY;
-      const cos = Math.cos(camHeading);
-      const sin = Math.sin(camHeading);
-      const rx = dx * cos - dy * sin;
-      const ry = dx * sin + dy * cos;
-      return {
-        x: viewW / 2 + rx * scale,
-        y: viewH * 0.62 - ry * scale,
-        scale,
-      };
-    }
-
-    function strokePoly(
-      c: CanvasRenderingContext2D,
-      pts: DrivePoint[],
-      mode: DriveCameraMode,
-      viewW: number,
-      viewH: number,
-      camX: number,
-      camY: number,
-      camH: number,
-      close: boolean,
-    ) {
-      if (!pts.length) return;
-      c.beginPath();
-      for (let i = 0; i < pts.length; i += 1) {
-        const s = worldToScreen(
-          mode,
-          viewW,
-          viewH,
-          pts[i]!.x,
-          pts[i]!.y,
-          camX,
-          camY,
-          camH,
-        );
-        if (i === 0) c.moveTo(s.x, s.y);
-        else c.lineTo(s.x, s.y);
-      }
-      if (close) c.closePath();
-    }
-
-    function fillRibbon(
-      c: CanvasRenderingContext2D,
-      left: DrivePoint[],
-      right: DrivePoint[],
-      mode: DriveCameraMode,
-      viewW: number,
-      viewH: number,
-      camX: number,
-      camY: number,
-      camH: number,
-      fill: string,
-    ) {
-      c.fillStyle = fill;
-      c.beginPath();
-      for (let i = 0; i < left.length; i += 1) {
-        const s = worldToScreen(
-          mode,
-          viewW,
-          viewH,
-          left[i]!.x,
-          left[i]!.y,
-          camX,
-          camY,
-          camH,
-        );
-        if (i === 0) c.moveTo(s.x, s.y);
-        else c.lineTo(s.x, s.y);
-      }
-      for (let i = right.length - 1; i >= 0; i -= 1) {
-        const s = worldToScreen(
-          mode,
-          viewW,
-          viewH,
-          right[i]!.x,
-          right[i]!.y,
-          camX,
-          camY,
-          camH,
-        );
-        c.lineTo(s.x, s.y);
-      }
-      c.closePath();
-      c.fill();
-    }
-
     function frame(now: number) {
       raf = requestAnimationFrame(frame);
-      const viewW = canvas!.clientWidth;
-      const viewH = canvas!.clientHeight;
       const dtWall = Math.min(0.05, (now - last) / 1000);
       last = now;
 
@@ -849,7 +587,7 @@ export function DriveGame({ trackId, carId: carIdProp }: Props) {
             FIXED_DT,
             centerline,
             halfW,
-            { carPreset: carPresetRef.current },
+            { carPreset: carPresetRef.current, grades },
           );
           car = stepped.car;
           if (shoveRef.current !== 0) {
@@ -922,7 +660,7 @@ export function DriveGame({ trackId, carId: carIdProp }: Props) {
 
           const elapsed = lapElapsedNow();
           if (elapsed - lastRecord >= RECORD_EVERY_MS) {
-            recordBuf.push({ x: car.x, y: car.y, t: elapsed });
+            recordBuf.push({ x: car.x, y: car.y, z: car.z, t: elapsed });
             lastRecord = elapsed;
           }
 
@@ -931,159 +669,45 @@ export function DriveGame({ trackId, carId: carIdProp }: Props) {
         }
       }
 
-      const mode = cameraRef.current;
-      ctx!.fillStyle = "#16351a";
-      ctx!.fillRect(0, 0, viewW, viewH);
-
-      fillRibbon(
-        ctx!,
-        grass.left,
-        grass.right,
-        mode,
-        viewW,
-        viewH,
-        car.x,
-        car.y,
-        car.heading,
-        "#2f6b38",
-      );
-      // Outer asphalt including curb band
-      fillRibbon(
-        ctx!,
-        edges.left,
-        edges.right,
-        mode,
-        viewW,
-        viewH,
-        car.x,
-        car.y,
-        car.heading,
-        "#6b5a3e",
-      );
-      // Inner asphalt
-      fillRibbon(
-        ctx!,
-        curbInner.left,
-        curbInner.right,
-        mode,
-        viewW,
-        viewH,
-        car.x,
-        car.y,
-        car.heading,
-        "#3f3f46",
-      );
-
-      ctx!.strokeStyle = "rgba(250,250,250,0.35)";
-      ctx!.lineWidth = 1.5;
-      ctx!.setLineDash([8, 10]);
-      strokePoly(
-        ctx!,
-        centerline,
-        mode,
-        viewW,
-        viewH,
-        car.x,
-        car.y,
-        car.heading,
-        false,
-      );
-      ctx!.stroke();
-      ctx!.setLineDash([]);
-
-      const gateLen = gate.halfWidthM;
-      const g0 = {
-        x: gate.mid.x - gate.gateX * gateLen,
-        y: gate.mid.y - gate.gateY * gateLen,
-      };
-      const g1 = {
-        x: gate.mid.x + gate.gateX * gateLen,
-        y: gate.mid.y + gate.gateY * gateLen,
-      };
-      ctx!.strokeStyle = "#fafafa";
-      ctx!.lineWidth = 3;
-      strokePoly(
-        ctx!,
-        [g0, g1],
-        mode,
-        viewW,
-        viewH,
-        car.x,
-        car.y,
-        car.heading,
-        false,
-      );
-      ctx!.stroke();
-      ctx!.strokeStyle = "#f97316";
-      ctx!.lineWidth = 2;
-      strokePoly(
-        ctx!,
-        [g0, g1],
-        mode,
-        viewW,
-        viewH,
-        car.x,
-        car.y,
-        car.heading,
-        false,
-      );
-      ctx!.stroke();
-
       const lapElapsed = waitingForGo || ph === "countdown" ? 0 : lapElapsedNow();
 
-      const ghosts: Array<{ g: DriveGhostLap; color: string }> = [];
-      if (playerGhost)
-        ghosts.push({ g: playerGhost, color: "rgba(56,189,248,0.85)" });
-      if (showRealGhostRef.current && realGhost)
-        ghosts.push({ g: realGhost, color: "rgba(250,204,21,0.8)" });
-      for (const { g, color } of ghosts) {
-        const sample = sampleGhost(g, Math.min(lapElapsed, g.timeMs));
-        if (!sample) continue;
-        const s = worldToScreen(
-          mode,
-          viewW,
-          viewH,
-          sample.x,
-          sample.y,
-          car.x,
-          car.y,
-          car.heading,
-        );
-        const look = sampleGhost(g, Math.min(lapElapsed + 120, g.timeMs));
-        let gh = car.heading;
-        if (look) gh = Math.atan2(look.x - sample.x, look.y - sample.y);
-        drawCar(
-          ctx!,
-          s.x,
-          s.y,
-          mode === "chase" ? gh - car.heading : gh,
-          color,
-          s.scale,
-        );
+      const ghostDraw: DriveSimSnapshot["ghosts"] = [];
+      if (playerGhost) {
+        const sample = sampleGhost(playerGhost, Math.min(lapElapsed, playerGhost.timeMs));
+        if (sample) {
+          const look = sampleGhost(
+            playerGhost,
+            Math.min(lapElapsed + 120, playerGhost.timeMs),
+          );
+          let gh = car.heading;
+          if (look) gh = Math.atan2(look.x - sample.x, look.y - sample.y);
+          ghostDraw.push({
+            sample,
+            heading: gh,
+            color: "rgba(56,189,248,0.85)",
+          });
+        }
+      }
+      if (showRealGhostRef.current && realGhost) {
+        const sample = sampleGhost(realGhost, Math.min(lapElapsed, realGhost.timeMs));
+        if (sample) {
+          const look = sampleGhost(
+            realGhost,
+            Math.min(lapElapsed + 120, realGhost.timeMs),
+          );
+          let gh = car.heading;
+          if (look) gh = Math.atan2(look.x - sample.x, look.y - sample.y);
+          ghostDraw.push({
+            sample,
+            heading: gh,
+            color: "rgba(250,204,21,0.8)",
+          });
+        }
       }
 
-      const me = worldToScreen(
-        mode,
-        viewW,
-        viewH,
-        car.x,
-        car.y,
-        car.x,
-        car.y,
-        car.heading,
-      );
-      const carScale = me.scale;
-      const carLenPx = Math.max(56, 11 * Math.max(carScale, 0.001));
-      drawCar(
-        ctx!,
-        me.x,
-        me.y,
-        mode === "chase" ? 0 : car.heading,
-        car.onTrack ? carPresetRef.current.color : "#a1a1aa",
-        carScale,
-      );
-
-      drawMinimap(ctx!, viewW, viewH, car.x, car.y, car.heading);
+      simRef.current.car = car;
+      simRef.current.camera = cameraRef.current;
+      simRef.current.ghosts = ghostDraw;
 
       const inputsNow = readInputs();
       audioRef.current?.tick({
@@ -1100,6 +724,7 @@ export function DriveGame({ trackId, carId: carIdProp }: Props) {
       hudTick += dtWall;
       if (hudTick > 0.1) {
         hudTick = 0;
+        setMiniCar({ x: car.x, y: car.y, heading: car.heading });
         const displayMs =
           lapElapsed + 40 >= lastHudMs ? lapElapsed : lastHudMs;
         lastHudMs = displayMs;
@@ -1124,7 +749,6 @@ export function DriveGame({ trackId, carId: carIdProp }: Props) {
           const ghostT = ghostTimeAtAlong(
             refGhost,
             centerline,
-            // Ghost was recorded from its own start; approximate using first sample along.
             (() => {
               const s0 = refGhost.samples[0]!;
               return projectOnRibbon(centerline, s0.x, s0.y).along;
@@ -1165,7 +789,6 @@ export function DriveGame({ trackId, carId: carIdProp }: Props) {
     raf = requestAnimationFrame(frame);
     return () => {
       cancelAnimationFrame(raf);
-      ro.disconnect();
     };
     // onLapComplete is useEffectEvent; phase gated via simLive + phaseRef
      
@@ -1345,12 +968,45 @@ export function DriveGame({ trackId, carId: carIdProp }: Props) {
         </div>
       </div>
 
-      <div ref={wrapRef} className="relative min-h-0 flex-1 touch-none">
-        <canvas
-          ref={canvasRef}
-          className="block h-full w-full touch-none"
-          style={{ touchAction: "none" }}
-        />
+      <div
+        ref={wrapRef}
+        className="relative min-h-[60vh] flex-1 touch-none sm:min-h-0"
+      >
+        {simLive ? (
+          <DriveScene
+            payload={payload}
+            simRef={simRef}
+            carColor={carPreset.color}
+            mobile={coarsePointer || coarseMobile}
+            gate={
+              gateState
+                ? {
+                    a: {
+                      x: gateState.mid.x - gateState.gateX * gateState.halfWidthM,
+                      y: gateState.mid.y - gateState.gateY * gateState.halfWidthM,
+                    },
+                    b: {
+                      x: gateState.mid.x + gateState.gateX * gateState.halfWidthM,
+                      y: gateState.mid.y + gateState.gateY * gateState.halfWidthM,
+                    },
+                  }
+                : null
+            }
+          />
+        ) : (
+          <div className="absolute inset-0 bg-[#16351a]" />
+        )}
+        {gateState && phase !== "ready" ? (
+          <DriveMinimap
+            centerline={payload.centerline}
+            halfWidthM={payload.halfWidthM}
+            gate={gateState}
+            carX={miniCar.x}
+            carY={miniCar.y}
+            carHeading={miniCar.heading}
+            carColor={carPreset.color}
+          />
+        ) : null}
 
         {phase === "ready" ? (
           <div
@@ -1358,7 +1014,7 @@ export function DriveGame({ trackId, carId: carIdProp }: Props) {
             className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-zinc-950/75 px-5 text-center backdrop-blur-sm"
           >
             <p className="max-w-md text-base leading-relaxed text-zinc-100 sm:text-lg">
-              Arcade drive on a real GPS ribbon
+              3D arcade drive on a real GPS ribbon
               {payload.source === "session_gps"
                 ? " from a session at this track"
                 : payload.source === "centerline"

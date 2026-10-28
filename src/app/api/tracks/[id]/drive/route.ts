@@ -5,6 +5,7 @@ import {
   polylineToLocal,
   toLocalMeters,
 } from "@/lib/drive/coords";
+import { withElevation } from "@/lib/drive/elevation";
 import type {
   DriveGhostLap,
   DriveLatLon,
@@ -30,8 +31,10 @@ export const runtime = "nodejs";
 
 const HALF_WIDTH_M = 9;
 
-function gpsOf(points: TelemetryPoint[]): DriveLatLon[] {
-  const out: DriveLatLon[] = [];
+type GpsSample = DriveLatLon & { alt?: number };
+
+function gpsOf(points: TelemetryPoint[]): GpsSample[] {
+  const out: GpsSample[] = [];
   for (const p of points) {
     if (
       typeof p.lat === "number" &&
@@ -39,7 +42,11 @@ function gpsOf(points: TelemetryPoint[]): DriveLatLon[] {
       Number.isFinite(p.lat) &&
       Number.isFinite(p.lon)
     ) {
-      out.push({ lat: p.lat, lon: p.lon });
+      const row: GpsSample = { lat: p.lat, lon: p.lon };
+      if (typeof p.alt === "number" && Number.isFinite(p.alt)) {
+        row.alt = p.alt;
+      }
+      out.push(row);
     }
   }
   return out;
@@ -52,7 +59,7 @@ function pickBestGpsLap(
     lap_number?: number | null;
   }>,
 ): {
-  path: DriveLatLon[];
+  path: GpsSample[];
   timeMs: number;
   lapNumber: number | null;
 } | null {
@@ -80,7 +87,7 @@ function closeLoop(points: DrivePoint[]): DrivePoint[] {
   const a = points[0]!;
   const b = points[points.length - 1]!;
   if (Math.hypot(a.x - b.x, a.y - b.y) > 8) {
-    return [...points, { x: a.x, y: a.y }];
+    return [...points, { x: a.x, y: a.y, z: a.z }];
   }
   return points;
 }
@@ -129,9 +136,10 @@ export async function GET(
   let startFinishRaw: unknown = catalog
     ? { lat: catalog.lat, lon: catalog.lon }
     : null;
-  let centerlineGps: DriveLatLon[] | null = null;
+  let centerlineGps: GpsSample[] | null = null;
   let source: DriveTrackPayload["source"] = "builtin";
   let realGhost: DriveGhostLap | null = null;
+  let sessionAlts: Array<number | undefined> | null = null;
 
   // Builtin geometric fallback first (always available offline).
   const builtin =
@@ -235,8 +243,12 @@ export async function GET(
           // Downsample path for the drive payload — keep ribbon light.
           centerlineGps =
             picked.path.length > 400
-              ? picked.path.filter((_, i) => i % Math.ceil(picked.path.length / 400) === 0)
+              ? picked.path.filter(
+                  (_, i) =>
+                    i % Math.ceil(picked.path.length / 400) === 0,
+                )
               : picked.path;
+          sessionAlts = centerlineGps.map((p) => p.alt);
           source = "session_gps";
         }
         if (
@@ -293,9 +305,24 @@ export async function GET(
     lon: sfParsed?.lon ?? centerlineGps[0]!.lon,
   };
 
-  const centerline = closeLoop(
-    decimatePolyline(polylineToLocal(origin, centerlineGps), 5),
+  const localFlat = decimatePolyline(polylineToLocal(origin, centerlineGps), 5);
+  // Resample alts to match decimated path length (nearest by index ratio).
+  const altForLocal: Array<number | undefined> = [];
+  if (sessionAlts && sessionAlts.length > 0) {
+    for (let i = 0; i < localFlat.length; i += 1) {
+      const t =
+        localFlat.length <= 1 ? 0 : i / (localFlat.length - 1);
+      const srcI = Math.round(t * (sessionAlts.length - 1));
+      altForLocal.push(sessionAlts[srcI]);
+    }
+  } else {
+    for (let i = 0; i < localFlat.length; i += 1) altForLocal.push(undefined);
+  }
+  const elevated = withElevation(localFlat, altForLocal);
+  const hasElevation = elevated.some(
+    (p) => typeof p.z === "number" && Math.abs(p.z) > 0.05,
   );
+  const centerline = closeLoop(elevated);
   if (pathLength(centerline) < 200) {
     return NextResponse.json(
       { error: "Track path too short to drive", code: "path_short" },
@@ -333,6 +360,7 @@ export async function GET(
     },
     realGhost,
     source,
+    hasElevation,
   };
 
   return NextResponse.json(payload, {
