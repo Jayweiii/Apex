@@ -44,8 +44,13 @@ html {
   overflow-x: clip;
   /* Solid base so fixed glow layer never leaves transparent gaps. */
   background-color: var(--background);
-  /* Reserve scrollbar gutter so Play / chip growth doesn't shift layout ~75px. */
+  /*
+   * Always reserve the classic scrollbar lane so document scroll appearing
+   * (compare chips, expanded panels) cannot shrink the viewport and slide
+   * map chrome hit targets (Basemap ↔ Delta) under the finger.
+   */
   scrollbar-gutter: stable;
+  overflow-y: auto;
 }
 
 body {
@@ -684,6 +689,25 @@ video {
   position: relative;
   z-index: 0;
   isolation: isolate;
+}
+
+/*
+ * Map chrome — fixed reserved rows (modes / basemap / POV). Basemap never
+ * shares a wrap row with Delta or Overview|POV so scrollbar / reflow cannot
+ * move Street|Satellite under the wrong tap (docs/UI_RULES.md).
+ */
+.apex-map-chrome {
+  flex-shrink: 0;
+}
+
+.apex-map-chrome__basemap {
+  min-height: var(--apex-tap-min);
+  flex-shrink: 0;
+}
+
+.apex-map-chrome__pov {
+  min-height: var(--apex-tap-min);
+  flex-shrink: 0;
 }
 
 .apex-car-marker {

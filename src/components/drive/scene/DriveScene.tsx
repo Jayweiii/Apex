@@ -5,12 +5,19 @@ import { MiataCar } from "@/components/drive/scene/MiataCar";
 import type { DriveSimSnapshot } from "@/components/drive/scene/sim-bridge";
 import { TrackMesh3D } from "@/components/drive/scene/TrackMesh3D";
 import { buildGradeProfile } from "@/lib/drive/elevation";
-import { createTimerClock, type TimerClock } from "@/lib/drive/timer-clock";
+import {
+  createTimerClock,
+  silenceUpstreamR3fClockDeprecation,
+  type TimerClock,
+} from "@/lib/drive/timer-clock";
 import { buildTrackMeshBuffers, enuToThree } from "@/lib/drive/track-mesh";
 import type { DriveCarState, DrivePoint, DriveTrackPayload } from "@/lib/drive/types";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, type MutableRefObject } from "react";
 import type { Clock, Group } from "three";
+
+// R3F store constructs THREE.Clock during Canvas mount (upstream); filter first.
+silenceUpstreamR3fClockDeprecation();
 
 type Props = {
   payload: DriveTrackPayload;

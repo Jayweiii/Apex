@@ -23,7 +23,11 @@ import {
   withElevation,
 } from "../src/lib/drive/elevation";
 import { buildTrackMeshBuffers, enuToThree } from "../src/lib/drive/track-mesh";
-import { createTimerClock } from "../src/lib/drive/timer-clock";
+import {
+  createTimerClock,
+  silenceUpstreamR3fClockDeprecation,
+} from "../src/lib/drive/timer-clock";
+import { Clock } from "three";
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
@@ -306,6 +310,10 @@ assert(pkg.includes("@react-three/fiber"), "R3F dependency");
 const driveScene = read("src/components/drive/scene/DriveScene.tsx");
 assert(driveScene.includes("createTimerClock"), "Drive uses Timer-backed clock");
 assert(driveScene.includes("onCreated"), "R3F clock swapped onCreated");
+assert(
+  driveScene.includes("silenceUpstreamR3fClockDeprecation"),
+  "Drive silences upstream R3F Clock constructor warn",
+);
 assert(!/new\s+Clock\s*\(/.test(driveScene), "DriveScene must not construct THREE.Clock");
 
 const timerClockSrc = read("src/lib/drive/timer-clock.ts");
@@ -316,6 +324,32 @@ assert(
 assert(timerClockSrc.includes("Timer"), "timer-clock uses THREE.Timer");
 assert(timerClockSrc.includes("getDelta"), "Clock-shaped getDelta for R3F");
 assert(!timerClockSrc.includes("new Clock"), "timer-clock must not use deprecated Clock");
+assert(
+  timerClockSrc.includes("setConsoleFunction") &&
+    timerClockSrc.includes("silenceUpstreamR3fClockDeprecation"),
+  "upstream Clock deprecation filtered via THREE.setConsoleFunction",
+);
+
+// Confirm filter swallows the R3F store's THREE.Clock constructor warn.
+silenceUpstreamR3fClockDeprecation();
+{
+  let sawClockWarn = false;
+  const prevWarn = console.warn;
+  console.warn = (...args: unknown[]) => {
+    const text = args.map(String).join(" ");
+    if (text.includes("Clock") && text.includes("deprecated")) {
+      sawClockWarn = true;
+    }
+    prevWarn.apply(console, args as Parameters<typeof console.warn>);
+  };
+  try {
+    // Mimic R3F store init: constructing Clock would warn without the filter.
+    void new Clock();
+  } finally {
+    console.warn = prevWarn;
+  }
+  assert(!sawClockWarn, "Clock deprecation warn silenced for upstream R3F");
+}
 
 const clock = createTimerClock(null);
 assert(typeof clock.getDelta() === "number", "timer clock getDelta");

@@ -1,10 +1,47 @@
-import { Timer } from "three";
+import {
+  Timer,
+  getConsoleFunction,
+  setConsoleFunction,
+} from "three";
 
 /**
  * Clock-shaped facade over THREE.Timer for react-three-fiber.
  * THREE.Clock has been deprecated since r183 in favor of Timer; R3F still
  * expects a Clock-like object (`getDelta`, `elapsedTime`, …).
+ *
+ * As of @react-three/fiber 9.8.2 (and 10 canaries), the store still does
+ * `new THREE.Clock()` before `onCreated` can swap our Timer facade — that
+ * constructor warn is upstream-only. Filter just that message.
  */
+let clockDeprecationFilterInstalled = false;
+
+export function silenceUpstreamR3fClockDeprecation(): void {
+  if (clockDeprecationFilterInstalled) return;
+  clockDeprecationFilterInstalled = true;
+  const prev = getConsoleFunction();
+  setConsoleFunction((type, message, ...params) => {
+    if (
+      type === "warn" &&
+      typeof message === "string" &&
+      message.includes("Clock:") &&
+      message.includes("deprecated")
+    ) {
+      return;
+    }
+    if (prev) {
+      prev(type, message, ...params);
+      return;
+    }
+    if (type === "error") {
+      console.error(message, ...params);
+    } else if (type === "log") {
+      console.log(message, ...params);
+    } else {
+      console.warn(message, ...params);
+    }
+  });
+}
+
 export type TimerClock = {
   autoStart: boolean;
   startTime: number;
