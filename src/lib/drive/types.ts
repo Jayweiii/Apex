@@ -51,6 +51,8 @@ export type DriveInputs = {
   steer: number;
 };
 
+export type DriveSurface = "asphalt" | "curb" | "grass";
+
 export type DriveCarState = {
   x: number;
   y: number;
@@ -60,6 +62,21 @@ export type DriveCarState = {
   /** Lateral slip velocity (m/s), for slide feel. */
   slip: number;
   onTrack: boolean;
+  /** Current surface under the car. */
+  surface?: DriveSurface;
+  /** Smoothed throttle pedal 0–1 for response feel. */
+  throttlePedal?: number;
+  /** Smoothed brake pedal 0–1. */
+  brakePedal?: number;
+  /** Longitudinal weight-transfer proxy (−1 front … +1 rear). */
+  load?: number;
 };
 
 export type DriveCameraMode = "chase" | "top";
+
+export type DrivePhase =
+  | "ready"
+  | "countdown"
+  | "racing"
+  | "paused"
+  | "celebrating";

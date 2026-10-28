@@ -15,6 +15,8 @@ export type DriveLeaderboardEntry = {
   at: string; // ISO
   /** Marks this as a game time — never feed into real leaderboards. */
   source: "drive-minigame";
+  /** Optional arcade car id for the local board only. */
+  carId?: string;
 };
 
 export function drivePbKey(trackId: string) {
@@ -115,6 +117,7 @@ export function submitGameTime(
   trackId: string,
   timeMs: number,
   name = "You",
+  carId?: string,
 ): DriveLeaderboardEntry[] {
   if (typeof window === "undefined") return [];
   const entry: DriveLeaderboardEntry = {
@@ -122,6 +125,7 @@ export function submitGameTime(
     timeMs: Math.round(timeMs),
     at: new Date().toISOString(),
     source: "drive-minigame",
+    carId,
   };
   const list = loadGameLeaderboard(trackId);
   list.push(entry);
