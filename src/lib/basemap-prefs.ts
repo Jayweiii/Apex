@@ -14,8 +14,11 @@ export const DEFAULT_BASEMAP: BasemapMode = "satellite";
  * on blank / street-through holes until a manual re-tap.
  */
 export const ESRI_IMAGERY_URLS = [
-  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+  // Prefer services/clarity first — server.arcgisonline.com intermittently
+  // 502/CORS from some edges; failover rotates through this list.
   "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+  "https://clarity.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
 ] as const;
 
 export const ESRI_IMAGERY = {
@@ -74,6 +77,7 @@ export function isSatelliteTileErrorMessage(message: string): boolean {
   return (
     m.includes("world_imagery") ||
     m.includes("arcgisonline") ||
+    m.includes("maptiles.arcgis") ||
     m.includes("basemap-satellite") ||
     m.includes("esri")
   );

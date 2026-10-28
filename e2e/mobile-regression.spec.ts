@@ -470,35 +470,60 @@ test.describe("Apex mobile/desktop regression", () => {
 
   test("Drive car/track pickers are single-select radios on tap", async ({
     page,
+    useTap,
   }) => {
     await gotoReady(page, "/drive");
     await page.waitForSelector("[data-apex-drive-car-track-select]", {
       timeout: 90_000,
     });
+    // Wait for post-hydration prefs so CTA href matches aria-checked.
+    await expect
+      .poll(
+        async () =>
+          page
+            .locator("[data-apex-drive-car-track-select]")
+            .getAttribute("data-apex-drive-prefs-ready"),
+        { timeout: 15_000 },
+      )
+      .toBe("1");
 
     const carGroup = page.locator(
       "[data-apex-drive-car-select] [role='radiogroup']",
     );
     await expect(carGroup).toBeVisible();
-    const hatch = page.locator('[data-apex-drive-car="hatch"]');
-    const miata = page.locator('[data-apex-drive-car="miata"]');
-    const gt = page.locator('[data-apex-drive-car="gt"]');
+    const carIds = ["miata", "hatch", "gt", "kart"] as const;
 
-    await activate(page, hatch);
-    await expect(hatch).toHaveAttribute("aria-checked", "true");
-    await expect(miata).toHaveAttribute("aria-checked", "false");
-    await expect(
-      page.locator('[data-apex-drive-car][aria-checked="true"]'),
-    ).toHaveCount(1);
+    // Tap every car card: exactly one remains aria-checked; CTA href tracks it.
+    for (const id of carIds) {
+      const card = page.locator(`[data-apex-drive-car="${id}"]`);
+      await activate(page, card);
+      await expect(card).toHaveAttribute("aria-checked", "true");
+      await expect(
+        page.locator('[data-apex-drive-car][aria-checked="true"]'),
+      ).toHaveCount(1);
+      for (const other of carIds) {
+        if (other === id) continue;
+        await expect(
+          page.locator(`[data-apex-drive-car="${other}"]`),
+        ).toHaveAttribute("aria-checked", "false");
+      }
+      await expect(page.locator("[data-apex-drive-go]")).toHaveAttribute(
+        "href",
+        new RegExp(`/drive/.+\\?car=${id}$`),
+      );
+    }
 
-    // Second tap on another card: exactly one remains checked (no sticky dual).
-    await activate(page, gt);
-    await expect(gt).toHaveAttribute("aria-checked", "true");
-    await expect(hatch).toHaveAttribute("aria-checked", "false");
-    await expect(miata).toHaveAttribute("aria-checked", "false");
-    await expect(
-      page.locator('[data-apex-drive-car][aria-checked="true"]'),
-    ).toHaveCount(1);
+    // Hamburger must open (proves hydration / no blocking overlay).
+    if (useTap) {
+      const menu = page.locator("[data-apex-nav-menu]");
+      await expect(menu).toBeVisible();
+      await activate(page, menu);
+      await expect(menu).toHaveAttribute("aria-expanded", "true");
+      await expect(page.locator("[data-apex-nav-drawer]")).toBeVisible();
+      // Close so track cards stay tappable.
+      await activate(page, menu);
+      await expect(menu).toHaveAttribute("aria-expanded", "false");
+    }
 
     const trackGroup = page.locator(
       "[data-apex-drive-track-select] [role='radiogroup']",
@@ -508,6 +533,12 @@ test.describe("Apex mobile/desktop regression", () => {
     await expect(tracks.first()).toBeVisible();
     const count = await tracks.count();
     expect(count).toBeGreaterThan(1);
+    // No undriveable catalog fillers (e.g. monza) that 404 /api/tracks/*/drive.
+    const trackIds = await tracks.evaluateAll((els) =>
+      els.map((el) => el.getAttribute("data-apex-drive-track")),
+    );
+    expect(trackIds.every((id) => id && !/monza/i.test(id))).toBe(true);
+
     const first = tracks.nth(0);
     const second = tracks.nth(1);
     await activate(page, second);
@@ -519,7 +550,90 @@ test.describe("Apex mobile/desktop regression", () => {
 
     const go = page.locator("[data-apex-drive-go]");
     await expect(go).toBeVisible();
-    await expect(go).toHaveAttribute("href", /\/drive\/.+\?car=gt/);
+    await expect(go).toHaveAttribute("href", /\/drive\/.+\?car=kart$/);
+  });
+
+  test("Drive hub Space selects focused car radio", async ({ page, useTap }) => {
+    test.skip(useTap, "keyboard contract is desktop-oriented");
+    await gotoReady(page, "/drive");
+    await page.waitForSelector("[data-apex-drive-car-track-select]", {
+      timeout: 90_000,
+    });
+    const miata = page.locator('[data-apex-drive-car="miata"]');
+    await miata.focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(page.locator('[data-apex-drive-car="hatch"]')).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    await page.keyboard.press("Space");
+    await expect(page.locator('[data-apex-drive-car="hatch"]')).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    await expect(page.locator("[data-apex-drive-go]")).toHaveAttribute(
+      "href",
+      /car=hatch$/,
+    );
+  });
+
+  test("Satellite basemap stays pressed and imagery host can fail over", async ({
+    page,
+    useTap,
+  }) => {
+    await gotoReady(page, `/sessions/${SESSION_ID}`);
+    const povBtn = page.getByRole("button", { name: /^POV$/i }).first();
+    const missing = page.getByText(/Session not found/i);
+    // Race: cloud QA session → POV; local/empty store → skip.
+    const ready = await Promise.race([
+      povBtn.waitFor({ state: "visible", timeout: 90_000 }).then(() => "pov" as const),
+      missing
+        .waitFor({ state: "visible", timeout: 90_000 })
+        .then(() => "missing" as const),
+    ]).catch(() => "timeout" as const);
+    if (ready !== "pov") {
+      test.skip(true, "QA session not available on this BASE_URL");
+    }
+    const pov = page.locator(
+      "[data-apex-pov-option='chase'], button:text-is('POV')",
+    );
+    await activate(page, pov.first());
+
+    const basemap = page.locator("[data-apex-basemap-toggle]").first();
+    await expect(basemap).toBeVisible({ timeout: 60_000 });
+    const street = basemap.getByRole("button", { name: /^Street$/i });
+    const satellite = basemap.getByRole("button", { name: /^Satellite$/i });
+
+    await activate(page, street);
+    await expect(street).toHaveAttribute("aria-pressed", "true");
+    await activate(page, satellite);
+    await expect(satellite).toHaveAttribute("aria-pressed", "true");
+
+    // At least one Esri failover host must answer (CORS-ok imagery).
+    const hasFailoverHosts = await page.evaluate(async () => {
+      const probes = [
+        "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/3/2/2",
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/3/2/2",
+        "https://clarity.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/3/2/2",
+      ];
+      const results = await Promise.all(
+        probes.map(async (url) => {
+          try {
+            const res = await fetch(url, { method: "HEAD", mode: "cors" });
+            return res.ok;
+          } catch {
+            return false;
+          }
+        }),
+      );
+      return results.some(Boolean);
+    });
+    expect(hasFailoverHosts).toBe(true);
+
+    // Re-tap Satellite stays pressed (refresh path / no street-through stick).
+    await activate(page, satellite);
+    await expect(satellite).toHaveAttribute("aria-pressed", "true");
+    expect(typeof useTap).toBe("boolean");
   });
 
   test("compare page primary control single-activates", async ({
