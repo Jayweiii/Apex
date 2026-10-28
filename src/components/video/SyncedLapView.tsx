@@ -50,7 +50,7 @@ import {
 } from "@/lib/playback-timebase";
 import { sessionLapHref } from "@/lib/session-lap-url";
 import type { SessionVideo, TelemetryPoint } from "@/lib/types";
-import { isVideoSynced } from "@/lib/video-sync-guide";
+import { isVideoSynced, syncBadgeForVideo } from "@/lib/video-sync-guide";
 import {
   toSyncLaps,
   videoTimeFromLapProgress,
@@ -90,7 +90,7 @@ function MissingYouTube({
         </p>
       ) : (
         <p className="text-[11px] text-zinc-500">
-          Paste a YouTube link under Sync video
+          Paste a YouTube link under Video sync
         </p>
       )}
       {sessionId && !compact ? (
@@ -944,12 +944,24 @@ export function SyncedLapView({
   if (!contextual && syncPanel) {
     toolTabs.push({
       id: "sync",
-      label: "Sync video",
+      label: "Video sync",
       content: syncPanel,
       badge: activeVideo && !locked ? "!" : null,
     });
   }
   for (const tab of extraToolTabs ?? []) toolTabs.push(tab);
+
+  const syncOffsetMeta = (() => {
+    if (!activeVideo) return null;
+    if (!locked) {
+      return { text: syncBadgeForVideo(activeVideo).label, warn: true };
+    }
+    const sign = activeVideo.offsetSec >= 0 ? "+" : "";
+    return {
+      text: `offset ${sign}${activeVideo.offsetSec.toFixed(2)}s`,
+      warn: false,
+    };
+  })();
 
   const videoHeader = contextual ? (
     <div
@@ -963,16 +975,24 @@ export function SyncedLapView({
         <button
           type="button"
           data-testid="toolbar-sync"
-          aria-pressed={syncOpen}
+          className="apex-disclosure"
+          aria-expanded={syncOpen}
+          aria-controls="video-sync-panel"
           onClick={() => setSyncOpen((open) => !open)}
-          className={`apex-btn ${syncOpen || (activeVideo && !locked) ? "apex-btn--pressed" : ""}`}
         >
-          <span aria-hidden>⏯</span> Sync video
-          {activeVideo && !locked ? (
-            <span className="rounded bg-black/20 px-1 font-mono text-[10px] normal-case tracking-normal">
-              !
+          <span className="apex-disclosure__label">Video sync</span>
+          {!syncOpen && syncOffsetMeta ? (
+            <span
+              className={`apex-disclosure__meta${
+                syncOffsetMeta.warn ? " apex-disclosure__meta--warn" : ""
+              }`}
+            >
+              {syncOffsetMeta.text}
             </span>
           ) : null}
+          <span className="apex-disclosure__chevron" aria-hidden>
+            ▾
+          </span>
         </button>
       ) : null}
     </div>
@@ -984,6 +1004,9 @@ export function SyncedLapView({
       {videoBlock}
       {contextual && syncOpen && syncPanel ? (
         <div
+          id="video-sync-panel"
+          role="region"
+          aria-label="Video sync"
           className="mt-2 rounded-xl border border-zinc-800/80 bg-zinc-950/80 p-3"
           data-testid="video-sync-panel"
         >

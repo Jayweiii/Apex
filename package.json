@@ -67,7 +67,12 @@
     "test:speed-units": "tsx scripts/verify-speed-units.ts",
     "test:drive": "tsx scripts/verify-drive-minigame.ts",
     "test:iphone-single-tap": "tsx scripts/verify-iphone-single-tap.ts",
-    "qa:iphone-single-tap": "node scripts/qa-iphone-single-tap.mjs"
+    "test:video-sync-disclosure": "tsx scripts/verify-video-sync-disclosure.ts",
+    "test:e2e": "playwright test",
+    "test:e2e:iphone": "playwright test --project=iphone",
+    "test:e2e:desktop": "playwright test --project=desktop",
+    "qa:iphone-single-tap": "node scripts/qa-iphone-single-tap.mjs",
+    "qa:mobile-map-play": "node scripts/qa-mobile-map-play.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1146.0",
@@ -86,6 +91,7 @@
     "recharts": "^3.10.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "@tailwindcss/postcss": "^4",
     "@types/leaflet": "^1.9.22",
     "@types/node": "^20.19.43",
