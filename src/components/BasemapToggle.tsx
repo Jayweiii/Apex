@@ -32,6 +32,7 @@ export function BasemapToggle({
           <button
             key={option.value}
             type="button"
+            data-apex-basemap-option={option.value}
             onClick={() => onChange(option.value)}
             className={`cursor-pointer rounded-md px-2.5 py-1 transition ${
               active

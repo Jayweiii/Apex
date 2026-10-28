@@ -108,6 +108,8 @@ function PovToggle({
       }`}
       role="group"
       aria-label="Map camera mode"
+      data-apex-pov-toggle="1"
+      data-apex-pov-mode={prefs.mode}
     >
       {(
         [
@@ -120,6 +122,7 @@ function PovToggle({
           <button
             key={option.value}
             type="button"
+            data-apex-pov-option={option.value}
             onClick={() => onChange({ ...prefs, mode: option.value })}
             className={`cursor-pointer rounded-md px-2.5 py-1 transition ${
               active
