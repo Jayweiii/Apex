@@ -26,7 +26,12 @@ import {
   smoothBearingAtProgress,
 } from "@/lib/track-bearing";
 import type { TelemetryPoint } from "@/lib/types";
-import maplibregl, { type Map as MapLibreMap, type Marker } from "maplibre-gl";
+import {
+  LngLatBounds,
+  Map as MapLibreMap,
+  Marker,
+  type MapMouseEvent,
+} from "maplibre-gl";
 import { useEffect, useMemo, useRef, useState } from "react";
 import "maplibre-gl/dist/maplibre-gl.css";
 
@@ -302,7 +307,7 @@ export function ChaseTrackMap({
   // Create map once (both basemaps; later swaps via opacity only).
   useEffect(() => {
     if (!hostRef.current || mapRef.current) return;
-    const map = new maplibregl.Map({
+    const map = new MapLibreMap({
       container: hostRef.current,
       style: {
         version: 8,
@@ -382,7 +387,7 @@ export function ChaseTrackMap({
       return best.progress;
     };
 
-    const onClick = (event: maplibregl.MapMouseEvent) => {
+    const onClick = (event: MapMouseEvent) => {
       const progress = progressAt(
         event.originalEvent.clientX,
         event.originalEvent.clientY,
@@ -391,7 +396,7 @@ export function ChaseTrackMap({
       clearHoverPreviewRef.current();
       onProgressRef.current?.(progress);
     };
-    const onMove = (event: maplibregl.MapMouseEvent) => {
+    const onMove = (event: MapMouseEvent) => {
       const progress = progressAt(
         event.originalEvent.clientX,
         event.originalEvent.clientY,
@@ -472,7 +477,7 @@ export function ChaseTrackMap({
         ) {
           const el = document.createElement("div");
           el.innerHTML = sfCrossingHtml();
-          const marker = new maplibregl.Marker({
+          const marker = new Marker({
             element: el.firstElementChild as HTMLElement,
             anchor: "center",
           })
@@ -485,7 +490,7 @@ export function ChaseTrackMap({
           if (!mid) continue;
           const el = document.createElement("div");
           el.innerHTML = lapKindHtml(trace.lapKind);
-          const marker = new maplibregl.Marker({
+          const marker = new Marker({
             element: el.firstElementChild as HTMLElement,
             anchor: "bottom",
           })
@@ -632,7 +637,7 @@ export function ChaseTrackMap({
           MARKER_SHAPES[index % MARKER_SHAPES.length] ?? "filled",
           false,
         );
-        const marker = new maplibregl.Marker({
+        const marker = new Marker({
           element: el.firstElementChild as HTMLElement,
           anchor: "center",
         })
@@ -664,7 +669,7 @@ export function ChaseTrackMap({
           }
           const el = document.createElement("div");
           el.innerHTML = gapHtml(formatGap(gapSec));
-          const marker = new maplibregl.Marker({
+          const marker = new Marker({
             element: el.firstElementChild as HTMLElement,
             anchor: "left",
             offset: [10, 0],
@@ -676,7 +681,7 @@ export function ChaseTrackMap({
       }
 
       if (prefs.followId === "centroid" && samples.length > 1) {
-        const bounds = new maplibregl.LngLatBounds();
+        const bounds = new LngLatBounds();
         samples.forEach((s) => bounds.extend([s.lon, s.lat]));
         if (!bounds.isEmpty()) {
           map.fitBounds(bounds, {

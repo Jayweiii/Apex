@@ -97,12 +97,12 @@ export async function PATCH(
     }
   }
 
-  let startOverride: number | null = reset
+  const startOverride: number | null = reset
     ? null
     : body.start_offset_override === undefined
       ? ((lap.start_offset_override as number | null | undefined) ?? null)
       : (normalizeOverride(body.start_offset_override).value ?? null);
-  let endOverride: number | null = reset
+  const endOverride: number | null = reset
     ? null
     : body.end_offset_override === undefined
       ? ((lap.end_offset_override as number | null | undefined) ?? null)

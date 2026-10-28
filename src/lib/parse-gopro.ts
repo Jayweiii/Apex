@@ -608,7 +608,7 @@ export async function parseGoProChapters(
   let gpsDerivedStartedAtMs: number | undefined;
   let clockSource: GoProClockSource = "none";
   let hasGyro = false;
-  let qualityParts: GpsQuality[] = [];
+  const qualityParts: GpsQuality[] = [];
 
   for (let i = 0; i < files.length; i += 1) {
     const chapter = await parseGoProFile(files[i], {
