@@ -128,15 +128,18 @@ async function runPage(browser, path, shotName) {
 
   const before = await layoutProbe(page);
   ok(`${shotName}-play-visible`, Boolean(before.button?.visible), before);
-  ok(
-    `${shotName}-no-scroll-needed`,
-    Boolean(
-      before.button?.visible &&
-        before.button.top >= 0 &&
-        before.button.bottom <= 844,
-    ),
-    before,
+  // Map often starts below session chrome; Play must still be in the first
+  // viewport once the map is on-screen (no further scroll to reach Play).
+  const inFirstViewport = Boolean(
+    before.button?.visible &&
+      before.button.top >= 0 &&
+      before.button.bottom <= 844 &&
+      before.button.top < 844,
   );
+  ok(`${shotName}-no-scroll-needed`, inFirstViewport, {
+    button: before.button,
+    mapTop: before.map?.top,
+  });
   ok(`${shotName}-not-above-header`, !before.aboveHeader, {
     aboveHeader: before.aboveHeader,
     buttonTop: before.button?.top,
