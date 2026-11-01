@@ -1049,8 +1049,8 @@ export function CloudSessionView({ id }: { id: string }) {
           data-testid="session-details-block"
           data-apex-session-details="1"
         >
-          <div className="hidden flex-wrap items-center justify-between gap-2 sm:flex">
-            <div className="min-w-0">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="hidden min-w-0 sm:block">
               <p className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">
                 Session details
               </p>
@@ -1061,17 +1061,18 @@ export function CloudSessionView({ id }: { id: string }) {
                 {session.notes ? ` · ${session.notes}` : ""}
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-1.5">
-              {mine && detailsDirty ? (
-                <SectionSaveHint
-                  dirty
-                  saving={saving}
-                  label="Unsaved details"
-                  onSave={() => void saveEdits()}
-                  onDiscard={discardEdits}
-                />
-              ) : null}
-              {mine ? (
+            {mine ? (
+              <div className="flex flex-wrap items-center gap-1.5">
+                {detailsDirty ? (
+                  <SectionSaveHint
+                    dirty
+                    saving={saving}
+                    label="Unsaved details"
+                    onSave={() => void saveEdits()}
+                    onDiscard={discardEdits}
+                  />
+                ) : null}
+                {/* One control for every viewport (no hidden duplicate). */}
                 <button
                   type="button"
                   data-testid="toolbar-details"
@@ -1080,40 +1081,17 @@ export function CloudSessionView({ id }: { id: string }) {
                   aria-controls="session-details-panel"
                   onClick={() => setDetailsOpen((open) => !open)}
                 >
-                  <span className="apex-disclosure__label">Edit details</span>
+                  <span className="apex-disclosure__label">
+                    <span className="sm:hidden">Details</span>
+                    <span className="hidden sm:inline">Edit details</span>
+                  </span>
                   <span className="apex-disclosure__chevron" aria-hidden>
                     ▾
                   </span>
                 </button>
-              ) : null}
-            </div>
+              </div>
+            ) : null}
           </div>
-          {mine ? (
-            <div className="mb-1 flex flex-wrap items-center gap-1.5 sm:hidden">
-              {detailsDirty ? (
-                <SectionSaveHint
-                  dirty
-                  saving={saving}
-                  label="Unsaved details"
-                  onSave={() => void saveEdits()}
-                  onDiscard={discardEdits}
-                />
-              ) : null}
-              <button
-                type="button"
-                data-testid="toolbar-details"
-                className="apex-disclosure"
-                aria-expanded={detailsOpen}
-                aria-controls="session-details-panel"
-                onClick={() => setDetailsOpen((open) => !open)}
-              >
-                <span className="apex-disclosure__label">Details</span>
-                <span className="apex-disclosure__chevron" aria-hidden>
-                  ▾
-                </span>
-              </button>
-            </div>
-          ) : null}
           {detailsOpen && mine ? (
             <div
               id="session-details-panel"

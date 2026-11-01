@@ -47,7 +47,7 @@ import type {
   DrivePoint,
   DriveTrackPayload,
 } from "@/lib/drive/types";
-import { DriveMinimap, drawMinimap } from "@/components/drive/DriveMinimap";
+import { DriveMinimap } from "@/components/drive/DriveMinimap";
 import { DriveScene } from "@/components/drive/scene/DriveScene";
 import {
   createSimSnapshot,
@@ -66,9 +66,6 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-
-// Keep drawMinimap symbol referenced for verify-drive-minigame.
-void drawMinimap;
 
 type TouchPadAxes = { steer: number; throttle: number; brake: number };
 type TouchPadAxis = keyof TouchPadAxes;

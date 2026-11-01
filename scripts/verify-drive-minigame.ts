@@ -183,8 +183,8 @@ assert(
 );
 
 const game = read("src/components/drive/DriveGame.tsx");
-assert(game.includes("drawMinimap"), "minimap rendered");
-assert(game.includes("DriveScene") || game.includes("DriveScene"), "3D scene hosted");
+assert(game.includes("<DriveMinimap"), "minimap rendered");
+assert(game.includes("DriveScene"), "3D scene hosted");
 assert(game.includes("LAP_FINISH_COVER_FRAC"), "coverage-gated finish");
 assert(game.includes("Math.max(56, 11 * pxPerM)"), "car has screen-space size");
 assert(game.includes("data-apex-drive-car-px"), "exposes car px for QA");

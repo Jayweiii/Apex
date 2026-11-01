@@ -57,9 +57,12 @@ Optional redistributable telemetry (e.g. Spreewaldring STC) may live under `publ
 ## Scripts
 
 ```bash
-npm test
-npm run test:parse
-npm run test:storage
+npm run check            # typecheck + lint + all verify contracts (what CI runs)
+npm test                 # every scripts/verify-*.ts, keeps going past failures
+npm test -- drive sync   # only verify scripts whose name contains "drive" or "sync"
+npm run test:e2e         # Playwright (iPhone + desktop) against BASE_URL
 npm run build:datasets
 npm run build
 ```
+
+New `scripts/verify-*.ts` files are picked up by `npm test` automatically.

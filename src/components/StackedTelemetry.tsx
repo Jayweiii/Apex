@@ -297,15 +297,6 @@ export function StackedCompareTelemetry({
   }) => ReactNode;
   CompareTooltip: (props: { mode?: "delta" | "g" | "speed" }) => ReactNode;
 }) {
-  const lapPoints = ordered.map(() =>
-    series.map((row) => {
-      // Reconstruct minimal points for channel detection from flat keys.
-      const point: TelemetryPoint = { t: 0, speed: 0 };
-      return point;
-    }),
-  );
-  void lapPoints;
-
   // Detect from series keys (throttle0, brake1, …) plus always speed/delta/g.
   const hasOptional = (key: string) =>
     series.some((row) => typeof row[key] === "number");

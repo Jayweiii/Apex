@@ -107,8 +107,11 @@ assert(
 );
 
 const drive = read("src/components/drive/DriveGame.tsx");
+const minimap = read("src/components/drive/DriveMinimap.tsx");
 assert(
-  drive.includes("viewW < 640 ? 58") && !drive.includes("viewH - size - pad - (viewW < 640 ? 120"),
+  drive.includes("<DriveMinimap") &&
+    /absolute right-2 top-14[^"]*sm:top-3/.test(minimap) &&
+    !/\bbottom-\d/.test(minimap),
   "drive minimap anchors top-right on mobile (not above brake/gas)",
 );
 
