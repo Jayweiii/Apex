@@ -1,6 +1,8 @@
 "use client";
 
 import { BusyIndicator } from "@/components/BusyIndicator";
+import { SegmentedControl } from "@/components/SegmentedControl";
+import { offsetForVideoStartingAtLap } from "@/lib/video-coverage";
 import { GpsQualityBadge } from "@/components/GpsQualityBadge";
 import { putLocalBlob } from "@/lib/blob-store";
 import { detectNearestTrack } from "@/lib/detect-track";
@@ -109,6 +111,11 @@ export function SessionUpload({
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [youtubeUrl, setYoutubeUrl] = useState("");
+  /** What the YouTube video contains: whole session, one lap, or from lap N on. */
+  const [videoScope, setVideoScope] = useState<"session" | "lap" | "from">(
+    "session",
+  );
+  const [videoLapNumber, setVideoLapNumber] = useState(1);
   const [csvAsGoProExport, setCsvAsGoProExport] = useState(false);
   const [previewQuality, setPreviewQuality] = useState<GpsQuality | null>(null);
   const [dlapHints, setDlapHints] = useState<DlapHints | null>(null);
@@ -581,17 +588,30 @@ export function SessionUpload({
       const ytId = parseYouTubeId(youtubeUrl);
       const videos: SessionVideo[] = [];
       if (ytId) {
+        // Whole session from the same GoPro / logger clock: auto-synced.
+        // One lap / from lap N: assume the clip starts at that lap's start
+        // (unsynced first guess; point-match on the lap page fine-tunes it).
+        const startLap =
+          videoScope === "session"
+            ? null
+            : (laps.find((item) => item.lapNumber === videoLapNumber) ?? null);
         videos.push({
           id: crypto.randomUUID(),
           provider: "youtube",
           youtubeId: ytId,
-          offsetSec: 0,
+          offsetSec: startLap
+            ? offsetForVideoStartingAtLap({
+                startOffsetSec: startLap.startOffsetSec ?? 0,
+              })
+            : 0,
           rate: 1,
           syncSource:
-            sourceKind === "gopro" || sourceKind === "logger"
+            !startLap && (sourceKind === "gopro" || sourceKind === "logger")
               ? "auto"
               : "unsynced",
-          videoStartedAtMs,
+          videoStartedAtMs: startLap ? undefined : videoStartedAtMs,
+          lapIndex: startLap ? startLap.lapNumber : null,
+          singleLap: videoScope === "lap" && Boolean(startLap),
         });
       }
 
@@ -820,6 +840,45 @@ export function SessionUpload({
               the link — then sync offset on the lap page.
             </span>
           </label>
+        ) : null}
+        {(isDedicatedGps || isMp4) && youtubeUrl.trim() ? (
+          <div className="grid gap-1.5" data-apex-upload-video-scope="1">
+            <p className="text-sm text-zinc-400">What does the video cover?</p>
+            <SegmentedControl<"session" | "lap" | "from">
+              value={videoScope}
+              options={[
+                { value: "session", label: "Whole session" },
+                { value: "lap", label: "One lap" },
+                { value: "from", label: "Several laps" },
+              ]}
+              onChange={setVideoScope}
+              ariaLabel="What the video covers"
+              accent
+              className="apex-segment--fill"
+            />
+            {videoScope !== "session" ? (
+              <label className="flex flex-wrap items-center gap-2 text-sm text-zinc-400">
+                {videoScope === "lap" ? "Lap" : "Starting at lap"}
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  value={videoLapNumber}
+                  onChange={(e) =>
+                    setVideoLapNumber(Math.max(1, Number(e.target.value) || 1))
+                  }
+                  className="min-h-11 w-20 rounded-lg border border-zinc-800 bg-zinc-950 px-3 text-base text-zinc-100 sm:text-sm"
+                />
+              </label>
+            ) : null}
+            <p className="text-xs text-zinc-500">
+              {videoScope === "session"
+                ? "The video runs the whole session from the first lap."
+                : videoScope === "lap"
+                  ? "Shown only on that lap. Fine-tune with Sync on the lap page."
+                  : "Starts at that lap and runs as long as the video does — later laps play from it automatically."}
+            </p>
+          </div>
         ) : null}
         {previewQuality || isDedicatedGps ? (
           <div className="flex flex-wrap items-center gap-2 text-sm text-zinc-400">

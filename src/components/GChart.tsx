@@ -1,5 +1,6 @@
 "use client";
 
+import { useFinePointer } from "@/lib/use-fine-pointer";
 import { hoverIndex, isSeekPointer } from "@/components/chart-hover";
 import { bindChartScrub } from "@/components/chart-scrub";
 import {
@@ -82,6 +83,7 @@ const AxisGPlot = memo(function AxisGPlot({
   onPreviewIndex: (index: number | null) => void;
   onSeekIndex: (index: number | null) => void;
 }) {
+  const finePointer = useFinePointer();
   return (
     <ResponsiveContainer width="100%" height="100%" minHeight={220}>
       <LineChart
@@ -115,12 +117,14 @@ const AxisGPlot = memo(function AxisGPlot({
           tickFormatter={(v: number) => v.toFixed(1)}
         />
         <ReferenceLine y={0} stroke="#3f3f46" />
-        <Tooltip
-          cursor={false}
-          contentStyle={tooltipStyle}
-          formatter={(v) => [formatG(Number(v), true), name]}
-          labelFormatter={(label) => `${Number(label).toFixed(1)}s`}
-        />
+        {finePointer ? (
+          <Tooltip
+            cursor={false}
+            contentStyle={tooltipStyle}
+            formatter={(v) => [formatG(Number(v), true), name]}
+            labelFormatter={(label) => `${Number(label).toFixed(1)}s`}
+          />
+        ) : null}
         <Line
           type="monotone"
           dataKey={dataKey}
@@ -128,6 +132,7 @@ const AxisGPlot = memo(function AxisGPlot({
           stroke={stroke}
           strokeWidth={2}
           dot={false}
+          activeDot={finePointer ? undefined : false}
           isAnimationActive={false}
         />
       </LineChart>
@@ -200,7 +205,9 @@ function AxisGChart({
         {...scrub}
         onPointerMove={(event) => {
           scrub.onPointerMove?.(event);
-          if ((event.buttons ?? 0) === 0) driveHover(event.clientX);
+          if (event.pointerType === "mouse" && (event.buttons ?? 0) === 0) {
+            driveHover(event.clientX);
+          }
         }}
         onMouseLeave={() => {
           if (!hoverCursor) scrub.onMouseLeave?.();
@@ -236,6 +243,7 @@ const FrictionScatter = memo(function FrictionScatter({
   points: { t: number; latG: number; lonG: number }[];
   domain: [number, number];
 }) {
+  const finePointer = useFinePointer();
   const scatter = useMemo(() => {
     const step = Math.max(1, Math.ceil(points.length / 400));
     const out: { lonG: number; latG: number }[] = [];
@@ -274,14 +282,16 @@ const FrictionScatter = memo(function FrictionScatter({
         <ZAxis range={[12, 12]} />
         <ReferenceLine x={0} stroke="#3f3f46" />
         <ReferenceLine y={0} stroke="#3f3f46" />
-        <Tooltip
-          cursor={{ strokeDasharray: "3 3" }}
-          contentStyle={tooltipStyle}
-          formatter={(value, name) => [
-            formatG(Number(value), true),
-            name === "latG" ? "Lateral" : "Longitudinal",
-          ]}
-        />
+        {finePointer ? (
+          <Tooltip
+            cursor={{ strokeDasharray: "3 3" }}
+            contentStyle={tooltipStyle}
+            formatter={(value, name) => [
+              formatG(Number(value), true),
+              name === "latG" ? "Lateral" : "Longitudinal",
+            ]}
+          />
+        ) : null}
         <Scatter
           data={scatter}
           fill="#64748b"

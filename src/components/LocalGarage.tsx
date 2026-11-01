@@ -714,6 +714,7 @@ export function LocalSession({ id }: { id: string }) {
               id: lap.id,
               lap_number: lap.lap_number,
               lap_time_ms: lap.lap_time_ms,
+              start_offset_sec: lap.start_offset_sec ?? null,
             })),
           }}
           videos={workingVideos}

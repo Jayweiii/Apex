@@ -108,8 +108,9 @@ export function buildCloudSessionPayload(
     youtube_url: video.youtubeUrl ?? null,
     object_key: video.objectKey ?? null,
     title: video.title ?? null,
-    // lap_id resolved after lap insert when possible
+    // Single-lap uploads resolve lap_index → lap_id after the lap insert.
     lap_id: video.lapId ?? null,
+    single_lap: Boolean(video.singleLap && !video.lapId),
     lap_index: video.lapIndex ?? null,
     offset_sec: video.offsetSec,
     rate: video.rate ?? 1,
@@ -225,15 +226,24 @@ export async function saveSessionToCloud(
     id: string;
     lap_number?: number;
   }>;
-  const firstLapId = insertedLaps[0]?.id ?? null;
-
   for (const video of payload.videos) {
+    const { single_lap: singleLap, ...row } = video as typeof video & {
+      single_lap?: boolean;
+    };
+    // Whole-session / multi-lap videos stay session-level (lap_id null).
+    // Pinning them to the first lap hid the video on every other lap.
+    const lapId =
+      row.lap_id ??
+      (singleLap
+        ? (insertedLaps.find((l) => l.lap_number === row.lap_index)?.id ??
+          null)
+        : null);
     const { error: videoError } = await client
       .from("session_videos")
       .insert({
-        ...video,
+        ...row,
         session_id: sessionId,
-        lap_id: video.lap_id ?? firstLapId,
+        lap_id: lapId,
       })
       .select("id")
       .single();

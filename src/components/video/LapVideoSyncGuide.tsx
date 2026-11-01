@@ -1,5 +1,6 @@
 "use client";
 
+import { SegmentedControl } from "@/components/SegmentedControl";
 import {
   formatOffsetReadout,
   guessOffsetFromClipLength,
@@ -57,6 +58,7 @@ export function LapVideoSyncGuide({
   onChange,
   onSeek,
   onAttachYouTube,
+  onScopeChange,
   onPlayBoth,
   onStartsAtLapChange,
   startsAtLapNumber,
@@ -77,10 +79,14 @@ export function LapVideoSyncGuide({
   onChange?: (next: SessionVideo) => void;
   onSeek?: (videoTime: number) => void;
   onAttachYouTube?: (input: {
+    /** "lap": this lap only. "from": starts at this lap, runs on. */
+    scope?: "lap" | "from";
     youtubeId: string;
     youtubeUrl: string;
     title: string;
   }) => void | Promise<void>;
+  /** Change what an attached video covers (resets its sync). */
+  onScopeChange?: (scope: "lap" | "from") => void;
   /** Start lockstep playback (only meaningful after Synced). */
   onPlayBoth?: () => void;
   /** Rebind session-level video to "starts at lap N". */
@@ -89,6 +95,7 @@ export function LapVideoSyncGuide({
   availableLaps?: Array<{ lap_number: number; lap_time_ms: number }>;
 }) {
   const [url, setUrl] = useState("");
+  const [attachScope, setAttachScope] = useState<"lap" | "from">("lap");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
@@ -223,6 +230,7 @@ export function LapVideoSyncGuide({
     try {
       const title = await fetchOEmbedTitle(id, url.trim());
       await onAttachYouTube({
+        scope: attachScope,
         youtubeId: id,
         youtubeUrl: url.trim(),
         title,
@@ -383,6 +391,46 @@ export function LapVideoSyncGuide({
             >
               {busy ? "…" : hasClip ? "Replace" : "Add video"}
             </button>
+          </div>
+          <div className="grid gap-1" data-apex-attach-scope="1">
+            <SegmentedControl<"lap" | "from">
+              value={
+                hasClip && video && onScopeChange
+                  ? video.lapId
+                    ? "lap"
+                    : "from"
+                  : attachScope
+              }
+              options={[
+                {
+                  value: "lap",
+                  label: lapNumber != null ? `Lap ${lapNumber} only` : "This lap only",
+                },
+                {
+                  value: "from",
+                  label: "This lap onward",
+                  title: "Video starts at this lap and covers the laps after it",
+                },
+              ]}
+              onChange={(next) => {
+                if (hasClip && onScopeChange) {
+                  pushUndo(video!);
+                  onScopeChange(next);
+                  flashSaved();
+                } else {
+                  setAttachScope(next);
+                }
+              }}
+              ariaLabel="What the video covers"
+              compact
+            />
+            <p className="text-xs text-zinc-500">
+              {hasClip && onScopeChange
+                ? "What the current video covers. Changing it restarts the video at this lap's start — then sync below."
+                : attachScope === "lap"
+                  ? "A clip of just this lap."
+                  : "Several laps or the rest of the session — later laps use it automatically, as far as the video runs."}
+            </p>
           </div>
           {hasClip && video?.title ? (
             <p className="truncate text-xs text-zinc-500">

@@ -1,5 +1,6 @@
 "use client";
 
+import { useFinePointer } from "@/lib/use-fine-pointer";
 import { hoverIndex, isSeekPointer } from "@/components/chart-hover";
 import { bindChartScrub } from "@/components/chart-scrub";
 import {
@@ -262,6 +263,7 @@ export function LapCompare({
   /** Parent loads full telemetry on demand (meta-only compare lists). */
   onRequestLapTelemetry?: (lapIds: string[]) => void;
 }) {
+  const finePointer = useFinePointer();
   const allSessions = useMemo<CompareSessionOption[]>(() => {
     const list = sessions?.length
       ? [...sessions]
@@ -650,6 +652,14 @@ export function LapCompare({
   const [progress, setProgress] = useState<number | null>(0);
   const [previewProgress, setPreviewProgress] = useState<number | null>(null);
   const [playing, setPlaying] = useState(false);
+  /** The playback bar's clock — the single source of truth for play. */
+  const playbackControlsRef = useRef<{ togglePlay: () => void } | null>(null);
+  const onPlaybackControls = useCallback(
+    (controls: { togglePlay: () => void }) => {
+      playbackControlsRef.current = controls;
+    },
+    [],
+  );
   const [progressSubscribe, setProgressSubscribe] = useState<
     ((listener: (progress: number) => void) => () => void) | null
   >(null);
@@ -1118,10 +1128,7 @@ export function LapCompare({
                   referenceId={ordered[0]?.lap.id}
                   panel
                   mapPlaying={playing}
-                  onMapTogglePlay={() => {
-                    if ((progress ?? 0) >= 1) setProgress(0);
-                    setPlaying((prev) => !prev);
-                  }}
+                  onMapTogglePlay={() => playbackControlsRef.current?.togglePlay()}
                 />
               ) : (
                 <div className="flex items-center">
@@ -1143,6 +1150,7 @@ export function LapCompare({
                   onProgressSubscribe={(subscribe) =>
                     setProgressSubscribe(() => subscribe)
                   }
+                  onControls={onPlaybackControls}
                   compact
                 />
               </div>
@@ -1189,8 +1197,10 @@ export function LapCompare({
                       data={speedSeries}
                       syncId="compare"
                       margin={{ top: 4, right: 8, left: 0, bottom: 4 }}
-                      onMouseMove={onChartMouseMove}
-                      onMouseLeave={() => setPreviewProgress(null)}
+                      onMouseMove={finePointer ? onChartMouseMove : undefined}
+                      onMouseLeave={
+                        finePointer ? () => setPreviewProgress(null) : undefined
+                      }
                     >
                       <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
                       <XAxis
@@ -1206,10 +1216,12 @@ export function LapCompare({
                         unit={` ${speedUnitLabel}`}
                         width={48}
                       />
-                      <Tooltip
-                        cursor={false}
-                        content={<CompareTooltip mode="speed" speedUnit={speedUnit} axis={chartAxis} />}
-                      />
+                      {finePointer ? (
+                        <Tooltip
+                          cursor={false}
+                          content={<CompareTooltip mode="speed" speedUnit={speedUnit} axis={chartAxis} />}
+                        />
+                      ) : null}
                       <Legend />
                       {hoverAt != null ? (
                         <ReferenceLine
@@ -1227,6 +1239,7 @@ export function LapCompare({
                           stroke={item.color}
                           strokeWidth={2}
                           dot={false}
+                          activeDot={finePointer ? undefined : false}
                           isAnimationActive={false}
                         />
                       ))}
@@ -1252,8 +1265,10 @@ export function LapCompare({
                       data={series}
                       syncId="compare"
                       margin={{ top: 4, right: 8, left: 0, bottom: 4 }}
-                      onMouseMove={onChartMouseMove}
-                      onMouseLeave={() => setPreviewProgress(null)}
+                      onMouseMove={finePointer ? onChartMouseMove : undefined}
+                      onMouseLeave={
+                        finePointer ? () => setPreviewProgress(null) : undefined
+                      }
                     >
                       <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
                       <XAxis
@@ -1264,7 +1279,9 @@ export function LapCompare({
                         fontSize={11}
                       />
                       <YAxis stroke="#71717a" fontSize={11} unit=" s" width={48} />
-                      <Tooltip cursor={false} content={<CompareTooltip mode="delta" axis={chartAxis} />} />
+                      {finePointer ? (
+                        <Tooltip cursor={false} content={<CompareTooltip mode="delta" axis={chartAxis} />} />
+                      ) : null}
                       <Legend />
                       {hoverAt != null ? (
                         <ReferenceLine
@@ -1283,6 +1300,7 @@ export function LapCompare({
                           stroke={item.color}
                           strokeWidth={2}
                           dot={false}
+                          activeDot={finePointer ? undefined : false}
                           isAnimationActive={false}
                         />
                       ))}
@@ -1298,8 +1316,10 @@ export function LapCompare({
                       data={series}
                       syncId="compare"
                       margin={{ top: 4, right: 8, left: 0, bottom: 4 }}
-                      onMouseMove={onChartMouseMove}
-                      onMouseLeave={() => setPreviewProgress(null)}
+                      onMouseMove={finePointer ? onChartMouseMove : undefined}
+                      onMouseLeave={
+                        finePointer ? () => setPreviewProgress(null) : undefined
+                      }
                     >
                       <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
                       <XAxis
@@ -1310,7 +1330,9 @@ export function LapCompare({
                         fontSize={11}
                       />
                       <YAxis stroke="#71717a" fontSize={11} width={48} />
-                      <Tooltip  cursor={false} />
+                      {finePointer ? (
+                        <Tooltip  cursor={false} />
+                      ) : null}
                       <Legend />
                       {hoverAt != null ? (
                         <ReferenceLine
@@ -1328,6 +1350,7 @@ export function LapCompare({
                           stroke={item.color}
                           strokeWidth={2}
                           dot={false}
+                          activeDot={finePointer ? undefined : false}
                           isAnimationActive={false}
                         />
                       ))}
@@ -1341,6 +1364,7 @@ export function LapCompare({
                           strokeWidth={1.5}
                           strokeDasharray="4 3"
                           dot={false}
+                          activeDot={finePointer ? undefined : false}
                           isAnimationActive={false}
                         />
                       ))}
@@ -1356,8 +1380,10 @@ export function LapCompare({
                       data={series}
                       syncId="compare"
                       margin={{ top: 4, right: 8, left: 0, bottom: 4 }}
-                      onMouseMove={onChartMouseMove}
-                      onMouseLeave={() => setPreviewProgress(null)}
+                      onMouseMove={finePointer ? onChartMouseMove : undefined}
+                      onMouseLeave={
+                        finePointer ? () => setPreviewProgress(null) : undefined
+                      }
                     >
                       <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
                       <XAxis
@@ -1368,7 +1394,9 @@ export function LapCompare({
                         fontSize={11}
                       />
                       <YAxis stroke="#71717a" fontSize={11} width={48} />
-                      <Tooltip  cursor={false} />
+                      {finePointer ? (
+                        <Tooltip  cursor={false} />
+                      ) : null}
                       <Legend />
                       {hoverAt != null ? (
                         <ReferenceLine
@@ -1386,6 +1414,7 @@ export function LapCompare({
                           stroke={item.color}
                           strokeWidth={2}
                           dot={false}
+                          activeDot={finePointer ? undefined : false}
                           isAnimationActive={false}
                         />
                       ))}
@@ -1401,8 +1430,10 @@ export function LapCompare({
                       data={series}
                       syncId="compare"
                       margin={{ top: 4, right: 8, left: 0, bottom: 4 }}
-                      onMouseMove={onChartMouseMove}
-                      onMouseLeave={() => setPreviewProgress(null)}
+                      onMouseMove={finePointer ? onChartMouseMove : undefined}
+                      onMouseLeave={
+                        finePointer ? () => setPreviewProgress(null) : undefined
+                      }
                     >
                       <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
                       <XAxis
@@ -1413,7 +1444,9 @@ export function LapCompare({
                         fontSize={11}
                       />
                       <YAxis stroke="#71717a" fontSize={11} width={40} />
-                      <Tooltip cursor={false} content={<CompareTooltip mode="g" axis={chartAxis} />} />
+                      {finePointer ? (
+                        <Tooltip cursor={false} content={<CompareTooltip mode="g" axis={chartAxis} />} />
+                      ) : null}
                       <Legend />
                       {hoverAt != null ? (
                         <ReferenceLine
@@ -1431,6 +1464,7 @@ export function LapCompare({
                           stroke={item.color}
                           strokeWidth={2}
                           dot={false}
+                          activeDot={finePointer ? undefined : false}
                           isAnimationActive={false}
                         />
                       ))}
@@ -1446,8 +1480,10 @@ export function LapCompare({
                       data={series}
                       syncId="compare"
                       margin={{ top: 4, right: 8, left: 0, bottom: 4 }}
-                      onMouseMove={onChartMouseMove}
-                      onMouseLeave={() => setPreviewProgress(null)}
+                      onMouseMove={finePointer ? onChartMouseMove : undefined}
+                      onMouseLeave={
+                        finePointer ? () => setPreviewProgress(null) : undefined
+                      }
                     >
                       <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
                       <XAxis
@@ -1458,7 +1494,9 @@ export function LapCompare({
                         fontSize={11}
                       />
                       <YAxis stroke="#71717a" fontSize={11} width={48} />
-                      <Tooltip  cursor={false} />
+                      {finePointer ? (
+                        <Tooltip  cursor={false} />
+                      ) : null}
                       <Legend />
                       {hoverAt != null ? (
                         <ReferenceLine
@@ -1476,6 +1514,7 @@ export function LapCompare({
                           stroke={item.color}
                           strokeWidth={2}
                           dot={false}
+                          activeDot={finePointer ? undefined : false}
                           isAnimationActive={false}
                         />
                       ))}
@@ -1491,8 +1530,10 @@ export function LapCompare({
                       data={series}
                       syncId="compare"
                       margin={{ top: 4, right: 8, left: 0, bottom: 4 }}
-                      onMouseMove={onChartMouseMove}
-                      onMouseLeave={() => setPreviewProgress(null)}
+                      onMouseMove={finePointer ? onChartMouseMove : undefined}
+                      onMouseLeave={
+                        finePointer ? () => setPreviewProgress(null) : undefined
+                      }
                     >
                       <CartesianGrid stroke="#27272a" strokeDasharray="3 6" />
                       <XAxis
@@ -1503,7 +1544,9 @@ export function LapCompare({
                         fontSize={11}
                       />
                       <YAxis stroke="#71717a" fontSize={11} width={48} />
-                      <Tooltip  cursor={false} />
+                      {finePointer ? (
+                        <Tooltip  cursor={false} />
+                      ) : null}
                       <Legend />
                       {hoverAt != null ? (
                         <ReferenceLine
@@ -1521,6 +1564,7 @@ export function LapCompare({
                           stroke={item.color}
                           strokeWidth={2}
                           dot={false}
+                          activeDot={finePointer ? undefined : false}
                           isAnimationActive={false}
                         />
                       ))}

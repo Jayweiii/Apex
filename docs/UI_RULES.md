@@ -53,6 +53,12 @@ Expanders (Sync video, Trim panel, Edit details, tools drawers):
 - Provide an immediate `:active` pressed state; do not rely on hover alone.
 
 ## Hover
+- **Hover-only UI is mouse-only.** iOS fires synthetic mouse events on every
+  tap; if the DOM changes in response (tooltip / active dot / hover readout),
+  iOS treats the tap as hover and swallows the click ("tap twice"). Gate
+  Recharts `<Tooltip>` and `activeDot` on `useFinePointer()`, hover handlers
+  on `event.pointerType === "mouse"` / `hasFinePointer()`.
+  (`scripts/verify-touch-hover.ts` enforces this.)
 
 - Hover styles only under `@media (hover: hover)` (prefer also
   `(pointer: fine)`).

@@ -70,8 +70,17 @@ export type SessionVideo = {
    * at each lap start via start_offset_sec.
    */
   lapId?: string | null;
-  /** 1-based lap_number for bulk paste; kept in sync with lapId when set. */
+  /**
+   * 1-based lap_number. With lapId: that lap. Without lapId (several laps /
+   * session): the lap the video starts at; its end comes from the video's
+   * duration (see lib/video-coverage).
+   */
   lapIndex?: number | null;
+  /**
+   * Upload-time only: this video is one lap (`lapIndex`) whose lap row does
+   * not exist yet — resolve lapIndex → lapId when laps are inserted.
+   */
+  singleLap?: boolean;
   offsetSec: number;
   rate?: number;
   syncSource: VideoSyncSource;

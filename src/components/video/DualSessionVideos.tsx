@@ -1,5 +1,6 @@
 "use client";
 
+import { useStableCallback } from "@/lib/use-stable-callback";
 import { PlaybackControls } from "@/components/PlaybackControls";
 import { Mp4Player } from "@/components/video/Mp4Player";
 import { YouTubePlayer } from "@/components/video/YouTubePlayer";
@@ -114,6 +115,7 @@ export function DualSessionVideos({
   onProgress,
   onPlayingChange,
   onProgressSubscribe,
+  onControls,
   compact = false,
 }: {
   sides?: MultiVideoSide[];
@@ -129,6 +131,12 @@ export function DualSessionVideos({
   onProgressSubscribe?: (
     subscribe: (listener: (progress: number) => void) => () => void,
   ) => void;
+  /**
+   * Hands the parent this clock's play toggle, so other Play buttons (the
+   * map overlay on phones) drive the same clock instead of a second,
+   * disconnected `playing` flag (that Play showed "Pause" but never moved).
+   */
+  onControls?: (controls: { togglePlay: () => void }) => void;
   /** Dense chrome for one-screen compare dashboard. */
   compact?: boolean;
 }) {
@@ -201,6 +209,19 @@ export function DualSessionVideos({
   useEffect(() => {
     onProgressSubscribe?.(subscribe);
   }, [onProgressSubscribe, subscribe]);
+
+  const onProgressStable = useStableCallback(onProgress);
+  const togglePlay = useCallback(() => {
+    authorityRef.current = "clock";
+    if (progressRef.current >= 1) {
+      progressRef.current = 0;
+      onProgressStable(0);
+    }
+    setPlaying((p) => !p);
+  }, [onProgressStable, setPlaying]);
+  useEffect(() => {
+    onControls?.({ togglePlay });
+  }, [onControls, togglePlay]);
 
   const sideKey = resolved
     .map((s) => `${s.lap.id}:${s.video?.id ?? ""}:${s.video?.offsetSec ?? 0}`)
@@ -515,11 +536,7 @@ export function DualSessionVideos({
             onProgress(next);
           }}
           playing={playing}
-          onTogglePlay={() => {
-            authorityRef.current = "clock";
-            if ((progress ?? 0) >= 1) onProgress(0);
-            setPlaying((p) => !p);
-          }}
+          onTogglePlay={togglePlay}
           speed={speed}
           onSpeed={setSpeed}
           durationMs={sharedMs}
@@ -583,11 +600,7 @@ export function DualSessionVideos({
           seekAll(next, true);
         }}
         playing={playing}
-        onTogglePlay={() => {
-          authorityRef.current = "clock";
-          if (at >= 1) onProgress(0);
-          setPlaying((p) => !p);
-        }}
+        onTogglePlay={togglePlay}
         speed={speed}
         onSpeed={(next) => {
           authorityRef.current = "clock";

@@ -1,5 +1,6 @@
 "use client";
 
+import { hasFinePointer } from "@/lib/use-fine-pointer";
 import { BasemapToggle } from "@/components/BasemapToggle";
 import { GpsModeToggle } from "@/components/GpsModeToggle";
 import { useSpeedUnit } from "@/components/useSpeedUnit";
@@ -475,6 +476,9 @@ export function LeafletTrackMap({
     const onMove = (event: L.LeafletMouseEvent) => {
       if (sfEditingRef.current) return;
       if (!hoverPreviewEnabledRef.current) return;
+      // Hover preview is mouse-only: on touch, iOS's synthetic mousemove
+      // would change the page mid-tap and swallow the next tap's click.
+      if (!hasFinePointer()) return;
       const progress = progressAt(event.latlng);
       if (progress == null) return;
       if (onPreviewProgressRef.current) onPreviewProgressRef.current(progress);
