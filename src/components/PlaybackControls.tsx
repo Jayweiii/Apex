@@ -6,6 +6,10 @@ import {
 } from "@/lib/playback";
 import { formatClock } from "@/lib/format";
 import { SegmentedControl } from "@/components/SegmentedControl";
+import {
+  useLiveProgress,
+  type ProgressSubscribe,
+} from "@/components/useLiveProgress";
 
 /**
  * Shared play/pause · speed · scrub bar for session + compare playback.
@@ -13,7 +17,8 @@ import { SegmentedControl } from "@/components/SegmentedControl";
  * Primary Play stays ≥44pt and sticky-capable for mobile (see docs/UI_RULES.md).
  */
 export function PlaybackControls({
-  progress,
+  progress: progressProp,
+  progressSubscribe,
   onProgress,
   playing,
   onTogglePlay,
@@ -27,6 +32,11 @@ export function PlaybackControls({
   sticky = false,
 }: {
   progress: number;
+  /**
+   * Clock subscription. When given, the bar tracks playback itself so the
+   * parent need not re-render every frame (see usePlaybackClock).
+   */
+  progressSubscribe?: ProgressSubscribe;
   onProgress: (next: number) => void;
   playing: boolean;
   onTogglePlay: () => void;
@@ -41,6 +51,7 @@ export function PlaybackControls({
   /** Stick under the video while telemetry scrolls. */
   sticky?: boolean;
 }) {
+  const progress = useLiveProgress(progressProp, playing, progressSubscribe);
   const durationSec = Math.max(0, durationMs / 1000);
   const atSec = progress * durationSec;
 

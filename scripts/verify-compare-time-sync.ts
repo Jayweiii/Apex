@@ -160,7 +160,11 @@ assert(compare.includes("setPlaybackFraction"), "rAF fraction drive");
 const dual = read("src/components/video/DualSessionVideos.tsx");
 assert(dual.includes("sharedCompareDurationMs"), "dual uses max clock");
 assert(dual.includes("dualProgressFromVideoTime"), "absolute elapsed inverse");
-assert(dual.includes("UI_PROGRESS_INTERVAL_MS"), "throttled React progress");
+// No parent setState per frame while playing (starved taps on phones):
+// the tick only commits progress at the end; pause commits once.
+assert(!dual.includes("UI_PROGRESS_INTERVAL_MS"), "no per-frame parent progress");
+assert(dual.includes("wasPlayingRef.current) onProgressRef.current(progressRef.current)"), "pause commits clock position");
+assert(dual.includes("progressSubscribe={subscribe}"), "scrubber follows the clock itself");
 assert(dual.includes("onProgressSubscribe"), "exposes rAF subscribe");
 
 const css = read("src/app/globals.css");

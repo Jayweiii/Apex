@@ -99,7 +99,17 @@ assert(hover.includes('transition = "none"'), "no transition on lines");
 
 const clock = read("src/components/usePlaybackClock.ts");
 assert(clock.includes("subscribe"), "clock subscribe for overlays");
-assert(clock.includes("UI_PROGRESS_INTERVAL_MS"), "throttled React progress");
+// Playback must not push React state every frame (re-rendered the whole
+// session view and starved taps on phones). Only the scrubber subscribes.
+const tickBody = clock.slice(clock.indexOf("const tick"), clock.indexOf("requestAnimationFrame(tick);\n    return"));
+assert(
+  !/setProgressState\(next\);\s*\n\s*\}\s*\n\s*if \(next >= 1\)/.test(tickBody) &&
+    /if \(next >= 1\) \{[\s\S]*setProgressState\(next\)/.test(tickBody),
+  "clock tick only commits React progress at the end of the lap",
+);
+assert(clock.includes("useMemo("), "clock return object is memoized (stable callbacks)");
+const bar = read("src/components/PlaybackControls.tsx");
+assert(bar.includes("progressSubscribe"), "playback bar follows the clock itself");
 
 console.log(
   JSON.stringify({

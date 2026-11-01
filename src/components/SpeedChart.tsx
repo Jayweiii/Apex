@@ -19,7 +19,7 @@ import {
 } from "@/lib/chart-height-contract";
 import { formatSpeed, kmhToDisplay, speedUnitSuffix } from "@/lib/format";
 import { chartTAtClientX } from "@/lib/lap-trim";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, memo } from "react";
 import {
   Area,
   AreaChart,
@@ -78,7 +78,7 @@ export type SpeedChartPoint = {
   speedInTrim?: number | null;
 };
 
-export function SpeedChart({
+export const SpeedChart = memo(function SpeedChart({
   points,
   activeIndex = null,
   onPreviewIndex,
@@ -387,7 +387,7 @@ export function SpeedChart({
       </div>
     </div>
   );
-}
+});
 
 function TrimHandles({
   startT,

@@ -64,8 +64,14 @@ const synced = read("src/components/video/SyncedLapView.tsx");
 assert(synced.includes("previewProgress"), "session preview state");
 assert(synced.includes("previewFromChart"), "session chart preview");
 assert(synced.includes("seekFromChart"), "session chart seek");
-assert(synced.includes("onPreviewIndex={previewFromChart}"), "telemetry preview");
-assert(synced.includes("onSeekIndex={seekFromChart}"), "telemetry seek");
+assert(
+  /onPreviewIndex=\{(stable)?[pP]reviewFromChart\}/.test(synced),
+  "telemetry preview",
+);
+assert(
+  /onSeekIndex=\{(stable)?[sS]eekFromChart\}/.test(synced),
+  "telemetry seek",
+);
 assert(synced.includes("hoverEnabled = !clock.playing"), "no hover while playing");
 assert(
   synced.includes("hoverPreviewEnabled={hoverEnabled}"),

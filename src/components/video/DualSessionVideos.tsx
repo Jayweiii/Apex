@@ -31,8 +31,6 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 /** Throttle React progress while playing — map/cursors use subscribe. */
-const UI_PROGRESS_INTERVAL_MS = 50;
-
 export type MultiVideoSide = DualVideoSide & { color: string };
 
 function SidePlayer({
@@ -162,12 +160,17 @@ export function DualSessionVideos({
   const authorityRef = useRef<SyncAuthority>("clock");
   const playingRef = useRef(playing);
   playingRef.current = playing;
-  // While playing, RAF owns progressRef. Syncing from the throttled React
-  // prop every render rewound the clock (~1s media / 4s wall).
+  // While playing, RAF owns progressRef and the parent's `progress` is not
+  // updated (see below). Adopt the prop only when it actually changes while
+  // paused (scrub / seek), so pausing never rewinds to a stale value.
+  const lastProgressPropRef = useRef(progress);
   if (!playing) {
-    progressRef.current = progress ?? 0;
+    if (progress !== lastProgressPropRef.current) {
+      progressRef.current = progress ?? 0;
+    }
     clockOriginRef.current = null;
   }
+  lastProgressPropRef.current = progress;
   const suppress = useRef(createSyncSuppress());
   const lapMs = resolved.map((side) => side.lap.lapTimeMs);
   const sharedMs = sharedCompareDurationMs(...lapMs);
@@ -254,12 +257,17 @@ export function DualSessionVideos({
     seekAll(progress, true);
   }, [progress, playing, seekAll]);
 
+  const wasPlayingRef = useRef(false);
   useEffect(() => {
     if (!playing) {
       if (authorityRef.current === "clock") driveAll("pause");
       clockOriginRef.current = null;
+      // Commit the final clock position once on pause (none during play).
+      if (wasPlayingRef.current) onProgressRef.current(progressRef.current);
+      wasPlayingRef.current = false;
       return;
     }
+    wasPlayingRef.current = true;
     if (authorityRef.current !== "clock") return;
     driveAll("play");
     driveAll("rate", speedRef.current);
@@ -268,7 +276,6 @@ export function DualSessionVideos({
       ms: performance.now(),
     };
     let raf = 0;
-    let lastUi = 0;
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
       if (authorityRef.current !== "clock") return;
@@ -281,12 +288,12 @@ export function DualSessionVideos({
         durationMs: sharedMsRef.current,
         speed: speedRef.current,
       });
+      // No parent setState per frame: subscribers (map, chart cursor,
+      // scrubber, gap readout) follow `notify`. Re-rendering the compare
+      // page at 20 Hz starved taps on phones.
       notify(next);
-      if (now - lastUi >= UI_PROGRESS_INTERVAL_MS || next >= 1) {
-        lastUi = now;
-        onProgressRef.current(next);
-      }
       if (next >= 1) {
+        onProgressRef.current(next);
         clockOriginRef.current = null;
         setPlaying(false);
       }
@@ -501,6 +508,7 @@ export function DualSessionVideos({
       <div className="w-full space-y-3 rounded-2xl border border-zinc-800/80 bg-zinc-950/40 p-3 sm:p-4">
         <PlaybackControls
           progress={progress ?? 0}
+          progressSubscribe={subscribe}
           onProgress={(next) => {
             authorityRef.current = "clock";
             setPlaying(false);
@@ -567,6 +575,7 @@ export function DualSessionVideos({
 
       <PlaybackControls
         progress={at}
+        progressSubscribe={subscribe}
         onProgress={(next) => {
           authorityRef.current = "clock";
           setPlaying(false);

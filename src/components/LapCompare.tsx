@@ -16,6 +16,10 @@ import { MissingGps, TrackMap } from "@/components/TrackMap";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { compareChannelsForSeries } from "@/components/StackedTelemetry";
 import { DualSessionVideos } from "@/components/video/DualSessionVideos";
+import {
+  useLiveProgress,
+  type ProgressSubscribe,
+} from "@/components/useLiveProgress";
 import { useAnalysisMode } from "@/lib/analysis-mode";
 import { resolveTrackCenterline } from "@/lib/cloud-tracks";
 import {
@@ -724,6 +728,11 @@ export function LapCompare({
           timeSecFromProgress(previewProgress, sharedSec, 0),
         );
 
+  const seriesTimes = useMemo(
+    () => series.map((row) => ({ t: typeof row.t === "number" ? row.t : 0 })),
+    [series],
+  );
+
   // Drive DOM playback cursor from shared progress (throttled React or rAF subscribe).
   // Progress is always elapsed-time fraction — Distance mode maps via row.t so
   // toggling Time↔Distance does not reset the timer.
@@ -740,10 +749,7 @@ export function LapCompare({
         typeof series[series.length - 1]?.t === "number"
           ? (series[series.length - 1]!.t as number)
           : sharedSec;
-      const idx = indexNearestTime(
-        series.map((row) => ({ t: typeof row.t === "number" ? row.t : 0 })),
-        targetT,
-      );
+      const idx = indexNearestTime(seriesTimes, targetT);
       if (chartAxis === "time") {
         hoverController.setPlaybackFraction(
           plotFractionFromTime(targetT, firstT, lastT),
@@ -774,6 +780,7 @@ export function LapCompare({
     playing,
     progressSubscribe,
     series,
+    seriesTimes,
     chartAxis,
     sharedSec,
     hoverController,
@@ -1042,48 +1049,14 @@ export function LapCompare({
               <p className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">
                 vs reference
               </p>
-              <p className="font-mono text-lg text-zinc-50 sm:text-xl">
-                {(() => {
-                  const p = previewProgress ?? progress ?? 0;
-                  const refPts = mapTraces[0]?.points as GpsPoint[] | undefined;
-                  if (!refPts || refPts.length < 2) {
-                    return ordered
-                      .slice(1)
-                      .map((item) =>
-                        formatGap(
-                          (item.lap.lap_time_ms - ordered[0].lap.lap_time_ms) /
-                            1000,
-                        ),
-                      )
-                      .join(" · ");
-                  }
-                  return ordered
-                    .slice(1)
-                    .map((item, index) => {
-                      const otherPts = mapTraces[index + 1]?.points as
-                        | GpsPoint[]
-                        | undefined;
-                      if (!otherPts || otherPts.length < 2) {
-                        return formatGap(
-                          (item.lap.lap_time_ms - ordered[0].lap.lap_time_ms) /
-                            1000,
-                        );
-                      }
-                      const gap = timeGapAtProgress(refPts, otherPts, p, {
-                        basis: "time",
-                        durationSec: sharedSec,
-                      });
-                      return gap == null
-                        ? formatGap(
-                            (item.lap.lap_time_ms -
-                              ordered[0].lap.lap_time_ms) /
-                              1000,
-                          )
-                        : formatGap(gap);
-                    })
-                    .join(" · ");
-                })()}
-              </p>
+              <CompareGapReadout
+                ordered={ordered}
+                mapTraces={mapTraces}
+                sharedSec={sharedSec}
+                progress={previewProgress ?? progress ?? 0}
+                playing={playing && previewProgress == null}
+                subscribe={progressSubscribe}
+              />
             </div>
             <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-zinc-400">
               {ordered.map((item) => (
@@ -1780,5 +1753,67 @@ function CompareTooltip({
         </p>
       ))}
     </div>
+  );
+}
+
+/** "vs reference" gap; follows the clock itself while playing. */
+function CompareGapReadout({
+  ordered,
+  mapTraces,
+  sharedSec,
+  progress,
+  playing,
+  subscribe,
+}: {
+  ordered: { lap: { lap_time_ms: number } }[];
+  mapTraces: { points: unknown }[];
+  sharedSec: number;
+  progress: number;
+  playing: boolean;
+  subscribe: ProgressSubscribe | null;
+}) {
+  const live = useLiveProgress(progress, playing, subscribe, 100);
+  const text = (() => {
+    const p = live;
+    const refPts = mapTraces[0]?.points as GpsPoint[] | undefined;
+    if (!refPts || refPts.length < 2) {
+      return ordered
+        .slice(1)
+        .map((item) =>
+          formatGap(
+            (item.lap.lap_time_ms - ordered[0].lap.lap_time_ms) /
+              1000,
+          ),
+        )
+        .join(" · ");
+    }
+    return ordered
+      .slice(1)
+      .map((item, index) => {
+        const otherPts = mapTraces[index + 1]?.points as
+          | GpsPoint[]
+          | undefined;
+        if (!otherPts || otherPts.length < 2) {
+          return formatGap(
+            (item.lap.lap_time_ms - ordered[0].lap.lap_time_ms) /
+              1000,
+          );
+        }
+        const gap = timeGapAtProgress(refPts, otherPts, p, {
+          basis: "time",
+          durationSec: sharedSec,
+        });
+        return gap == null
+          ? formatGap(
+              (item.lap.lap_time_ms -
+                ordered[0].lap.lap_time_ms) /
+                1000,
+            )
+          : formatGap(gap);
+      })
+      .join(" · ");
+  })();
+  return (
+    <p className="font-mono text-lg text-zinc-50 sm:text-xl">{text}</p>
   );
 }

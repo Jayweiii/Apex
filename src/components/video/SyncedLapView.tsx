@@ -9,6 +9,7 @@ import {
 import { StackedLapTelemetry } from "@/components/StackedTelemetry";
 import { MissingGps, TrackMap } from "@/components/TrackMap";
 import { usePlaybackClock } from "@/components/usePlaybackClock";
+import { useStableCallback } from "@/lib/use-stable-callback";
 import { LapVideoSyncGuide } from "@/components/video/LapVideoSyncGuide";
 import { Mp4Player } from "@/components/video/Mp4Player";
 import { YouTubePlayer } from "@/components/video/YouTubePlayer";
@@ -408,10 +409,11 @@ export function SyncedLapView({
     if (!locked || !activeVideo || !player || !clock.playing) return;
     const id = window.setInterval(() => {
       if (authorityRef.current !== "clock") return;
-      seekVideoToProgress(clock.progress, false);
+      // progressRef: React `progress` is frozen while playing.
+      seekVideoToProgress(clock.progressRef.current, false);
     }, DRIFT_CHECK_INTERVAL_MS);
     return () => window.clearInterval(id);
-  }, [locked, activeVideo, player, clock.playing, clock.progress, seekVideoToProgress]);
+  }, [locked, activeVideo, player, clock.playing, clock.progressRef, seekVideoToProgress]);
 
   // During setup, poll video clock so Sync here sees the paused frame.
   useEffect(() => {
@@ -687,6 +689,10 @@ export function SyncedLapView({
     [lapProgressFromChartIndex, setProgressFromUi],
   );
 
+  // Stable identities for the memoized telemetry stack (see StackedLapTelemetry).
+  const stablePreviewFromChart = useStableCallback(previewFromChart);
+  const stableSeekFromChart = useStableCallback(seekFromChart);
+
   const chartLapTimeSec = timeSecFromProgress(
     clock.progress,
     durationSec,
@@ -776,7 +782,8 @@ export function SyncedLapView({
   const playbackBar = (
     <PlaybackControls
       progress={clock.progress}
-      onProgress={(next) => setProgressFromUi(next)}
+      progressSubscribe={clock.subscribe}
+      onProgress={setProgressFromUi}
       playing={clock.playing}
       onTogglePlay={onTogglePlay}
       speed={clock.speed}
@@ -926,15 +933,15 @@ export function SyncedLapView({
     <StackedLapTelemetry
       points={chartData}
       activeIndex={clock.playing ? null : playbackIndex}
-      onPreviewIndex={previewFromChart}
-      onSeekIndex={seekFromChart}
+      onPreviewIndex={stablePreviewFromChart}
+      onSeekIndex={stableSeekFromChart}
       syncId="lap-detail"
       trimMarkers={effectiveTrimMarkers}
       onTrimBoundaryDrag={onTrimBoundaryDrag}
       fallback={null}
       className={workspace ? "h-full" : undefined}
       hoverReadoutRef={hoverReadoutRef}
-      formatHoverReadout={(i) => formatCursorReadout(i)}
+      formatHoverReadout={formatCursorReadout}
       formatPlaybackReadout={formatCursorReadout}
       hoverEnabled={hoverEnabled}
       hoverController={hoverController}
