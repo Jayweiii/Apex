@@ -11,7 +11,7 @@ export function SiteFooter({ signedIn = false }: { signedIn?: boolean }) {
             href="https://www.esri.com/"
             target="_blank"
             rel="noreferrer"
-            className="text-zinc-400 underline-offset-2 hover:text-orange-300 hover:underline"
+            className="apex-hit text-zinc-400 underline-offset-2 hover:text-orange-300 hover:underline"
           >
             Esri
           </a>
@@ -20,14 +20,14 @@ export function SiteFooter({ signedIn = false }: { signedIn?: boolean }) {
         {signedIn ? (
           <Link
             href="/account"
-            className="text-zinc-400 underline-offset-2 hover:text-orange-300 hover:underline"
+            className="apex-hit text-zinc-400 underline-offset-2 hover:text-orange-300 hover:underline"
           >
             My Sessions
           </Link>
         ) : (
           <Link
             href="/login"
-            className="text-zinc-400 underline-offset-2 hover:text-orange-300 hover:underline"
+            className="apex-hit text-zinc-400 underline-offset-2 hover:text-orange-300 hover:underline"
           >
             Sign in
           </Link>

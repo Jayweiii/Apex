@@ -45,6 +45,11 @@ Expanders (Sync video, Trim panel, Edit details, tools drawers):
   reaches 44px). Shared `.apex-btn` defaults to ≥ 40px; bump to 44px on
   primary mobile playback and segmented options.
 - `touch-action: manipulation` on all clickables (site-wide in `globals.css`).
+- Small inline links / icon buttons: add `.apex-hit` (invisible 44×44 hit
+  area, no layout change) — or `.apex-hit--y` when controls sit side by side
+  so hit areas never overlap. `a.apex-eyebrow` gets it automatically. Not on
+  `truncate`/`overflow-hidden` elements (the overflow clips it); use padding.
+- Scrubbers (`input[type=range]`) are 44px tall site-wide.
 - Provide an immediate `:active` pressed state; do not rely on hover alone.
 
 ## Hover
@@ -68,9 +73,27 @@ Expanders (Sync video, Trim panel, Edit details, tools drawers):
 - Controls sit next to what they affect; do not orphan toggles in a distant
   toolbar when the surface they change is on-screen.
 - **No layout shift on scroll appearance:** `html` uses `scrollbar-gutter:
-  stable`. Map chrome (`.apex-map-chrome`) keeps **Basemap** on its own
-  reserved row — never wrapping beside **Delta** or **Overview|POV** — so a
-  newly visible scrollbar cannot move Street|Satellite under the wrong tap.
+  stable`. Map chrome (`.apex-map-chrome`): modes row (Map · Delta), then the
+  **view row** (`.apex-map-chrome__view`) — Street|Satellite and
+  Overview|POV in a fixed two-column grid that never wraps. Basemap is never
+  beside Delta, and no reflow can move one control under the other's tap.
+
+## Performance (taps must land first time)
+
+- Playback clocks must **not** set React state every frame. Advance a ref +
+  `subscribe`; small live readouts use `useLiveProgress`; commit progress on
+  pause / end / scrub. Re-rendering a page at 20 Hz starved taps on phones.
+- Heavy charts (`SpeedChart`, `GChart`, `StackedLapTelemetry` …) are `memo`;
+  pass stable callbacks (`useStableCallback`) so parents don't redraw them.
+- Never render hundreds of Recharts children (`<Cell>`) that change per
+  frame — draw the moving marker as a positioned overlay.
+
+## CSS layers
+
+`globals.css` puts element defaults in `@layer base` and `.apex-*` controls
+in `@layer components`, so Tailwind utilities on the element win (e.g.
+`md:hidden` on an `.apex-btn`). Leaflet / marker overrides stay unlayered so
+they beat Leaflet's own stylesheet.
 
 ## Spacing & typography tokens
 
@@ -92,7 +115,8 @@ Prefer shared tokens over one-off magic numbers:
 5. Mode switches use segmented controls beside their surface?
 6. Playback reachable without scroll on phone?
 7. No nested scrollers; spacing/type from tokens?
-8. Map chrome stable (scrollbar-gutter + Basemap not beside Delta/POV)?
+8. Map chrome stable (scrollbar-gutter + fixed view row, Basemap not beside Delta)?
+9. No per-frame React state during playback; heavy charts memoized?
 
 ## Related
 

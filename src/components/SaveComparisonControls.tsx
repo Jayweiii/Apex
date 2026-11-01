@@ -156,6 +156,30 @@ export function SaveComparisonControls({
   // Read-only shared view: only copy link — hide save/fork/title/visibility.
   const readOnlyShared = Boolean(existing) && !canEdit;
 
+  // Read-only visitors: one slim row (status + Copy link). The title and
+  // visibility already show in the page header.
+  if (readOnlyShared) {
+    return (
+      <div
+        className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-zinc-800/80 bg-zinc-950/50 px-3 py-2"
+        data-apex-compare-shared="1"
+      >
+        <p className="text-xs text-zinc-400">
+          <span className="uppercase tracking-[0.16em] text-zinc-500">
+            Shared
+          </span>{" "}
+          · read-only · {existing?.visibility}
+        </p>
+        {shareId ? (
+          <ShareLinkButton
+            path={comparisonSharePath(shareId)}
+            label="Copy link"
+          />
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-3 rounded-2xl border border-zinc-800/80 bg-zinc-950/50 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">

@@ -334,7 +334,7 @@ export function LapChips({
             role="option"
             aria-selected={selected}
             onClick={() => onSelect(lap)}
-            className={`inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 font-mono text-sm transition sm:gap-2 sm:px-3 ${
+            className={`inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 font-mono text-sm transition sm:gap-2 sm:px-3 ${
               excluded ? "opacity-45" : ""
             } ${
               selected

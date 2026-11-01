@@ -969,7 +969,7 @@ export function LapCompare({
                           userTouchedSlotsRef.current = true;
                           setRefIndex(index);
                         }}
-                        className="apex-pressable apex-pressable--muted rounded px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-orange-400"
+                        className="apex-pressable apex-pressable--muted apex-hit apex-hit--y rounded px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-orange-400"
                       >
                         Set ref
                       </button>
@@ -980,7 +980,7 @@ export function LapCompare({
                         aria-label={`Remove L${lap?.lap_number ?? ""} from compare`}
                         data-apex-compare-remove={`${slot.sessionId}:${slot.lapId}`}
                         onClick={() => removeSlot(slot.key)}
-                        className="apex-pressable apex-pressable--muted inline-flex h-5 w-5 items-center justify-center rounded text-zinc-500 hover:text-zinc-200"
+                        className="apex-pressable apex-pressable--muted apex-hit apex-hit--y inline-flex h-7 w-8 items-center justify-center rounded text-zinc-500 hover:text-zinc-200"
                       >
                         ×
                       </button>

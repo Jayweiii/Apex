@@ -75,10 +75,13 @@ function MissingYouTube({
 }) {
   return (
     <div
-      className={`mx-auto flex w-full max-w-full flex-col items-center justify-center rounded-xl border border-dashed border-zinc-800 bg-zinc-950/80 px-4 text-center ${
+      // Compact (session workspace): a short one-line note, not an empty
+      // 16:9 box — on phones that box pushed playback + charts off-screen.
+      data-apex-video-missing="1"
+      className={`mx-auto flex w-full max-w-full rounded-xl border border-dashed border-zinc-800 bg-zinc-950/60 px-3 ${
         compact
-          ? "h-[min(28vh,220px)] gap-1.5"
-          : "aspect-video gap-3"
+          ? "flex-wrap items-center justify-between gap-x-3 gap-y-0.5 py-2.5 text-left"
+          : "aspect-video flex-col items-center justify-center gap-3 px-4 text-center"
       }`}
     >
       <p className={`text-zinc-300 ${compact ? "text-xs" : "text-sm"}`}>

@@ -1061,22 +1061,31 @@ export function LeafletTrackMap({
           ) : null}
         </div>
         {/*
-          Basemap on its own reserved row — never beside Delta. Scrollbar /
-          wrap must not slide Street|Satellite onto the Delta hit targets
-          (docs/UI_RULES.md layout stability).
+          View row: Street|Satellite and Overview|POV in a fixed two-column
+          grid that never wraps — never beside Delta, and scrollbar / reflow
+          cannot slide one control under the other's tap (docs/UI_RULES.md).
         */}
-        <div
-          className="apex-map-chrome__basemap flex items-center gap-2"
-          data-apex-map-chrome-basemap="1"
-        >
-          <BasemapToggle
-            value={activeBasemap}
-            onChange={setActiveBasemap}
-            compact={compact || panel}
-          />
+        <div className="apex-map-chrome__view" data-apex-map-chrome-view="1">
+          <div
+            className="apex-map-chrome__basemap flex items-center"
+            data-apex-map-chrome-basemap="1"
+          >
+            <BasemapToggle
+              value={activeBasemap}
+              onChange={setActiveBasemap}
+              compact={compact || panel}
+            />
+          </div>
+          {headerSlot ? (
+            <div
+              className="apex-map-chrome__pov flex items-center"
+              data-apex-map-chrome-pov="1"
+            >
+              {headerSlot}
+            </div>
+          ) : null}
         </div>
       </div>
-      {headerSlot}
       {/*
         Height / touch / handle chrome live on a WRAPPER. Leaflet mounts on a
         stable inner node — React must never rewrite that node's className when

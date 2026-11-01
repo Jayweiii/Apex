@@ -1,10 +1,16 @@
 "use client";
 
+import { SegmentedControl } from "@/components/SegmentedControl";
 import {
   VISIBILITY_OPTIONS,
   type SessionVisibility,
 } from "@/lib/visibility";
 
+/**
+ * Private | Friends | Public — one segmented control (docs/UI_RULES.md: a
+ * choice of modes is a segmented control), with the selected option's
+ * meaning spelled out underneath.
+ */
 export function SessionVisibilityControl({
   value,
   onChange,
@@ -18,30 +24,33 @@ export function SessionVisibilityControl({
   compact?: boolean;
   legend?: string;
 }) {
+  const selected = VISIBILITY_OPTIONS.find((option) => option.value === value);
   return (
-    <fieldset className={compact ? "grid gap-2" : "grid gap-2 sm:max-w-xl"}>
-      <legend className="text-sm text-zinc-400">{legend}</legend>
-      <div className="flex flex-wrap gap-2">
-        {VISIBILITY_OPTIONS.map((option) => {
-          const active = value === option.value;
-          return (
-            <button
-              key={option.value}
-              type="button"
-              disabled={disabled}
-              onClick={() => onChange(option.value)}
-              className={`min-h-10 rounded-lg border px-3 text-sm transition ${
-                active
-                  ? "border-orange-500/70 bg-orange-500/15 text-orange-200"
-                  : "border-zinc-800 bg-zinc-950 text-zinc-400 hover:border-zinc-600 hover:text-zinc-200"
-              } disabled:opacity-50`}
-            >
-              <span className="font-medium">{option.label}</span>
-              <span className="ml-2 text-xs opacity-70">{option.hint}</span>
-            </button>
-          );
-        })}
-      </div>
-    </fieldset>
+    <div
+      className={compact ? "grid gap-1.5" : "grid gap-1.5 sm:max-w-xl"}
+      data-apex-visibility-control="1"
+    >
+      <p className="text-sm text-zinc-400" id="apex-visibility-legend">
+        {legend}
+      </p>
+      <SegmentedControl<SessionVisibility>
+        value={value}
+        options={VISIBILITY_OPTIONS.map((option) => ({
+          value: option.value,
+          label: option.label,
+          title: option.hint,
+        }))}
+        onChange={onChange}
+        ariaLabel={legend}
+        accent
+        disabled={disabled}
+        className="apex-segment--fill"
+      />
+      {selected ? (
+        <p className="text-xs text-zinc-500" aria-live="polite">
+          {selected.hint}
+        </p>
+      ) : null}
+    </div>
   );
 }

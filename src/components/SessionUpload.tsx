@@ -1,6 +1,5 @@
 "use client";
 
-import { DataKindBadge } from "@/components/Attribution";
 import { BusyIndicator } from "@/components/BusyIndicator";
 import { GpsQualityBadge } from "@/components/GpsQualityBadge";
 import { putLocalBlob } from "@/lib/blob-store";
@@ -107,6 +106,7 @@ export function SessionUpload({
   const [weather, setWeather] = useState("");
   const [tires, setTires] = useState("");
   const [notes, setNotes] = useState("");
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [csvAsGoProExport, setCsvAsGoProExport] = useState(false);
@@ -720,68 +720,120 @@ export function SessionUpload({
     }
   }
 
+  const fieldClass =
+    "min-h-12 w-full max-w-full min-w-0 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm";
+
   return (
     <form
       onSubmit={onSubmit}
       className="min-w-0 overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950/60 p-4 sm:p-5"
+      data-apex-upload-form="1"
     >
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-sm font-medium text-zinc-200">Upload telemetry</h2>
-          <p className="mt-1 max-w-xl text-sm text-zinc-500">
-            Prefer GoPro or dedicated GPS loggers (GPX, VBO, Dragy CSV) —
-            parsed in-browser so large videos stay off the server. TrackAddict
-            phone CSV still works. Native Dragy{" "}
-            <code className="text-zinc-400">.dlap</code> is not supported —
-            export CSV/GPX/VBO instead. See{" "}
-            <Link
-              href="/docs/gopro-import"
-              className="text-sky-300 underline underline-offset-2"
-            >
-              import guide
-            </Link>
-            .
-          </p>
-        </div>
-        <DataKindBadge kind="upload" />
-      </div>
-
-      {destination === "cloud" ? (
-        <p className="mb-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
-          {userEmail
-            ? `Signed in as ${userEmail}. `
-            : isGuest
-              ? "No account needed — uploads save as a guest (default Public link). "
-              : "Uploads save to the cloud. "}
-          Manage them under{" "}
-          <Link href="/account" className="underline underline-offset-2">
-            Account
+      {/* 1 · File first — the one thing every upload needs. */}
+      <label
+        className="group flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-zinc-700 bg-zinc-950/60 px-4 py-6 text-center transition-colors hover:border-orange-500/60 has-[:focus-visible]:border-orange-500/70 sm:py-8"
+        data-apex-upload-dropzone="1"
+      >
+        <span className="text-base font-medium text-zinc-100">
+          {files.length
+            ? files.map((file) => file.name).join(", ")
+            : "Choose telemetry file(s)"}
+        </span>
+        <span className="text-xs text-zinc-500">
+          GoPro MP4/LRV/MOV · GPX · VBO · Dragy or TrackAddict CSV · JSON
+        </span>
+        <span className="text-xs text-zinc-500">
+          Read in your browser — videos never upload.{" "}
+          <Link
+            href="/docs/gopro-import"
+            className="text-sky-300 underline underline-offset-2"
+            onClick={(event) => event.stopPropagation()}
+          >
+            Import guide
           </Link>
-          {userEmail ? null : (
-            <>
-              {" "}
-              ·{" "}
-              <Link href="/login" className="underline underline-offset-2">
-                Add an email
-              </Link>{" "}
-              to keep sessions across devices
-            </>
-          )}
-          .
-        </p>
-      ) : null}
-      {destination === "local" ? (
-        <p className="mb-4 rounded-xl border border-zinc-700/80 bg-zinc-900/60 px-3 py-2 text-sm text-zinc-400">
-          Saving in this browser only (Supabase not configured).
-        </p>
-      ) : null}
-      {destination === "unavailable" ? (
-        <p className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
-          Supabase env vars are missing in this environment.
-        </p>
-      ) : null}
+        </span>
+        <input
+          type="file"
+          accept=".csv,text/csv,video/mp4,.mp4,.lrv,.mov,video/quicktime,.gpx,application/gpx+xml,.json,application/json,.vbo,.dlap"
+          multiple
+          onChange={onFile}
+          className="sr-only"
+        />
+      </label>
 
-      <div className="grid min-w-0 gap-3">
+      <div className="mt-3 grid min-w-0 gap-3">
+        {isDlap && dlapHints ? (
+          <p
+            role="alert"
+            className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-3 text-sm text-amber-100"
+          >
+            {dlapHints.message}
+            {dlapHints.trackNameHint ? (
+              <span className="mt-1 block text-amber-200/80">
+                Hint from map PNG: {dlapHints.trackNameHint}
+                {dlapHints.sessionDateHint
+                  ? ` · ${dlapHints.sessionDateHint}`
+                  : ""}
+              </span>
+            ) : null}
+          </p>
+        ) : null}
+        {primaryKind === "csv" ? (
+          <label className="flex items-start gap-3 rounded-xl border border-zinc-800/80 px-3 py-3 text-sm text-zinc-400">
+            <input
+              type="checkbox"
+              checked={csvAsGoProExport}
+              onChange={(event) => setCsvAsGoProExport(event.target.checked)}
+              className="mt-1"
+            />
+            <span>
+              Force Quik / Telemetry Overlay CSV (auto-detect laps from track
+              start/finish). Leave unchecked to auto-detect Dragy vs TrackAddict
+              / RaceRender.
+            </span>
+          </label>
+        ) : null}
+        {isMp4 ? (
+          <p className="rounded-xl border border-zinc-800/80 px-3 py-3 text-sm text-zinc-400">
+            GoPro <code className="text-zinc-300">.mp4</code> /{" "}
+            <code className="text-zinc-300">.lrv</code> /{" "}
+            <code className="text-zinc-300">.mov</code> is read{" "}
+            <strong className="font-medium text-zinc-200">in-browser for GPS
+            only</strong>{" "}
+            (never uploaded). Upload the video to YouTube and paste the link
+            below for onboard sync. Multi-chapter: select several files together.
+          </p>
+        ) : null}
+        {isDedicatedGps || isMp4 ? (
+          <label className="flex flex-col gap-1.5 text-sm">
+            <span className="text-zinc-400">
+              YouTube URL for onboard sync{isMp4 ? "" : " (optional)"}
+            </span>
+            <input
+              value={youtubeUrl}
+              onChange={(e) => setYoutubeUrl(e.target.value)}
+              placeholder="https://youtu.be/… or paste video id"
+              className="min-h-12 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
+            />
+            <span className="text-xs text-zinc-500">
+              Videos are YouTube-only. Upload the onboard to YouTube and paste
+              the link — then sync offset on the lap page.
+            </span>
+          </label>
+        ) : null}
+        {previewQuality || isDedicatedGps ? (
+          <div className="flex flex-wrap items-center gap-2 text-sm text-zinc-400">
+            <span>GPS source:</span>
+            <GpsQualityBadge
+              quality={previewQuality}
+              sourceKind={
+                isMp4 ? "gopro" : isLoggerExport ? "logger" : "csv"
+              }
+            />
+          </div>
+        ) : null}
+
+        {/* 2 · Where + what — required for leaderboards and compare. */}
         {!trackId ? (
           <div className="grid min-w-0 gap-3">
             <label className="flex min-w-0 flex-col gap-1.5 text-sm">
@@ -868,160 +920,99 @@ export function SessionUpload({
             </select>
           </label>
         </div>
-        <div className="grid min-w-0 gap-3 sm:grid-cols-2">
-          <label className="flex min-w-0 flex-col gap-1.5 text-sm">
-            <span className="text-zinc-400">Driver</span>
-            <input
-              list="apex-drivers"
-              value={driver}
-              onChange={(e) => setDriver(e.target.value)}
-              placeholder="Alex"
-              className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
-            />
-            <datalist id="apex-drivers">
-              {drivers.map((item) => (
-                <option key={item.id} value={item.name} />
-              ))}
-            </datalist>
-          </label>
-          <label className="flex min-w-0 flex-col gap-1.5 text-sm">
-            <span className="text-zinc-400">Car tags</span>
-            <input
-              value={carTags}
-              onChange={(e) => setCarTags(e.target.value)}
-              placeholder="205 tires, stock sway"
-              className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
-            />
-          </label>
-        </div>
-        <div className="grid min-w-0 gap-3 sm:grid-cols-2">
-          <label className="flex min-w-0 flex-col gap-1.5 text-sm">
-            <span className="text-zinc-400">Weather</span>
-            <input
-              value={weather}
-              onChange={(e) => setWeather(e.target.value)}
-              placeholder="Dry, 18°C, light wind"
-              className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
-            />
-          </label>
-          <label className="flex min-w-0 flex-col gap-1.5 text-sm">
-            <span className="text-zinc-400">Tires</span>
-            <input
-              value={tires}
-              onChange={(e) => setTires(e.target.value)}
-              placeholder="RE-71RS, heat cycle 2"
-              className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
-            />
-          </label>
-        </div>
-        <label className="flex flex-col gap-1.5 text-sm">
-          <span className="text-zinc-400">Notes</span>
-          <textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            rows={2}
-            placeholder="Cold pressures 28/30, traffic in T5"
-            className="rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:text-sm"
-          />
-        </label>
-        <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
-          <label className="flex flex-col gap-1.5 text-sm">
-            <span className="text-zinc-400">Session name</span>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Thunderhill East — morning"
-              className="min-h-12 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
-            />
-          </label>
-          <label className="flex cursor-pointer flex-col gap-1.5 text-sm">
-            <span className="text-zinc-400">
-              CSV · MP4 · LRV · MOV · GPX · VBO · JSON · DLAP
-            </span>
-            <span className="flex min-h-12 items-center rounded-lg border border-dashed border-zinc-700 px-3 py-3 text-zinc-300 hover:border-orange-500/60 sm:min-h-10 sm:py-2">
-              {files.length
-                ? files.map((file) => file.name).join(", ")
-                : "Choose file(s)"}
-            </span>
-            <input
-              type="file"
-              accept=".csv,text/csv,video/mp4,.mp4,.lrv,.mov,video/quicktime,.gpx,application/gpx+xml,.json,application/json,.vbo,.dlap"
-              multiple
-              onChange={onFile}
-              className="sr-only"
-            />
-          </label>
-        </div>
-        {isDlap && dlapHints ? (
-          <p
-            role="alert"
-            className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-3 text-sm text-amber-100"
+
+        {/* 3 · Optional context, collapsed so the form fits a phone screen. */}
+        <div className="rounded-xl border border-zinc-800/80">
+          <button
+            type="button"
+            className="apex-disclosure w-full justify-between border-0"
+            aria-expanded={detailsOpen}
+            aria-controls="upload-more-details"
+            onClick={() => setDetailsOpen((open) => !open)}
+            data-apex-upload-details-toggle="1"
           >
-            {dlapHints.message}
-            {dlapHints.trackNameHint ? (
-              <span className="mt-1 block text-amber-200/80">
-                Hint from map PNG: {dlapHints.trackNameHint}
-                {dlapHints.sessionDateHint
-                  ? ` · ${dlapHints.sessionDateHint}`
-                  : ""}
-              </span>
-            ) : null}
-          </p>
-        ) : null}
-        {primaryKind === "csv" ? (
-          <label className="flex items-start gap-3 rounded-xl border border-zinc-800/80 px-3 py-3 text-sm text-zinc-400">
-            <input
-              type="checkbox"
-              checked={csvAsGoProExport}
-              onChange={(event) => setCsvAsGoProExport(event.target.checked)}
-              className="mt-1"
-            />
-            <span>
-              Force Quik / Telemetry Overlay CSV (auto-detect laps from track
-              start/finish). Leave unchecked to auto-detect Dragy vs TrackAddict
-              / RaceRender.
+            <span className="apex-disclosure__label">More details</span>
+            <span className="apex-disclosure__meta">
+              {[driver, carTags, weather, tires, notes, name].filter(Boolean).length
+                ? `${[driver, carTags, weather, tires, notes, name].filter(Boolean).length} filled`
+                : "Optional"}
             </span>
-          </label>
-        ) : null}
-        {isMp4 ? (
-          <p className="rounded-xl border border-zinc-800/80 px-3 py-3 text-sm text-zinc-400">
-            GoPro <code className="text-zinc-300">.mp4</code> /{" "}
-            <code className="text-zinc-300">.lrv</code> /{" "}
-            <code className="text-zinc-300">.mov</code> is read{" "}
-            <strong className="font-medium text-zinc-200">in-browser for GPS
-            only</strong>{" "}
-            (never uploaded). Upload the video to YouTube and paste the link
-            below for onboard sync. Multi-chapter: select several files together.
-          </p>
-        ) : null}
-        {isDedicatedGps || isMp4 ? (
-          <label className="flex flex-col gap-1.5 text-sm">
-            <span className="text-zinc-400">
-              YouTube URL for onboard sync{isMp4 ? "" : " (optional)"}
+            <span className="apex-disclosure__chevron" aria-hidden>
+              ▾
             </span>
-            <input
-              value={youtubeUrl}
-              onChange={(e) => setYoutubeUrl(e.target.value)}
-              placeholder="https://youtu.be/… or paste video id"
-              className="min-h-12 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:min-h-10 sm:py-2 sm:text-sm"
-            />
-            <span className="text-xs text-zinc-500">
-              Videos are YouTube-only. Upload the onboard to YouTube and paste
-              the link — then sync offset on the lap page.
-            </span>
-          </label>
-        ) : null}
-        {previewQuality || isDedicatedGps ? (
-          <div className="flex flex-wrap items-center gap-2 text-sm text-zinc-400">
-            <span>GPS source:</span>
-            <GpsQualityBadge
-              quality={previewQuality}
-              sourceKind={
-                isMp4 ? "gopro" : isLoggerExport ? "logger" : "csv"
-              }
-            />
+          </button>
+          <div
+            id="upload-more-details"
+            hidden={!detailsOpen}
+            className="grid min-w-0 gap-3 border-t border-zinc-800/80 p-3"
+          >
+            <label className="flex min-w-0 flex-col gap-1.5 text-sm">
+              <span className="text-zinc-400">Session name</span>
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Thunderhill East — morning"
+                className={fieldClass}
+              />
+            </label>
+            <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+              <label className="flex min-w-0 flex-col gap-1.5 text-sm">
+                <span className="text-zinc-400">Driver</span>
+                <input
+                  list="apex-drivers"
+                  value={driver}
+                  onChange={(e) => setDriver(e.target.value)}
+                  placeholder="Alex"
+                  className={fieldClass}
+                />
+                <datalist id="apex-drivers">
+                  {drivers.map((item) => (
+                    <option key={item.id} value={item.name} />
+                  ))}
+                </datalist>
+              </label>
+              <label className="flex min-w-0 flex-col gap-1.5 text-sm">
+                <span className="text-zinc-400">Car tags</span>
+                <input
+                  value={carTags}
+                  onChange={(e) => setCarTags(e.target.value)}
+                  placeholder="205 tires, stock sway"
+                  className={fieldClass}
+                />
+              </label>
+              <label className="flex min-w-0 flex-col gap-1.5 text-sm">
+                <span className="text-zinc-400">Weather</span>
+                <input
+                  value={weather}
+                  onChange={(e) => setWeather(e.target.value)}
+                  placeholder="Dry, 18°C, light wind"
+                  className={fieldClass}
+                />
+              </label>
+              <label className="flex min-w-0 flex-col gap-1.5 text-sm">
+                <span className="text-zinc-400">Tires</span>
+                <input
+                  value={tires}
+                  onChange={(e) => setTires(e.target.value)}
+                  placeholder="RE-71RS, heat cycle 2"
+                  className={fieldClass}
+                />
+              </label>
+            </div>
+            <label className="flex flex-col gap-1.5 text-sm">
+              <span className="text-zinc-400">Notes</span>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                rows={2}
+                placeholder="Cold pressures 28/30, traffic in T5"
+                className="rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-base text-zinc-100 outline-none ring-orange-500/40 focus:border-orange-500/70 focus:ring-2 sm:text-sm"
+              />
+            </label>
           </div>
-        ) : null}
+        </div>
+
+        {/* 4 · Who can see it. */}
         {useCloud ? (
           <SessionVisibilityControl
             value={visibility}
@@ -1046,20 +1037,45 @@ export function SessionUpload({
       {savedBanner ? (
         <p className="mt-3 text-sm text-emerald-300">{savedBanner}</p>
       ) : null}
-      <div className="mt-4 flex flex-wrap items-center gap-3">
+      <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
         <button
           type="submit"
           disabled={busy || destination === "checking" || destination === "unavailable"}
-          className="apex-btn apex-btn--primary apex-btn--cta"
+          className="apex-btn apex-btn--primary apex-btn--cta w-full sm:w-auto"
         >
-          {busy
-            ? useCloud
-              ? "Saving to your account…"
-              : "Saving…"
-            : useCloud
-              ? "Upload to account"
-              : "Upload session"}
+          {busy ? "Saving…" : "Upload session"}
         </button>
+        {destination === "cloud" ? (
+          <p className="text-xs text-zinc-500" data-apex-upload-destination="cloud">
+            {userEmail
+              ? `Saves to ${userEmail}. `
+              : isGuest
+                ? "No account needed — saves as a guest. "
+                : "Saves to the cloud. "}
+            <Link href="/account" className="apex-hit apex-hit--y underline underline-offset-2">
+              My sessions
+            </Link>
+            {userEmail ? null : (
+              <>
+                {" · "}
+                <Link href="/login" className="apex-hit apex-hit--y underline underline-offset-2">
+                  Add an email
+                </Link>{" "}
+                to keep them across devices.
+              </>
+            )}
+          </p>
+        ) : null}
+        {destination === "local" ? (
+          <p className="text-xs text-zinc-500">
+            Saving in this browser only (Supabase not configured).
+          </p>
+        ) : null}
+        {destination === "unavailable" ? (
+          <p className="text-xs text-amber-200">
+            Supabase env vars are missing in this environment.
+          </p>
+        ) : null}
       </div>
     </form>
   );

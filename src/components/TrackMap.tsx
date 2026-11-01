@@ -67,6 +67,8 @@ type MapProps = {
   referenceId?: string;
   /** Shorter map for home/hero embeds. */
   compact?: boolean;
+  /** No frame of its own — the parent card already draws one. */
+  embedded?: boolean;
   /** Stretch to parent height (session dashboard left column). */
   panel?: boolean;
   /** Hide POV/overview camera chrome (hero embeds). */
@@ -266,9 +268,9 @@ export function TrackMap(props: MapProps) {
     return (
       <div className={shellClass}>
         {/*
-          Stable map chrome (docs/UI_RULES.md): reserved rows so scrollbar /
-          wrap never slides Street|Satellite beside Delta or Overview|POV
-          (fat-finger on 393px). Basemap and POV each get their own row.
+          Stable map chrome (docs/UI_RULES.md): modes row, then a fixed
+          two-column view row (Street|Satellite · Overview|POV) that never
+          wraps, so scrollbar / reflow cannot slide a control under a tap.
         */}
         <div
           className={`apex-map-chrome flex flex-col gap-1.5 ${
@@ -302,20 +304,27 @@ export function TrackMap(props: MapProps) {
               />
             ) : null}
           </div>
-          {basemapControl ? (
+          {basemapControl || povControl ? (
             <div
-              className="apex-map-chrome__basemap flex items-center gap-2"
-              data-apex-map-chrome-basemap="1"
+              className="apex-map-chrome__view"
+              data-apex-map-chrome-view="1"
             >
-              {basemapControl}
-            </div>
-          ) : null}
-          {povControl ? (
-            <div
-              className="apex-map-chrome__pov flex flex-wrap items-center gap-2"
-              data-apex-map-chrome-pov="1"
-            >
-              {povControl}
+              {basemapControl ? (
+                <div
+                  className="apex-map-chrome__basemap flex items-center"
+                  data-apex-map-chrome-basemap="1"
+                >
+                  {basemapControl}
+                </div>
+              ) : null}
+              {povControl ? (
+                <div
+                  className="apex-map-chrome__pov flex items-center"
+                  data-apex-map-chrome-pov="1"
+                >
+                  {povControl}
+                </div>
+              ) : null}
             </div>
           ) : null}
         </div>
