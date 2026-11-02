@@ -44,4 +44,40 @@ test.describe("Apex Kart", () => {
     const scrollH = await page.evaluate(() => document.documentElement.scrollHeight);
     expect(scrollH).toBeLessThanOrEqual(viewport.height + 1);
   });
+
+  test("driving the line passes the next checkpoint gate", async ({ page, isMobile }) => {
+    // ?bot=1: the headless bot steers + throttles, like a player holding Gas + Steer.
+    await page.goto("/kart?bot=1");
+    const start = page.locator("[data-apex-kart-start]");
+    await expect(start).toBeVisible({ timeout: 90_000 });
+    if (isMobile) await start.tap();
+    else await start.click();
+    const probe = page.locator("[data-apex-kart-probe]");
+    await expect(probe).toHaveAttribute("data-gate", "1", { timeout: 10_000 });
+    // Gate 1 is ~1/8 of the lap ahead; the next gate must advance to 2.
+    await expect(probe).toHaveAttribute("data-gate", "2", { timeout: 45_000 });
+  });
+
+  test("held controls are released when the game pauses", async ({ page, isMobile }) => {
+    await page.goto("/kart");
+    const start = page.locator("[data-apex-kart-start]");
+    await expect(start).toBeVisible({ timeout: 90_000 });
+    if (isMobile) await start.tap();
+    else await start.click();
+    const gas = page.locator('[data-apex-kart-control="gas"]');
+    const pointer = { pointerId: 9, pointerType: isMobile ? "touch" : "mouse", isPrimary: true };
+    await gas.dispatchEvent("pointerdown", pointer);
+    await page.waitForTimeout(800);
+    // Leave the app while still "holding" Gas: the release never arrives.
+    await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+    await expect(page.locator("[data-apex-kart-start]")).toBeVisible();
+    await page.locator("[data-apex-kart-start]").click();
+    const probe = page.locator("[data-apex-kart-probe]");
+    const speedAt = async () => Number(await probe.getAttribute("data-speed"));
+    await page.waitForTimeout(2500);
+    // Coasting, not accelerating: Gas was released on pause.
+    const s1 = await speedAt();
+    await page.waitForTimeout(1000);
+    expect(await speedAt()).toBeLessThanOrEqual(s1 + 0.01);
+  });
 });

@@ -25,6 +25,7 @@ import {
 } from "@/lib/kart/sim";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { botInput, DEFAULT_BOT } from "@/lib/kart/bot";
 import { createRenderer, type KartRenderer } from "./renderer";
 
 type Phase = "ready" | "racing" | "paused";
@@ -171,9 +172,23 @@ export function KartGame() {
     }
   }, []);
 
+  /** Release every held control (keys/touches can't report "up" while away). */
+  const clearInputs = useCallback(() => {
+    for (const k of Object.keys(held.current) as ControlKey[]) held.current[k] = false;
+    steerValue.current = 0;
+    const inp = input.current;
+    inp.steer = 0;
+    inp.throttle = 0;
+    inp.brake = 0;
+    inp.handbrake = false;
+    inp.useItem = false;
+  }, []);
+
   // Game loop while racing.
   useEffect(() => {
     if (phase !== "racing") return;
+    // `?bot=1`: the headless bot drives (demo mode; used by the e2e test).
+    const autopilot = new URLSearchParams(window.location.search).get("bot") === "1";
     const world = worldRef.current;
     const renderer = rendererRef.current;
     if (!world || !renderer) return;
@@ -198,6 +213,7 @@ export function KartGame() {
       inp.useItem = h.item;
       let steps = 0;
       while (acc >= DT && steps < MAX_STEPS_PER_FRAME) {
+        if (autopilot) botInput(world, inp, { ...DEFAULT_BOT, aggression: 0.8 });
         stepWorld(world, inp);
         acc -= DT;
         steps += 1;
@@ -207,15 +223,24 @@ export function KartGame() {
       updateHud(world);
     };
     raf = requestAnimationFrame(tick);
+    // Leaving the tab/app: pause. Key-ups and touch-ends that happen while
+    // away never arrive, so held controls are released whenever racing stops.
     const onHidden = () => {
       if (document.visibilityState === "hidden") setPhase("paused");
     };
+    const onBlur = () => {
+      clearInputs();
+      setPhase("paused");
+    };
     document.addEventListener("visibilitychange", onHidden);
+    window.addEventListener("blur", onBlur);
     return () => {
       cancelAnimationFrame(raf);
       document.removeEventListener("visibilitychange", onHidden);
+      window.removeEventListener("blur", onBlur);
+      clearInputs();
     };
-  }, [phase, updateHud]);
+  }, [phase, updateHud, clearInputs]);
 
   // Keyboard: WASD / arrows, Space = drift, Shift/E = item, P/Esc = pause.
   useEffect(() => {
@@ -255,9 +280,7 @@ export function KartGame() {
     };
   }, []);
 
-  const releaseAll = () => {
-    for (const k of Object.keys(held.current) as ControlKey[]) held.current[k] = false;
-  };
+  const releaseAll = clearInputs;
 
   const start = () => {
     setPhase("racing");
