@@ -13,6 +13,12 @@ test.describe("Apex Kart", () => {
     else await start.click();
     await expect(start).toBeHidden();
 
+    // 3-2-1-GO: the race clock must not run until the countdown ends.
+    const root = page.locator("[data-apex-kart]");
+    await expect(root).toHaveAttribute("data-phase", "countdown");
+    expect(Number(await page.locator("[data-apex-kart-probe]").getAttribute("data-tick") ?? 0)).toBe(0);
+    await expect(root).toHaveAttribute("data-phase", "racing", { timeout: 8_000 });
+
     const probe = page.locator("[data-apex-kart-probe]");
     const read = async () => ({
       tick: Number(await probe.getAttribute("data-tick")),
