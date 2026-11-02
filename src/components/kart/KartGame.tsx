@@ -8,6 +8,7 @@
  * refs, so React never re-renders at 60 Hz — the cause of missed taps
  * found in #43. Touch controls act on pointerdown (single tap, no click).
  */
+import { readStick, STICK_RADIUS } from "@/lib/kart/joystick";
 import { THUNDERHILL_LEVEL } from "@/lib/kart/levels/thunderhill";
 import {
   comboMultiplier,
@@ -81,6 +82,10 @@ export function KartGame() {
     useItem: false,
   });
   const bestRef = useRef(0);
+  // Floating joystick (#51): one pointer owns the stick; a second finger's tap = item.
+  const stick = useRef({ pointerId: -1, x0: 0, y0: 0, steer: 0, throttle: 0, used: false });
+  const stickBase = useRef<HTMLDivElement | null>(null);
+  const stickKnob = useRef<HTMLDivElement | null>(null);
 
   // HUD nodes (written directly each frame).
   const hudLap = useRef<HTMLSpanElement | null>(null);
@@ -186,14 +191,17 @@ export function KartGame() {
       last = now;
       acc += frameDt;
       const h = held.current;
-      const target = (h.right ? 1 : 0) - (h.left ? 1 : 0);
+      const st = stick.current;
+      const stickDown = st.pointerId !== -1;
+      const target = stickDown ? st.steer : (h.right ? 1 : 0) - (h.left ? 1 : 0);
       // Ramp toward the target; snap back to centre faster.
       const rate = target === 0 ? 7 : 4.5;
       steerValue.current += Math.max(-rate * frameDt, Math.min(rate * frameDt, target - steerValue.current));
       const inp = input.current;
       inp.steer = steerValue.current;
-      inp.throttle = h.gas ? 1 : 0;
-      inp.brake = h.brake ? 1 : 0;
+      inp.throttle = stickDown ? st.throttle : h.gas ? 1 : 0;
+      // Releasing the stick brakes (once a touch has been used).
+      inp.brake = h.brake || (st.used && !stickDown) ? 1 : 0;
       inp.handbrake = h.drift;
       inp.useItem = h.item;
       let steps = 0;
@@ -255,8 +263,55 @@ export function KartGame() {
     };
   }, []);
 
-  const releaseAll = () => {
-    for (const k of Object.keys(held.current) as ControlKey[]) held.current[k] = false;
+  const endStick = () => {
+    const st = stick.current;
+    st.pointerId = -1;
+    st.steer = 0;
+    st.throttle = 0;
+    if (stickBase.current) stickBase.current.style.display = "none";
+  };
+
+  const onStickDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    const st = stick.current;
+    if (st.pointerId !== -1) {
+      // Second finger: tap = use item.
+      held.current.item = true;
+      window.setTimeout(() => {
+        held.current.item = false;
+      }, 120);
+      return;
+    }
+    const host = e.currentTarget.getBoundingClientRect();
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // synthetic/expired pointer — the stick still works without capture
+    }
+    st.pointerId = e.pointerId;
+    st.x0 = e.clientX;
+    st.y0 = e.clientY;
+    st.steer = 0;
+    st.throttle = 0;
+    st.used = true;
+    const base = stickBase.current;
+    if (base) {
+      base.style.display = "block";
+      base.style.transform = `translate(${e.clientX - host.left - STICK_RADIUS}px, ${e.clientY - host.top - STICK_RADIUS}px)`;
+    }
+    if (stickKnob.current) stickKnob.current.style.transform = "translate(0px, 0px)";
+  };
+
+  const onStickMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const st = stick.current;
+    if (e.pointerId !== st.pointerId) return;
+    const r = readStick(e.clientX - st.x0, e.clientY - st.y0);
+    st.steer = r.steer;
+    st.throttle = r.throttle;
+    if (stickKnob.current) stickKnob.current.style.transform = `translate(${r.knobX}px, ${r.knobY}px)`;
+  };
+
+  const onStickUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerId === stick.current.pointerId) endStick();
   };
 
   const start = () => {
@@ -314,17 +369,52 @@ export function KartGame() {
           aria-live="polite"
         />
         <span ref={hudProbe} hidden data-apex-kart-probe="1" />
-        {/* Item button sits on the play area, right above the thumbs. */}
-        <div className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2">
-          <HoldPad
-            control="item"
-            held={held}
-            label="No item"
-            ariaLabel="No item"
-            small
-            buttonRef={hudItem}
-          />
+        {/* Single floating joystick: the whole stage is the touch surface.
+            Left/right steers the rear (drift angle), pulling down = throttle,
+            releasing brakes. A second finger's tap uses the item. */}
+        <div
+          className="absolute inset-0 z-[5] touch-none"
+          style={{ touchAction: "none" }}
+          data-apex-kart-stick="1"
+          onPointerDown={onStickDown}
+          onPointerMove={onStickMove}
+          onPointerUp={onStickUp}
+          onPointerCancel={onStickUp}
+          onLostPointerCapture={onStickUp}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          <div
+            ref={stickBase}
+            className="pointer-events-none absolute left-0 top-0 hidden rounded-full border-2 border-white/40 bg-white/10"
+            style={{ width: STICK_RADIUS * 2, height: STICK_RADIUS * 2 }}
+          >
+            <div
+              ref={stickKnob}
+              className="absolute rounded-full bg-orange-400/80 shadow-lg"
+              style={{ width: 48, height: 48, left: STICK_RADIUS - 24, top: STICK_RADIUS - 24 }}
+            />
+          </div>
         </div>
+        {/* Item button: tap (or use a second finger anywhere). */}
+        <button
+          ref={hudItem}
+          type="button"
+          aria-label="No item"
+          data-apex-kart-control="item"
+          className="absolute right-3 top-12 z-10 min-h-11 min-w-11 touch-manipulation rounded-2xl border border-white/15 bg-black/40 px-3 text-xs font-semibold text-white active:bg-orange-500/70"
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            held.current.item = true;
+          }}
+          onPointerUp={() => {
+            held.current.item = false;
+          }}
+          onPointerCancel={() => {
+            held.current.item = false;
+          }}
+        >
+          No item
+        </button>
 
         {phase !== "racing" ? (
           <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/55 p-4">
@@ -335,7 +425,8 @@ export function KartGame() {
               {phase === "ready" ? (
                 <ul className="mt-3 space-y-1 text-left text-xs text-zinc-300">
                   <li>• Drive through every <span className="text-yellow-300">gold gate</span> in order.</li>
-                  <li>• Rear-wheel drive: throttle or <b>Drift</b> kicks the tail out — counter-steer to hold it.</li>
+                  <li>• Touch anywhere for a joystick: <b>left/right</b> swings the rear (drift angle), <b>pull down</b> for throttle, <b>let go</b> to brake.</li>
+                  <li>• Tap with a second finger (or the Item button) to use an item.</li>
                   <li>• Grass slows you down. Hit <span className="text-yellow-300">? boxes</span> for Turbo or Oil.</li>
                   <li className="text-zinc-500">Keys: arrows/WASD · Space drift · E item · P pause</li>
                 </ul>
@@ -356,69 +447,7 @@ export function KartGame() {
         ) : null}
       </div>
 
-      {/* Touch controls: act on pointerdown, release on up/cancel/leave. */}
-      <div
-        className="z-10 grid grid-cols-[auto_1fr_auto] items-end gap-2 bg-zinc-950/70 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2"
-        onContextMenu={(e) => e.preventDefault()}
-        onPointerCancel={releaseAll}
-      >
-        <div className="flex gap-2">
-          <HoldPad control="left" held={held} label="◀" ariaLabel="Steer left" />
-          <HoldPad control="right" held={held} label="▶" ariaLabel="Steer right" />
-        </div>
-        <div />
-        <div className="flex items-end gap-2">
-          <div className="flex flex-col gap-2">
-            <HoldPad control="drift" held={held} label="Drift" ariaLabel="Drift (handbrake)" small />
-            <HoldPad control="brake" held={held} label="Brake" ariaLabel="Brake" small />
-          </div>
-          <HoldPad control="gas" held={held} label="Gas" ariaLabel="Gas" big />
-        </div>
-      </div>
     </div>
   );
 }
 
-function HoldPad({
-  control,
-  held,
-  label,
-  ariaLabel,
-  big,
-  small,
-  buttonRef,
-}: {
-  control: ControlKey;
-  held: React.RefObject<Record<ControlKey, boolean>>;
-  label: string;
-  ariaLabel: string;
-  big?: boolean;
-  small?: boolean;
-  buttonRef?: React.RefObject<HTMLButtonElement | null>;
-}) {
-  const set = (on: boolean) => (e: React.PointerEvent<HTMLButtonElement>) => {
-    held.current[control] = on;
-    if (on) e.currentTarget.setPointerCapture?.(e.pointerId);
-    e.currentTarget.dataset.held = on ? "1" : "0";
-  };
-  const size = big
-    ? "h-[5.25rem] w-[5.25rem] text-base"
-    : small
-      ? "h-12 min-w-[3.75rem] px-2.5 text-xs"
-      : "h-16 w-16 text-2xl";
-  return (
-    <button
-      ref={buttonRef}
-      type="button"
-      aria-label={ariaLabel}
-      data-apex-kart-control={control}
-      className={`touch-none rounded-2xl border border-white/15 bg-white/10 font-semibold text-white shadow-lg shadow-black/30 data-[held=1]:bg-orange-500/70 ${size}`}
-      onPointerDown={set(true)}
-      onPointerUp={set(false)}
-      onPointerCancel={set(false)}
-      onLostPointerCapture={set(false)}
-    >
-      {label}
-    </button>
-  );
-}

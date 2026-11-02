@@ -21,17 +21,22 @@ test.describe("Apex Kart", () => {
     await expect.poll(async () => (await read()).tick, { timeout: 10_000 }).toBeGreaterThan(30);
     const before = await read();
 
-    const gas = page.locator('[data-apex-kart-control="gas"]');
-    const box = await gas.boundingBox();
-    expect(box).not.toBeNull();
-    // Every control is a ≥44pt target.
+    // The only controls are the floating stick surface + a ≥44pt Item button.
+    await expect(page.locator("[data-apex-kart-control]")).toHaveCount(1);
     for (const control of await page.locator("[data-apex-kart-control]").all()) {
       const b = await control.boundingBox();
       expect(Math.min(b!.width, b!.height)).toBeGreaterThanOrEqual(44);
     }
-    await gas.dispatchEvent("pointerdown", { pointerId: 7, pointerType: isMobile ? "touch" : "mouse", isPrimary: true });
+    // Touch down, pull the stick down (throttle), hold, release.
+    const stick = page.locator("[data-apex-kart-stick]");
+    const sb = (await stick.boundingBox())!;
+    const x = sb.x + sb.width / 2;
+    const y = sb.y + sb.height / 2;
+    const ev = { pointerId: 7, pointerType: isMobile ? "touch" : "mouse", isPrimary: true };
+    await stick.dispatchEvent("pointerdown", { ...ev, clientX: x, clientY: y });
+    await stick.dispatchEvent("pointermove", { ...ev, clientX: x, clientY: y + 60 });
     await page.waitForTimeout(2500);
-    await gas.dispatchEvent("pointerup", { pointerId: 7, pointerType: isMobile ? "touch" : "mouse", isPrimary: true });
+    await stick.dispatchEvent("pointerup", { ...ev, clientX: x, clientY: y + 60 });
 
     const after = await read();
     expect(after.tick).toBeGreaterThan(before.tick);
