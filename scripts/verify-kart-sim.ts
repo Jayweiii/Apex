@@ -21,6 +21,7 @@ import {
 } from "../src/lib/kart/sim";
 import { DEFAULT_TIRE, lateralForce, magicFormula, peakForce } from "../src/lib/kart/tire";
 import { botInput, DEFAULT_BOT } from "../src/lib/kart/bot";
+import { createLapClock, guardLapTime } from "../src/lib/kart/laptime";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -232,6 +233,19 @@ function run(seed: number) {
   return hashWorld(w);
 }
 assert(run(9) === run(9), "same seed and inputs replay identically");
+
+// ── Lap clock never decreases within a lap (incl. respawn), resets on new lap ──
+{
+  const c = createLapClock();
+  let prev = 0;
+  for (const raw of [39340, 37670, 37200, 40000, 100, 41000]) {
+    const v = guardLapTime(c, 1, raw);
+    assert(v >= prev, "lap time must not decrease");
+    prev = v;
+  }
+  assert(guardLapTime(c, 1, 0) === 41000, "respawn rewind keeps shown time");
+  assert(guardLapTime(c, 2, 50) === 50, "new lap resets clock");
+}
 
 console.log(JSON.stringify({
   ok: true,

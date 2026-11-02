@@ -9,6 +9,7 @@
  * found in #43. Touch controls act on pointerdown (single tap, no click).
  */
 import { THUNDERHILL_LEVEL } from "@/lib/kart/levels/thunderhill";
+import { createLapClock, guardLapTime } from "@/lib/kart/laptime";
 import {
   applyLaunch,
   comboMultiplier,
@@ -128,9 +129,10 @@ export function KartGame() {
 
   // Smooth steering from digital buttons/keys (ramps like a real wheel).
   const steerValue = useRef(0);
+  const lapClock = useRef(createLapClock());
 
   const updateHud = useCallback((world: KartWorld) => {
-    const t = ticksToMs(world.tick - world.lapStartTick);
+    const t = guardLapTime(lapClock.current, world.lap, ticksToMs(world.tick - world.lapStartTick));
     const speedKmh = Math.round(Math.hypot(world.car.vx, world.car.vy) * 3.6);
     const set = (ref: { current: HTMLElement | null }, text: string) => {
       const el = ref.current;
