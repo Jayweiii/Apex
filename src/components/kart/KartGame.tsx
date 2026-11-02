@@ -211,9 +211,17 @@ export function KartGame() {
       if (document.visibilityState === "hidden") setPhase("paused");
     };
     document.addEventListener("visibilitychange", onHidden);
+    const onBlur = () => setPhase("paused");
+    window.addEventListener("blur", onBlur);
     return () => {
       cancelAnimationFrame(raf);
       document.removeEventListener("visibilitychange", onHidden);
+      window.removeEventListener("blur", onBlur);
+      for (const k of Object.keys(held.current) as ControlKey[]) held.current[k] = false;
+      steerValue.current = 0;
+      document.querySelectorAll<HTMLElement>("[data-apex-kart-control][data-held='1']").forEach((el) => {
+        el.dataset.held = "0";
+      });
     };
   }, [phase, updateHud]);
 

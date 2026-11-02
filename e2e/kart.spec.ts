@@ -36,6 +36,14 @@ test.describe("Apex Kart", () => {
     const after = await read();
     expect(after.tick).toBeGreaterThan(before.tick);
     expect(after.s - before.s).toBeGreaterThan(5);
+    const gate = Number(await probe.getAttribute("data-gate"));
+    expect(Number.isInteger(gate)).toBe(true);
+    expect(gate).toBeGreaterThanOrEqual(1);
+
+    // Pausing releases held inputs: the kart must not keep accelerating on resume.
+    await gas.dispatchEvent("pointerdown", { pointerId: 8, pointerType: isMobile ? "touch" : "mouse", isPrimary: true });
+    await page.keyboard.press("KeyP");
+    await expect(gas).toHaveAttribute("data-held", "0");
 
     // Canvas fills the space between HUD and controls; no page scroll.
     const canvas = await page.locator("[data-apex-kart-canvas]").boundingBox();
