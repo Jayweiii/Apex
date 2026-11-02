@@ -8,6 +8,7 @@
  */
 import { driftAngle } from "@/lib/kart/car";
 import {
+  driftChargeLevel,
   KART_RULES,
   SURFACE_GRASS,
   type KartWorld,
@@ -55,6 +56,14 @@ export function createRenderer(canvas: HTMLCanvasElement, world: KartWorld): Kar
 
   let cam = { x: world.car.x, y: world.car.y, rot: world.car.heading, zoom: 3.2 };
   let pixel = 3;
+
+  // Screen shake (cosmetic): decays over ~0.25 s; kicked by wall hits and
+  // by a boost starting.
+  let shake = 0;
+  let seenWallTick = world.wallHitTick;
+  let prevTurbo = world.turboTicks;
+  /** Mini-turbo spark colours by charge level 1…3. */
+  const CHARGE_COLORS = ["#60a5fa", "#fb923c", "#c084fc"];
 
   function resize() {
     const rect = canvas.getBoundingClientRect();
@@ -117,10 +126,29 @@ export function createRenderer(canvas: HTMLCanvasElement, world: KartWorld): Kar
       if (smLife[k] > 0) smLife[k] -= frameDt * 1.4;
     }
 
-    // ── Camera: heading-up, swings with drift, zooms out with speed ──
-    const follow = 1 - Math.exp(-frameDt * 10);
-    cam.x += (car.x - cam.x) * follow;
-    cam.y += (car.y - cam.y) * follow;
+    // ── Shake triggers ──
+    if (world.wallHitTick !== seenWallTick) {
+      seenWallTick = world.wallHitTick;
+      shake = Math.max(shake, 0.8);
+    }
+    if (world.turboTicks > prevTurbo) shake = Math.max(shake, 0.5);
+    prevTurbo = world.turboTicks;
+    shake = Math.max(0, shake - frameDt * 4);
+
+    // ── Camera: heading-up, centred on the car with a little look-ahead
+    // along the direction of travel, swings with drift, zooms out with speed ──
+    const follow = 1 - Math.exp(-frameDt * 12);
+    let lookX = 0;
+    let lookY = 0;
+    if (speed > 1) {
+      const wvx = car.vx * ch - car.vy * sh;
+      const wvy = car.vx * sh + car.vy * ch;
+      const look = Math.min(6, speed * 0.16) / speed;
+      lookX = wvx * look;
+      lookY = wvy * look;
+    }
+    cam.x += (car.x + lookX - cam.x) * follow;
+    cam.y += (car.y + lookY - cam.y) * follow;
     const targetRot = car.heading + beta * 0.35;
     let dRot = targetRot - cam.rot;
     while (dRot > Math.PI) dRot -= 2 * Math.PI;
@@ -135,7 +163,9 @@ export function createRenderer(canvas: HTMLCanvasElement, world: KartWorld): Kar
     ctx.fillRect(0, 0, w, h);
 
     // World transform: car at ~68% height (more road ahead), heading up.
-    ctx.setTransform(1, 0, 0, 1, Math.round(w / 2), Math.round(h * 0.68));
+    const shakeX = shake > 0 ? Math.round((Math.random() - 0.5) * shake * 4) : 0;
+    const shakeY = shake > 0 ? Math.round((Math.random() - 0.5) * shake * 4) : 0;
+    ctx.setTransform(1, 0, 0, 1, Math.round(w / 2) + shakeX, Math.round(h * 0.68) + shakeY);
     ctx.scale(cam.zoom, -cam.zoom);
     ctx.rotate(Math.PI / 2 - cam.rot);
     ctx.translate(-cam.x, -cam.y);
@@ -251,16 +281,47 @@ export function createRenderer(canvas: HTMLCanvasElement, world: KartWorld): Kar
     ctx.translate(car.x, car.y);
     ctx.rotate(car.heading - Math.PI / 2);
     if (world.turboTicks > 0) {
-      ctx.fillStyle = world.tick % 6 < 3 ? "#fde047" : "#f97316";
-      ctx.fillRect(-0.45, -CAR_LENGTH_M / 2 - 1.1, 0.9, 1.1);
+      // Twin exhaust flames, flickering: outer orange, inner yellow-white.
+      const flick = world.tick % 6 < 3 ? 1 : 0.7;
+      const len = (2.4 + Math.min(1.6, speed * 0.03)) * flick;
+      for (const side of [-0.5, 0.5]) {
+        ctx.fillStyle = "#f97316";
+        ctx.fillRect(side - 0.32, -CAR_LENGTH_M / 2 - len, 0.64, len);
+        ctx.fillStyle = "#fde047";
+        ctx.fillRect(side - 0.16, -CAR_LENGTH_M / 2 - len * 0.65, 0.32, len * 0.65);
+      }
+    }
+    // Mini-turbo charge sparks at the rear wheels while drifting.
+    const charge = driftChargeLevel(world);
+    if (charge > 0) {
+      ctx.fillStyle = CHARGE_COLORS[charge - 1];
+      const spark = world.tick % 4 < 2 ? 0.7 : 1.1;
+      ctx.fillRect(-CAR_WIDTH_M / 2 - spark / 2, -CAR_LENGTH_M / 2, spark, spark);
+      ctx.fillRect(CAR_WIDTH_M / 2 - spark / 2, -CAR_LENGTH_M / 2, spark, spark);
     }
     // Sprite rows run top→bottom; world y is up, so flip vertically.
     ctx.scale(1, -1);
     ctx.drawImage(sprites.car, -CAR_WIDTH_M / 2, -CAR_LENGTH_M / 2, CAR_WIDTH_M, CAR_LENGTH_M);
     ctx.restore();
 
-    // Grass tint flash at screen edges.
+    // Speed lines: streaks flowing past the screen edges above ~65 km/h
+    // (stronger while boosting). Deterministic positions, no allocation.
     ctx.setTransform(1, 0, 0, 1, 0, 0);
+    const lineAmt = Math.min(1, Math.max(0, (speed - 18) / 22)) + (world.turboTicks > 0 ? 0.35 : 0);
+    if (lineAmt > 0.02) {
+      ctx.fillStyle = `rgba(255,255,255,${Math.min(0.5, lineAmt * 0.35).toFixed(2)})`;
+      const flow = world.tick * (2 + speed * 0.08);
+      for (let i = 0; i < 16; i += 1) {
+        // Hug the left/right 28% of the screen so the road ahead stays clear.
+        const edge = ((i * 53) % 28) / 100;
+        const x = Math.floor((i % 2 === 0 ? edge : 1 - edge) * w);
+        const len = 4 + ((i * 7) % 6) + Math.round(lineAmt * 6);
+        const y = Math.floor((((i * 97) % h) + flow * (0.6 + (i % 3) * 0.25)) % (h + len)) - len;
+        ctx.fillRect(x, y, 1, len);
+      }
+    }
+
+    // Grass tint flash at screen edges.
     if (world.surface === SURFACE_GRASS) {
       ctx.fillStyle = "rgba(120,53,15,0.18)";
       ctx.fillRect(0, 0, w, h);

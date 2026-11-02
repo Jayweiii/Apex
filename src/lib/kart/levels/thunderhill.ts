@@ -12,7 +12,8 @@ export const THUNDERHILL_LEVEL: KartLevelDef = {
   scale: 0.5,
   halfWidth: 8.5,
   gateCount: 8,
-  itemRows: [0.2, 0.52, 0.8],
+  // First row sits on the racing line before gate 1 (gate 1 is at 0.125).
+  itemRows: [0.05, 0.2, 0.52, 0.8],
   latLon: [
     [39.53776, -122.338817], [39.538086, -122.338864], [39.538415, -122.338983],
     [39.538697, -122.33921], [39.538946, -122.339462], [39.539143, -122.339619],

@@ -32,16 +32,22 @@ export const SURFACE_GRASS = 2;
 /** Rule tuning (all in SI units / ticks). */
 export const KART_RULES = {
   curbWidth: 1.4,
-  grassMu: 0.45,
-  /** Grass drag, N per m/s — "out of bounds slows you down". */
-  grassDrag: 520,
+  grassMu: 0.6,
+  /**
+   * Grass drag: (base + perMs·speed) N per m/s. Strong at speed (so going off
+   * costs you), gentle when slow (so you can drive back out quickly).
+   */
+  grassDrag: 150,
+  grassDragPerMs: 16,
+  /** Heading nudge back toward the road while on grass, rad/s. */
+  grassAssistRate: 0.8,
   /** Hard boundary this far outside the asphalt (m). */
   wallOutside: 10,
   wallSpeedKeep: 0.6,
   boxRadius: 2.4,
   boxRespawnTicks: 4 * TICK_HZ,
   turboTicks: Math.round(1.2 * TICK_HZ),
-  turboForceN: 5200,
+  turboForceN: 6500,
   slickRadius: 2,
   slickTicks: Math.round(0.8 * TICK_HZ),
   slickRearMu: 0.35,
@@ -51,9 +57,28 @@ export const KART_RULES = {
   driftEndAngle: 0.1,
   driftMinSpeed: 8,
   driftEndTicks: Math.round(0.3 * TICK_HZ),
+  /** Only a real spin (slip angle beyond this) loses the pending drift. */
+  spinAngle: 1.2,
+  /** Drift time needed for mini-turbo levels 1…3 (ticks). */
+  miniTurboAt: [
+    Math.round(0.6 * TICK_HZ),
+    Math.round(1.2 * TICK_HZ),
+    Math.round(2 * TICK_HZ),
+  ] as readonly number[],
+  /** Turbo duration for each mini-turbo level (ticks). */
+  miniTurboTicks: [
+    Math.round(0.5 * TICK_HZ),
+    Math.round(0.9 * TICK_HZ),
+    Math.round(1.4 * TICK_HZ),
+  ] as readonly number[],
+  /** Share of the pending drift kept if you run onto grass / hit the wall. */
+  offTrackBankFrac: 0.5,
+  /** Gas first pressed within this many ticks of "GO" gives a start boost. */
+  goWindowTicks: Math.round(0.8 * TICK_HZ),
+  startBoostTicks: Math.round(0.7 * TICK_HZ),
   maxLaps: 16,
   /** Stopped off-track this long ⇒ put back on the centerline. */
-  stuckResetTicks: Math.round(2.5 * TICK_HZ),
+  stuckResetTicks: Math.round(1.5 * TICK_HZ),
 };
 
 export type KartInput = CarInput & {
@@ -101,7 +126,16 @@ export type KartWorld = {
   /** Last banked combo (for the HUD flash) and when. */
   lastBank: number;
   lastBankTick: number;
+  /** Tick of the last real spin-out (pending drift lost; score is kept). */
   lastWipeTick: number;
+  /** Mini-turbo / start boost: tick fired and level (1…3; 0 = start boost). */
+  lastBoostTick: number;
+  boostLevel: number;
+  /** Item pickups so far (the first one is always a Turbo). */
+  pickups: number;
+  /** Whether the first Gas press after "GO" has been judged. */
+  launchChecked: boolean;
+  startBoosted: boolean;
   /** Tick of the last gate passed and which gate (HUD flash). */
   lastGateTick: number;
   wrongWayTicks: number;
@@ -152,6 +186,11 @@ export function createWorld(level: KartLevelDef, seed = 1): KartWorld {
     lastBank: 0,
     lastBankTick: -1e9,
     lastWipeTick: -1e9,
+    lastBoostTick: -1e9,
+    boostLevel: 0,
+    pickups: 0,
+    launchChecked: false,
+    startBoosted: false,
     lastGateTick: -1e9,
     wrongWayTicks: 0,
     stuckTicks: 0,
@@ -208,12 +247,23 @@ export function stepWorld(world: KartWorld, input: KartInput): void {
   scratchInput.brake = Math.round(Math.max(0, Math.min(1, input.brake)) * 16) / 16;
   scratchInput.handbrake = input.handbrake;
 
+  // Start boost: tap Gas right on "GO".
+  if (!world.launchChecked && scratchInput.throttle > 0) {
+    world.launchChecked = true;
+    if (world.tick <= R.goWindowTicks) {
+      world.turboTicks = Math.max(world.turboTicks, R.startBoostTicks);
+      world.startBoosted = true;
+      world.boostLevel = 0;
+      world.lastBoostTick = world.tick;
+    }
+  }
+
   // Surface from last projection.
   const off = Math.abs(world.hit.d) - track.halfWidth;
   if (off > R.curbWidth) {
     world.surface = SURFACE_GRASS;
     car.surfaceMu = R.grassMu;
-    car.extraDrag = R.grassDrag;
+    car.extraDrag = R.grassDrag + R.grassDragPerMs * Math.hypot(car.vx, car.vy);
   } else if (off > 0) {
     world.surface = SURFACE_CURB;
     car.surfaceMu = 0.92;
@@ -249,8 +299,18 @@ export function stepWorld(world: KartWorld, input: KartInput): void {
   stepCar(car, scratchInput, DT);
   projectOnTrack(track, car.x, car.y, world.hit);
 
-  // Wall: keep the car within reach of the track.
   const hit = world.hit;
+
+  // Gentle steer-assist on the grass: nudge the heading toward the road.
+  if (world.surface === SURFACE_GRASS && Math.hypot(car.vx, car.vy) > 2) {
+    const k = hit.index;
+    const aim = Math.atan2(track.ty[k], track.tx[k]) - (hit.d > 0 ? 0.7 : -0.7);
+    const err = wrapDelta(aim - car.heading, Math.PI * 2);
+    const maxStep = R.grassAssistRate * DT;
+    car.heading += err < -maxStep ? -maxStep : err > maxStep ? maxStep : err;
+  }
+
+  // Wall: keep the car within reach of the track.
   const maxD = track.halfWidth + R.wallOutside;
   if (Math.abs(hit.d) > maxD) {
     const k = hit.index;
@@ -334,7 +394,10 @@ export function stepWorld(world: KartWorld, input: KartInput): void {
     if (dx * dx + dy * dy < R.boxRadius * R.boxRadius) {
       world.boxCooldown[b] = R.boxRespawnTicks;
       if (world.item === ITEM_NONE) {
-        world.item = nextRandom(world.rng) < 0.55 ? ITEM_TURBO : ITEM_OIL;
+        // The very first pickup is always a Turbo, so new players get a boost.
+        world.item =
+          world.pickups === 0 ? ITEM_TURBO : nextRandom(world.rng) < 0.55 ? ITEM_TURBO : ITEM_OIL;
+        world.pickups += 1;
       }
     }
   }
@@ -351,36 +414,60 @@ export function stepWorld(world: KartWorld, input: KartInput): void {
     }
   }
 
-  // Drift scoring with combos; grass or a wall while drifting wipes it.
+  // Drift scoring with combos. A long drift charges a mini-turbo that fires
+  // when you straighten out; only a real spin loses the pending drift (and
+  // the banked score is never touched).
   const beta = Math.abs(driftAngle(car));
   const speed = Math.hypot(car.vx, car.vy);
   const onTrack = world.surface !== SURFACE_GRASS;
-  if (beta > R.driftMinAngle && speed > R.driftMinSpeed && onTrack) {
+  if (beta > R.driftMinAngle && beta <= R.spinAngle && speed > R.driftMinSpeed && onTrack) {
     world.drifting = true;
     world.driftTicks += 1;
     world.driftCalmTicks = 0;
     const mult = 1 + Math.min(4, Math.floor(world.driftTicks / TICK_HZ));
     world.driftPending += beta * speed * DT * 10 * mult;
   } else if (world.drifting) {
-    const wiped = !onTrack || world.wallHitTick === world.tick;
-    if (wiped) {
+    if (beta > R.spinAngle) {
       world.driftPending = 0;
       world.drifting = false;
       world.driftTicks = 0;
       world.lastWipeTick = world.tick;
+    } else if (!onTrack || world.wallHitTick === world.tick) {
+      bankDrift(world, R.offTrackBankFrac, false);
     } else if (beta < R.driftEndAngle || speed < R.driftMinSpeed) {
       world.driftCalmTicks += 1;
-      if (world.driftCalmTicks >= R.driftEndTicks) {
-        const banked = Math.round(world.driftPending);
-        world.score += banked;
-        world.lastBank = banked;
-        world.lastBankTick = world.tick;
-        world.driftPending = 0;
-        world.drifting = false;
-        world.driftTicks = 0;
-      }
+      if (world.driftCalmTicks >= R.driftEndTicks) bankDrift(world, 1, true);
     }
   }
+}
+
+/** Mini-turbo charge level of the current drift: 0 (none) … 3. */
+export function driftChargeLevel(world: KartWorld): number {
+  if (!world.drifting) return 0;
+  const at = KART_RULES.miniTurboAt;
+  let level = 0;
+  for (let i = 0; i < at.length; i += 1) if (world.driftTicks >= at[i]) level = i + 1;
+  return level;
+}
+
+/** Bank (a share of) the pending drift; optionally fire the mini-turbo. */
+function bankDrift(world: KartWorld, fraction: number, boost: boolean): void {
+  const R = KART_RULES;
+  const banked = Math.round(world.driftPending * fraction);
+  if (boost) {
+    const level = driftChargeLevel(world);
+    if (level > 0) {
+      world.turboTicks = Math.max(world.turboTicks, R.miniTurboTicks[level - 1]);
+      world.boostLevel = level;
+      world.lastBoostTick = world.tick;
+    }
+  }
+  world.score += banked;
+  world.lastBank = banked;
+  world.lastBankTick = world.tick;
+  world.driftPending = 0;
+  world.drifting = false;
+  world.driftTicks = 0;
 }
 
 /** Current combo multiplier (1…5). */

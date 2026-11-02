@@ -2,10 +2,12 @@ import { expect, test } from "@playwright/test";
 
 /**
  * Apex Kart (#48) — playable at iPhone size with touch: Start on one tap,
- * holding Gas advances the clock and moves the kart along the track.
+ * holding Gas advances the clock, moves the kart along the track, and the
+ * next gate advances once the kart drives through it.
  */
 test.describe("Apex Kart", () => {
   test("starts on one tap and drives with touch controls", async ({ page, isMobile }) => {
+    test.setTimeout(150_000);
     await page.goto("/kart");
     const start = page.locator("[data-apex-kart-start]");
     await expect(start).toBeVisible({ timeout: 90_000 });
@@ -17,9 +19,12 @@ test.describe("Apex Kart", () => {
     const read = async () => ({
       tick: Number(await probe.getAttribute("data-tick")),
       s: Number(await probe.getAttribute("data-s")),
+      gate: Number(await probe.getAttribute("data-gate")),
     });
     await expect.poll(async () => (await read()).tick, { timeout: 10_000 }).toBeGreaterThan(30);
     const before = await read();
+    // The first gate to drive through is gate 1.
+    expect(before.gate).toBe(1);
 
     const gas = page.locator('[data-apex-kart-control="gas"]');
     const box = await gas.boundingBox();
@@ -29,13 +34,19 @@ test.describe("Apex Kart", () => {
       const b = await control.boundingBox();
       expect(Math.min(b!.width, b!.height)).toBeGreaterThanOrEqual(44);
     }
-    await gas.dispatchEvent("pointerdown", { pointerId: 7, pointerType: isMobile ? "touch" : "mouse", isPrimary: true });
+    const pointerType = isMobile ? "touch" : "mouse";
+    await gas.dispatchEvent("pointerdown", { pointerId: 7, pointerType, isPrimary: true });
     await page.waitForTimeout(2500);
-    await gas.dispatchEvent("pointerup", { pointerId: 7, pointerType: isMobile ? "touch" : "mouse", isPrimary: true });
 
     const after = await read();
     expect(after.tick).toBeGreaterThan(before.tick);
     expect(after.s - before.s).toBeGreaterThan(5);
+
+    // Keep holding Gas: the kart drives through gate 1 and the next gate advances.
+    await expect
+      .poll(async () => (await read()).gate, { timeout: 40_000, intervals: [250] })
+      .toBeGreaterThan(1);
+    await gas.dispatchEvent("pointerup", { pointerId: 7, pointerType, isPrimary: true });
 
     // Canvas fills the space between HUD and controls; no page scroll.
     const canvas = await page.locator("[data-apex-kart-canvas]").boundingBox();

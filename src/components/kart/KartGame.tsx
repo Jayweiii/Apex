@@ -12,6 +12,7 @@ import { THUNDERHILL_LEVEL } from "@/lib/kart/levels/thunderhill";
 import {
   comboMultiplier,
   createWorld,
+  driftChargeLevel,
   DT,
   ITEM_NONE,
   ITEM_OIL,
@@ -117,6 +118,22 @@ export function KartGame() {
 
   // Smooth steering from digital buttons/keys (ramps like a real wheel).
   const steerValue = useRef(0);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  /**
+   * Drop every held key/pad, the steering ramp, and the on-screen pad
+   * highlight — used on pause, window blur and pointer cancel so a key
+   * released while we weren't listening can't stay "stuck" down.
+   */
+  const releaseAll = useCallback(() => {
+    for (const k of Object.keys(held.current) as ControlKey[]) held.current[k] = false;
+    steerValue.current = 0;
+    rootRef.current
+      ?.querySelectorAll<HTMLElement>('[data-apex-kart-control][data-held="1"]')
+      .forEach((el) => {
+        el.dataset.held = "0";
+      });
+  }, []);
 
   const updateHud = useCallback((world: KartWorld) => {
     const t = ticksToMs(world.tick - world.lapStartTick);
@@ -134,10 +151,16 @@ export function KartGame() {
     }
     set(hudBest, formatLap(bestRef.current));
     set(hudGate, `Gate ${world.nextGate === 0 ? world.track.gates.length : world.nextGate}/${world.track.gates.length}`);
-    set(hudSpeed, `${speedKmh} km/h`);
+    set(hudSpeed, String(speedKmh));
     const pending = Math.round(world.driftPending);
     set(hudScore, String(world.score + pending));
-    set(hudCombo, world.drifting ? `DRIFT ×${comboMultiplier(world)}  +${pending}` : "");
+    const charge = driftChargeLevel(world);
+    set(
+      hudCombo,
+      world.drifting
+        ? `DRIFT ×${comboMultiplier(world)}  +${pending}${charge > 0 ? `  ${"⚡".repeat(charge)}` : ""}`
+        : "",
+    );
     const itemEl = hudItem.current;
     if (itemEl) {
       const label =
@@ -153,11 +176,14 @@ export function KartGame() {
     let msg = "";
     if (since(world.lastResetTick) < TICK_HZ) msg = "Back on track";
     else if (world.wrongWayTicks > TICK_HZ / 2) msg = "Wrong way!";
-    else if (since(world.lastWipeTick) < TICK_HZ) msg = "Wiped out!";
+    else if (since(world.lastWipeTick) < TICK_HZ) msg = "Spun out — drift lost";
+    else if (since(world.lastBoostTick) < TICK_HZ * 0.8)
+      msg = world.boostLevel === 0 ? "Great start!" : `Mini-turbo ${"⚡".repeat(world.boostLevel)}`;
     else if (since(world.lastBankTick) < TICK_HZ && world.lastBank > 0) msg = `+${world.lastBank} drift`;
     else if (world.surface === SURFACE_GRASS) msg = "Off track — slowing!";
     else if (since(world.lastGateTick) < TICK_HZ * 0.7)
       msg = world.nextGate === 1 && world.lapsDone > 0 ? `Lap ${formatLap(ticksToMs(world.lastLapTicks))}` : "Checkpoint";
+    else if (world.tick < TICK_HZ * 0.8 && !world.launchChecked) msg = "GO!";
     set(hudFlash, msg);
     const probe = hudProbe.current;
     if (probe) {
@@ -214,8 +240,10 @@ export function KartGame() {
     return () => {
       cancelAnimationFrame(raf);
       document.removeEventListener("visibilitychange", onHidden);
+      // Leaving the racing phase (pause / tab hidden): clear held inputs.
+      releaseAll();
     };
-  }, [phase, updateHud]);
+  }, [phase, updateHud, releaseAll]);
 
   // Keyboard: WASD / arrows, Space = drift, Shift/E = item, P/Esc = pause.
   useEffect(() => {
@@ -249,15 +277,14 @@ export function KartGame() {
     };
     window.addEventListener("keydown", down);
     window.addEventListener("keyup", up);
+    // Keyup is never delivered once the window loses focus.
+    window.addEventListener("blur", releaseAll);
     return () => {
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);
+      window.removeEventListener("blur", releaseAll);
     };
-  }, []);
-
-  const releaseAll = () => {
-    for (const k of Object.keys(held.current) as ControlKey[]) held.current[k] = false;
-  };
+  }, [releaseAll]);
 
   const start = () => {
     setPhase("racing");
@@ -265,6 +292,7 @@ export function KartGame() {
 
   return (
     <div
+      ref={rootRef}
       className="relative flex h-[100dvh] flex-col overflow-hidden bg-[#1c3a17] text-zinc-50 select-none"
       data-apex-kart="1"
     >
@@ -306,7 +334,12 @@ export function KartGame() {
           aria-label="Apex Kart track"
           data-apex-kart-canvas="1"
         />
-        <span ref={hudSpeed} className="pointer-events-none absolute left-3 top-2 rounded bg-black/40 px-1.5 font-mono text-sm" />
+        <div className="pointer-events-none absolute left-3 top-2 flex items-baseline gap-1 rounded bg-black/45 px-2 py-0.5 font-mono">
+          <span ref={hudSpeed} className="min-w-[2ch] text-right text-4xl font-bold leading-none tabular-nums">
+            0
+          </span>
+          <span className="text-xs text-zinc-300">km/h</span>
+        </div>
         <span ref={hudCombo} className="pointer-events-none absolute right-3 top-2 font-mono text-sm font-bold text-yellow-300 drop-shadow" />
         <div
           ref={hudFlash}

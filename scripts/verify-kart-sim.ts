@@ -20,6 +20,7 @@ import {
 } from "../src/lib/kart/sim";
 import { DEFAULT_TIRE, lateralForce, magicFormula, peakForce } from "../src/lib/kart/tire";
 import { botInput, DEFAULT_BOT } from "../src/lib/kart/bot";
+import { projectOnTrack } from "../src/lib/kart/track";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -91,7 +92,7 @@ while (world.lapsDone < 2 && world.tick < maxTicks) {
 }
 assert(world.lapsDone >= 2, `bot completes 2 laps (done ${world.lapsDone} in ${(world.tick / TICK_HZ).toFixed(0)} s, gate ${world.nextGate})`);
 const lap1 = ticksToMs(world.lapTicks[0]);
-assert(lap1 > 30_000 && lap1 < 95_000, `lap time is kart-sized (${lap1} ms)`);
+assert(lap1 > 25_000 && lap1 < 95_000, `lap time is kart-sized (${lap1} ms)`);
 assert(gatesSeen.slice(0, 8).join(",") === "1,2,3,4,5,6,7,0", `gates in order (${gatesSeen.slice(0, 9)})`);
 
 // ── Skipping a gate doesn't count the lap ──
@@ -146,7 +147,7 @@ assert(gatesSeen.slice(0, 8).join(",") === "1,2,3,4,5,6,7,0", `gates in order ($
     stepWorld(w, input);
     picked = w.item;
   }
-  assert(picked === ITEM_TURBO || picked === ITEM_OIL, "drives into an item box and gets an item");
+  assert(picked === ITEM_TURBO, "the first item box always gives a Turbo");
   w.item = ITEM_TURBO;
   input.useItem = true;
   stepWorld(w, input);
@@ -159,6 +160,140 @@ assert(gatesSeen.slice(0, 8).join(",") === "1,2,3,4,5,6,7,0", `gates in order ($
   stepWorld(w, input);
   input.useItem = false;
   assert(w.slickActive.some((v) => v === 1), "Oil slick dropped");
+}
+
+// ── First item row sits before gate 1, so new players find a box early ──
+{
+  const w = createWorld(THUNDERHILL_LEVEL, 3);
+  const t = w.track;
+  const hitTmp = { index: 0, s: 0, d: 0 };
+  let minS = Infinity;
+  for (let b = 0; b < t.boxX.length; b += 1) {
+    hitTmp.index = 0;
+    projectOnTrack(t, t.boxX[b], t.boxY[b], hitTmp, true);
+    minS = Math.min(minS, hitTmp.s);
+  }
+  assert(minS > w.hit.s && minS < t.gates[1], `a box lies between the start and gate 1 (s ${minS.toFixed(0)}, gate1 ${t.gates[1].toFixed(0)})`);
+}
+
+// ── Launch: full throttle reaches cruise speed fast ──
+const CRUISE_MS = 14; // ≈ 50 km/h
+function launch(skipStartBoost: boolean) {
+  const w = createWorld(THUNDERHILL_LEVEL, 5);
+  if (skipStartBoost) w.launchChecked = true;
+  const gas: KartInput = { steer: 0, throttle: 1, brake: 0, handbrake: false, useItem: false };
+  let cruiseTicks = -1;
+  let speedAt3s = 0;
+  for (let i = 1; i <= TICK_HZ * 3; i += 1) {
+    stepWorld(w, gas);
+    const v = Math.hypot(w.car.vx, w.car.vy);
+    if (cruiseTicks < 0 && v >= CRUISE_MS) cruiseTicks = i;
+    if (i === TICK_HZ * 3) speedAt3s = v;
+  }
+  return { cruiseS: cruiseTicks < 0 ? Infinity : cruiseTicks / TICK_HZ, speedAt3s, boosted: w.startBoosted };
+}
+const launchBoosted = launch(false);
+const launchPlain = launch(true);
+assert(launchBoosted.boosted && !launchPlain.boosted, "gas on GO gives the start boost; skipping the window does not");
+assert(launchPlain.cruiseS <= 1.6, `0→${CRUISE_MS} m/s within 1.6 s without the start boost (${launchPlain.cruiseS.toFixed(2)} s)`);
+assert(launchBoosted.cruiseS <= 1.3, `0→${CRUISE_MS} m/s within 1.3 s with the start boost (${launchBoosted.cruiseS.toFixed(2)} s)`);
+assert(launchBoosted.cruiseS < launchPlain.cruiseS, "start boost is faster than a plain launch");
+assert(launchPlain.speedAt3s * 3.6 > 70, `gas alone passes 70 km/h in 3 s (${(launchPlain.speedAt3s * 3.6).toFixed(0)} km/h)`);
+
+// Late gas (after the GO window) gets no start boost.
+{
+  const w = createWorld(THUNDERHILL_LEVEL, 5);
+  const idle: KartInput = { steer: 0, throttle: 0, brake: 0, handbrake: false, useItem: false };
+  for (let i = 0; i < TICK_HZ * 2; i += 1) stepWorld(w, idle);
+  stepWorld(w, { ...idle, throttle: 1 });
+  assert(!w.startBoosted, "gas after the GO window gives no start boost");
+}
+
+// ── Drift: a sustained drift ends in a mini-turbo, not a wipe-out ──
+/** Put the car on the centerline at track point 40 (a straight), heading along it. */
+function placeOnStraight(w: KartWorld, vx: number) {
+  const k = 40;
+  w.car.x = w.track.px[k];
+  w.car.y = w.track.py[k];
+  w.car.heading = Math.atan2(w.track.ty[k], w.track.tx[k]);
+  w.car.vx = vx;
+  w.hit.index = k;
+  w.prevS = w.track.s[k];
+}
+function straightenAfterDrift(driftSeconds: number, boostControl = false) {
+  const w = createWorld(THUNDERHILL_LEVEL, 11);
+  placeOnStraight(w, 20);
+  w.score = 10;
+  if (!boostControl) {
+    w.drifting = true;
+    w.driftTicks = Math.round(driftSeconds * TICK_HZ);
+    w.driftPending = 400;
+  }
+  const coast: KartInput = { steer: 0, throttle: 0, brake: 0, handbrake: false, useItem: false };
+  for (let i = 0; i < TICK_HZ; i += 1) stepWorld(w, coast);
+  return w;
+}
+{
+  const long = straightenAfterDrift(1.5);
+  const control = straightenAfterDrift(0, true);
+  assert(long.lastWipeTick < 0, "a long drift is not a wipe-out");
+  assert(long.score >= 410, `drift points are banked on release (score ${long.score})`);
+  assert(long.boostLevel === 2 && long.lastBoostTick > 0, `1.5 s drift fires a level-2 mini-turbo (level ${long.boostLevel})`);
+  assert(long.car.vx > control.car.vx + 1, `mini-turbo makes you faster (${long.car.vx.toFixed(1)} vs ${control.car.vx.toFixed(1)} m/s)`);
+  const short = straightenAfterDrift(0.3);
+  assert(short.boostLevel === 0 && short.score >= 410, "a short drift banks points but gives no turbo");
+  const longer = straightenAfterDrift(2.2);
+  assert(longer.boostLevel === 3, "a 2+ s drift charges the top mini-turbo");
+
+  // Only a real spin loses the pending drift — and never the banked score.
+  const w = createWorld(THUNDERHILL_LEVEL, 11);
+  placeOnStraight(w, 5);
+  w.car.vy = 15; // slip angle ≈ 1.25 rad
+  w.score = 50;
+  w.drifting = true;
+  w.driftTicks = 100;
+  w.driftPending = 120;
+  stepWorld(w, { steer: 0, throttle: 0, brake: 0, handbrake: false, useItem: false });
+  assert(w.lastWipeTick === w.tick && w.driftPending === 0, "a real spin drops the pending drift");
+  assert(w.score === 50, "a spin never zeroes the banked score");
+
+  // Running onto the grass keeps half the pending drift.
+  const g = createWorld(THUNDERHILL_LEVEL, 11);
+  const k = 40;
+  g.car.x = g.track.px[k] - g.track.ty[k] * (THUNDERHILL_LEVEL.halfWidth + 5);
+  g.car.y = g.track.py[k] + g.track.tx[k] * (THUNDERHILL_LEVEL.halfWidth + 5);
+  g.car.heading = Math.atan2(g.track.ty[k], g.track.tx[k]);
+  g.car.vx = 20;
+  g.hit.index = k;
+  g.drifting = true;
+  g.driftTicks = 100;
+  g.driftPending = 200;
+  g.score = 30;
+  // A few ticks: the first one only refreshes the track projection.
+  for (let i = 0; i < 4; i += 1) {
+    stepWorld(g, { steer: 0, throttle: 0, brake: 0, handbrake: false, useItem: false });
+  }
+  assert(g.score === 130 && g.lastWipeTick < 0, `grass banks half the drift (score ${g.score})`);
+}
+
+// ── Off-track recovery: grass slows you, but flat-out you keep a healthy pace ──
+{
+  const w = createWorld(THUNDERHILL_LEVEL, 2);
+  const t = w.track;
+  const k = 40;
+  w.car.x = t.px[k] - t.ty[k] * (THUNDERHILL_LEVEL.halfWidth + 5);
+  w.car.y = t.py[k] + t.tx[k] * (THUNDERHILL_LEVEL.halfWidth + 5);
+  w.car.heading = Math.atan2(t.ty[k], t.tx[k]);
+  w.car.vx = 25;
+  w.hit.index = k;
+  w.launchChecked = true;
+  const gas: KartInput = { steer: 0, throttle: 1, brake: 0, handbrake: false, useItem: false };
+  let minSpeed = Infinity;
+  for (let i = 0; i < TICK_HZ * 3; i += 1) {
+    stepWorld(w, gas);
+    minSpeed = Math.min(minSpeed, Math.hypot(w.car.vx, w.car.vy));
+  }
+  assert(minSpeed * 3.6 > 30, `grass keeps a higher floor speed (${(minSpeed * 3.6).toFixed(0)} km/h min)`);
 }
 
 // ── Determinism: same seed + inputs ⇒ same hash ──

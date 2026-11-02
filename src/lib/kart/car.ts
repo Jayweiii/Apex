@@ -30,6 +30,15 @@ export type CarParams = {
   powerW: number;
   /** Top speed, m/s (soft limit via drag). */
   topSpeed: number;
+  /**
+   * Launch assist (arcade): extra drive force and extra tire grip that fade
+   * out linearly as forward speed rises to `launchSpeed`. Gives a punchy
+   * 0→cruise without changing mid/high-speed handling.
+   */
+  launchForceN: number;
+  launchSpeed: number;
+  /** Extra grip fraction at standstill (0.6 = +60% traction). */
+  launchGrip: number;
   brakeForceN: number;
   /** Front share of braking. */
   brakeBiasFront: number;
@@ -55,9 +64,14 @@ export const DEFAULT_CAR: CarParams = {
   frontFrac: 0.52,
   // ~3.5 m/s² off the line: full throttle uses most (not all) of the rear
   // grip, so throttle steers the rear instead of always spinning it.
-  driveForceN: 3700,
-  powerW: 98000,
-  topSpeed: 46,
+  // Base ~5 m/s² mid-speed; the launch assist adds up to ~17 m/s² more
+  // from a standstill (0→50 km/h in ~1.1 s on paper), fading out by 58 km/h.
+  driveForceN: 5200,
+  powerW: 130000,
+  topSpeed: 55,
+  launchForceN: 18000,
+  launchSpeed: 16,
+  launchGrip: 1.6,
   brakeForceN: 11500,
   brakeBiasFront: 0.7,
   maxSteer: 0.6,
@@ -187,14 +201,22 @@ export function stepCar(car: KartCar, input: CarInput, dt: number): void {
 
   // ── Longitudinal (rear-wheel drive through an LSD) ──
   const vAbs = Math.max(Math.abs(car.vx), 0.1);
-  const engine = Math.min(p.driveForceN, p.powerW / Math.max(vAbs, 4));
+  // Launch assist: only on good grip (not grass), throttle on, no handbrake.
+  const launch =
+    mu > 0.8 && input.throttle > 0 && !input.handbrake
+      ? clamp(1 - car.vx / p.launchSpeed, 0, 1)
+      : 0;
+  const gripScale = 1 + p.launchGrip * launch;
+  const engine =
+    Math.min(p.driveForceN, p.powerW / Math.max(vAbs, 4)) + p.launchForceN * launch;
   let driveReq = input.throttle * engine + car.boostForce;
   if (car.vx > p.topSpeed) driveReq *= 0.2;
   // LSD: open diff sends 2× the weaker wheel's grip; bias ratio lets the
   // locked side carry more, up to the axle's total grip.
   const capL = peakForce(car.fz[2], p.rearTire, mu * car.rearMuScale);
   const capR = peakForce(car.fz[3], p.rearTire, mu * car.rearMuScale);
-  const rearDriveCap = Math.min(capL + capR, 2 * Math.min(capL, capR) * p.lsdBias);
+  const rearDriveCap =
+    Math.min(capL + capR, 2 * Math.min(capL, capR) * p.lsdBias) * gripScale;
 
   const brakeTotal = input.brake * p.brakeForceN;
   const dir = car.vx >= 0 ? 1 : -1;
@@ -209,7 +231,7 @@ export function stepCar(car: KartCar, input: CarInput, dt: number): void {
     // tires keep side grip and braking into a corner doesn't spin you.
     const rearBrakeCap = 0.75 * (capL + capR);
     fxRear -= dir * Math.min(brakeTotal * (1 - p.brakeBiasFront), rearBrakeCap);
-    fxRear = clampLongitudinal(fxRear, fzR, p.rearTire, mu * car.rearMuScale);
+    fxRear = clampLongitudinal(fxRear, fzR, p.rearTire, mu * car.rearMuScale * gripScale);
   }
   // Reverse: brake held at (near) standstill backs up slowly.
   if (input.brake > 0 && input.throttle === 0 && car.vx < 0.8) {
@@ -228,7 +250,9 @@ export function stepCar(car: KartCar, input: CarInput, dt: number): void {
   car.frontSlip = alphaF;
   car.rearSlip = alphaR;
   const fyF = lateralForce(alphaF, fzF, fxFront, p.frontTire, mu);
-  let fyR = lateralForce(alphaR, fzR, fxRear, p.rearTire, mu * car.rearMuScale);
+  // Judge the friction ellipse without the launch bonus, so the rear keeps
+  // its side grip while the extra traction is spent going forward.
+  let fyR = lateralForce(alphaR, fzR, fxRear / gripScale, p.rearTire, mu * car.rearMuScale);
   if (input.handbrake && Math.abs(car.vx) > 0.5) fyR *= p.handbrakeLateral;
 
   // Body-frame forces (front forces rotated by steer angle).
