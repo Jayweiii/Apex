@@ -352,13 +352,13 @@ export function KartGame() {
       data-phase={phase}
     >
       {/* HUD bar */}
-      <div className="z-10 flex items-center justify-between gap-2 bg-zinc-950/90 px-3 py-1.5 font-mono text-sm font-semibold backdrop-blur sm:text-base">
-        <div className="flex min-w-0 items-center gap-2.5 sm:gap-4">
+      <div className="z-10 flex items-center justify-between gap-1.5 whitespace-nowrap bg-zinc-950/90 px-2 py-1.5 font-mono text-xs font-semibold backdrop-blur min-[360px]:gap-2 min-[360px]:px-3 min-[360px]:text-sm sm:text-base">
+        <div className="flex min-w-0 items-center gap-1.5 min-[360px]:gap-2.5 sm:gap-4">
           <Link href="/drive" className="apex-hit text-zinc-200" aria-label="Back to Drive">
             ←
           </Link>
           <span ref={hudLap} className="text-zinc-100">Lap 1</span>
-          <span ref={hudTime} className="text-lg text-orange-300 sm:text-xl">0:00.00</span>
+          <span ref={hudTime} className="text-base text-orange-300 min-[360px]:text-lg sm:text-xl">0:00.00</span>
           <span className="hidden text-zinc-300 sm:inline">
             best <span ref={hudBest}>—</span>
           </span>
@@ -370,7 +370,7 @@ export function KartGame() {
           </span>
           <button
             type="button"
-            className="apex-btn apex-btn--ghost min-h-11 min-w-11 px-3 text-xs"
+            className="apex-btn apex-btn--ghost min-h-11 min-w-11 px-2 text-xs min-[360px]:px-3"
             onClick={() => setPhase((p) => (p === "racing" ? "paused" : "racing"))}
             disabled={phase === "ready" || phase === "countdown"}
             data-apex-kart-pause="1"
