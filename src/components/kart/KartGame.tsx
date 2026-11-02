@@ -182,6 +182,12 @@ export function KartGame() {
     inp.brake = 0;
     inp.handbrake = false;
     inp.useItem = false;
+    // Buttons drop their pressed look too (their pointerup never came).
+    document
+      .querySelectorAll<HTMLElement>("[data-apex-kart-control][data-held='1']")
+      .forEach((el) => {
+        el.dataset.held = "0";
+      });
   }, []);
 
   // Game loop while racing.
