@@ -23,6 +23,7 @@ test.describe("Apex Kart", () => {
     const read = async () => ({
       tick: Number(await probe.getAttribute("data-tick")),
       s: Number(await probe.getAttribute("data-s")),
+      gate: Number(await probe.getAttribute("data-gate")),
     });
     await expect.poll(async () => (await read()).tick, { timeout: 10_000 }).toBeGreaterThan(30);
     const before = await read();
@@ -37,6 +38,8 @@ test.describe("Apex Kart", () => {
     }
     await gas.dispatchEvent("pointerdown", { pointerId: 7, pointerType: isMobile ? "touch" : "mouse", isPrimary: true });
     await page.waitForTimeout(2500);
+    // Keep Gas held until the next gate registers: it must advance past its start.
+    await expect.poll(async () => (await read()).gate, { timeout: 25_000 }).not.toBe(before.gate);
     await gas.dispatchEvent("pointerup", { pointerId: 7, pointerType: isMobile ? "touch" : "mouse", isPrimary: true });
 
     const after = await read();

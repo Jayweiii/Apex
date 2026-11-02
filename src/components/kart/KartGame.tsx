@@ -306,6 +306,26 @@ export function KartGame() {
     for (const k of Object.keys(held.current) as ControlKey[]) held.current[k] = false;
   };
 
+  // Never carry held inputs across a pause / start card: clear them whenever
+  // the phase leaves racing/countdown (Pause button, P, visibilitychange, blur).
+  useEffect(() => {
+    if (phase === "racing" || phase === "countdown") return;
+    for (const k of Object.keys(held.current) as ControlKey[]) held.current[k] = false;
+    steerValue.current = 0;
+  }, [phase]);
+
+  // Window blur (tab switch, phone lock): release inputs and pause.
+  useEffect(() => {
+    const onBlur = () => {
+      for (const k of Object.keys(held.current) as ControlKey[]) held.current[k] = false;
+      steerValue.current = 0;
+      if (phaseRef.current === "racing") setPhase("paused");
+      else if (phaseRef.current === "countdown") setPhase("ready");
+    };
+    window.addEventListener("blur", onBlur);
+    return () => window.removeEventListener("blur", onBlur);
+  }, []);
+
   const start = () => {
     if (phaseRef.current === "paused") {
       setPhase("racing");
