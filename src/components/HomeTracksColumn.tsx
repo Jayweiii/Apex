@@ -91,8 +91,13 @@ export function HomeTracksColumn() {
                   {track.location}
                 </p>
               </div>
-              <p className="shrink-0 font-mono text-xs text-zinc-400">
-                {sessions}
+              <p
+                className={`shrink-0 text-xs ${
+                  sessions ? "text-zinc-300" : "text-zinc-600"
+                }`}
+              >
+                <span className="font-mono">{sessions}</span>{" "}
+                {sessions === 1 ? "session" : "sessions"}
               </p>
             </Link>
           </li>
@@ -106,7 +111,7 @@ export function HomeTracksColumn() {
       </Link>
       <Link
         href="/tracks"
-        className="text-center text-[11px] uppercase tracking-[0.16em] text-zinc-600 hover:text-zinc-400"
+        className="inline-flex min-h-11 items-center justify-center text-[11px] uppercase tracking-[0.16em] text-zinc-500 hover:text-zinc-300"
       >
         All tracks
       </Link>

@@ -994,7 +994,7 @@ export function CloudSessionView({ id }: { id: string }) {
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 sm:gap-x-3">
               <Link
                 href={mine ? "/account" : "/lap-comparisons?tab=sessions"}
-                className="text-[10px] uppercase tracking-[0.18em] text-zinc-500 hover:text-zinc-300"
+                className="apex-hit text-[10px] uppercase tracking-[0.18em] text-zinc-500 hover:text-zinc-300"
               >
                 {mine ? "My Sessions" : userId ? "Friends" : "Public feed"}
               </Link>
@@ -1018,9 +1018,10 @@ export function CloudSessionView({ id }: { id: string }) {
             {href ? (
               <Link
                 href={href}
-                className="inline-flex min-h-9 items-center text-[11px] uppercase tracking-[0.16em] text-orange-400 hover:text-orange-300 sm:min-h-10"
+                className="apex-btn apex-btn--accent"
+                data-apex-session-compare="1"
               >
-                Compare
+                Compare laps
               </Link>
             ) : null}
             <ShareLinkButton path={`/sessions/${session.id}`} label="Share" />
@@ -1041,37 +1042,51 @@ export function CloudSessionView({ id }: { id: string }) {
         </div>
 
         {/*
-          Mobile: collapse the details card into a single GPS badge row so the
-          map + Play sit in the first 393×852 viewport. Desktop keeps the card.
+          Details: owners get one compact row (GPS badge · summary · Edit
+          details); visitors get only the GPS badge. Hidden on phones so the
+          map + Play sit in the first 393×852 viewport.
         */}
         <div
-          className="mb-1 sm:mb-2 sm:rounded-xl sm:border sm:border-zinc-800/80 sm:bg-zinc-950/50 sm:p-3"
+          className={
+            mine
+              ? "mb-1 sm:mb-2 sm:rounded-xl sm:border sm:border-zinc-800/80 sm:bg-zinc-950/50 sm:px-3 sm:py-2"
+              : "mb-1 sm:mb-2"
+          }
           data-testid="session-details-block"
           data-apex-session-details="1"
         >
-          <div className="hidden flex-wrap items-center justify-between gap-2 sm:flex">
-            <div className="min-w-0">
-              <p className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">
-                Session details
-              </p>
-              <p className="mt-0.5 truncate text-xs text-zinc-400">
-                {visibility}
-                {session.weather ? ` · ${session.weather}` : ""}
-                {session.tires ? ` · tires ${session.tires}` : ""}
-                {session.notes ? ` · ${session.notes}` : ""}
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-1.5">
-              {mine && detailsDirty ? (
-                <SectionSaveHint
-                  dirty
-                  saving={saving}
-                  label="Unsaved details"
-                  onSave={() => void saveEdits()}
-                  onDiscard={discardEdits}
-                />
-              ) : null}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            {/* Visitors: just the GPS badge (visibility is in the header). */}
+            <div className="hidden min-w-0 items-center gap-2.5 sm:flex">
+              <GpsQualityBadge
+                quality={session.gps_quality}
+                sourceKind={
+                  session.source_kind === "gopro" ||
+                  session.source_kind === "csv" ||
+                  session.source_kind === "logger"
+                    ? session.source_kind
+                    : null
+                }
+              />
               {mine ? (
+                <p className="truncate text-xs text-zinc-400">
+                  {visibility}
+                  {session.notes ? ` · ${session.notes}` : ""}
+                </p>
+              ) : null}
+            </div>
+            {mine ? (
+              <div className="flex flex-wrap items-center gap-1.5">
+                {detailsDirty ? (
+                  <SectionSaveHint
+                    dirty
+                    saving={saving}
+                    label="Unsaved details"
+                    onSave={() => void saveEdits()}
+                    onDiscard={discardEdits}
+                  />
+                ) : null}
+                {/* One control for every viewport (no hidden duplicate). */}
                 <button
                   type="button"
                   data-testid="toolbar-details"
@@ -1080,40 +1095,17 @@ export function CloudSessionView({ id }: { id: string }) {
                   aria-controls="session-details-panel"
                   onClick={() => setDetailsOpen((open) => !open)}
                 >
-                  <span className="apex-disclosure__label">Edit details</span>
+                  <span className="apex-disclosure__label">
+                    <span className="sm:hidden">Details</span>
+                    <span className="hidden sm:inline">Edit details</span>
+                  </span>
                   <span className="apex-disclosure__chevron" aria-hidden>
                     ▾
                   </span>
                 </button>
-              ) : null}
-            </div>
+              </div>
+            ) : null}
           </div>
-          {mine ? (
-            <div className="mb-1 flex flex-wrap items-center gap-1.5 sm:hidden">
-              {detailsDirty ? (
-                <SectionSaveHint
-                  dirty
-                  saving={saving}
-                  label="Unsaved details"
-                  onSave={() => void saveEdits()}
-                  onDiscard={discardEdits}
-                />
-              ) : null}
-              <button
-                type="button"
-                data-testid="toolbar-details"
-                className="apex-disclosure"
-                aria-expanded={detailsOpen}
-                aria-controls="session-details-panel"
-                onClick={() => setDetailsOpen((open) => !open)}
-              >
-                <span className="apex-disclosure__label">Details</span>
-                <span className="apex-disclosure__chevron" aria-hidden>
-                  ▾
-                </span>
-              </button>
-            </div>
-          ) : null}
           {detailsOpen && mine ? (
             <div
               id="session-details-panel"
@@ -1173,20 +1165,7 @@ export function CloudSessionView({ id }: { id: string }) {
                 />
               </div>
             </div>
-          ) : (
-            <div className="hidden sm:mt-2 sm:block">
-              <GpsQualityBadge
-                quality={session.gps_quality}
-                sourceKind={
-                  session.source_kind === "gopro" ||
-                  session.source_kind === "csv" ||
-                  session.source_kind === "logger"
-                    ? session.source_kind
-                    : null
-                }
-              />
-            </div>
-          )}
+          ) : null}
           {excludeError ? (
             <p
               role="alert"

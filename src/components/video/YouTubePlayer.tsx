@@ -33,6 +33,7 @@ declare global {
 type YtPlayer = {
   destroy: () => void;
   getCurrentTime: () => number;
+  getDuration?: () => number;
   seekTo: (seconds: number, allowSeekAhead: boolean) => void;
   getPlayerState: () => number;
   playVideo: () => void;
@@ -93,6 +94,11 @@ export const YouTubePlayer = forwardRef<
       getTime: () => {
         const p = playerRef.current;
         return typeof p?.getCurrentTime === "function" ? p.getCurrentTime() : 0;
+      },
+      getDuration: () => {
+        const p = playerRef.current;
+        const d = typeof p?.getDuration === "function" ? p.getDuration() : 0;
+        return Number.isFinite(d) && d > 0 ? d : 0;
       },
       seek: (seconds: number) => {
         const p = playerRef.current;

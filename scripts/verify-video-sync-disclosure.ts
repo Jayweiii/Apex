@@ -51,7 +51,8 @@ assert(css.includes(".apex-disclosure:active"), "pressed/active state");
 assert(css.includes(".apex-disclosure:focus-visible"), "keyboard focus ring");
 
 const disclosureHover = css.match(
-  /@media \(hover: hover\) and \(pointer: fine\)\s*\{\s*\.apex-disclosure:hover[\s\S]*?\n\}/,
+  // Indentation-aware: the block may sit inside an @layer.
+  /^([ \t]*)@media \(hover: hover\) and \(pointer: fine\)\s*\{\s*\.apex-disclosure:hover[\s\S]*?\n\1\}/m,
 );
 assert(disclosureHover, "disclosure hover block present");
 assert(

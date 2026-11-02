@@ -64,8 +64,14 @@ const synced = read("src/components/video/SyncedLapView.tsx");
 assert(synced.includes("previewProgress"), "session preview state");
 assert(synced.includes("previewFromChart"), "session chart preview");
 assert(synced.includes("seekFromChart"), "session chart seek");
-assert(synced.includes("onPreviewIndex={previewFromChart}"), "telemetry preview");
-assert(synced.includes("onSeekIndex={seekFromChart}"), "telemetry seek");
+assert(
+  /onPreviewIndex=\{(stable)?[pP]reviewFromChart\}/.test(synced),
+  "telemetry preview",
+);
+assert(
+  /onSeekIndex=\{(stable)?[sS]eekFromChart\}/.test(synced),
+  "telemetry seek",
+);
 assert(synced.includes("hoverEnabled = !clock.playing"), "no hover while playing");
 assert(
   synced.includes("hoverPreviewEnabled={hoverEnabled}"),
@@ -107,8 +113,11 @@ assert(
 );
 
 const drive = read("src/components/drive/DriveGame.tsx");
+const minimap = read("src/components/drive/DriveMinimap.tsx");
 assert(
-  drive.includes("viewW < 640 ? 58") && !drive.includes("viewH - size - pad - (viewW < 640 ? 120"),
+  drive.includes("<DriveMinimap") &&
+    /absolute right-2 top-14[^"]*sm:top-3/.test(minimap) &&
+    !/\bbottom-\d/.test(minimap),
   "drive minimap anchors top-right on mobile (not above brake/gas)",
 );
 

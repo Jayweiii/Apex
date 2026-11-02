@@ -139,19 +139,28 @@ export function sessionVideoFromYouTube(options: {
   lapMs?: number | null;
   syncSource?: SessionVideo["syncSource"];
   offsetSec?: number;
+  /**
+   * Session time (s) at which the lap starts. Offsets are on the SESSION
+   * clock (videoTime = offset + sessionTime), so a clip that starts at this
+   * lap needs offset −lapStart. Omitting it pointed lap N at minutes into a
+   * one-lap clip (the player ran off the end and looped play/stop).
+   */
+  lapStartOffsetSec?: number;
 }): SessionVideo {
   const lapMs = options.lapMs ?? null;
   const durationSec = options.durationSec;
-  // Initial guess: center the lap in the clip padding.
-  let offsetSec = options.offsetSec ?? 0;
+  // Initial guess: clip starts at the lap start, or centre the lap in the
+  // clip padding when the clip is longer than the lap.
+  let padSec = options.offsetSec ?? 0;
   if (
     options.offsetSec == null &&
     durationSec != null &&
     lapMs != null &&
     durationSec * 1000 > lapMs
   ) {
-    offsetSec = (durationSec - lapMs / 1000) / 2;
+    padSec = (durationSec - lapMs / 1000) / 2;
   }
+  const offsetSec = padSec - (options.lapStartOffsetSec ?? 0);
   return {
     id: crypto.randomUUID(),
     provider: "youtube",

@@ -1,5 +1,6 @@
 "use client";
 
+import { hasFinePointer } from "@/lib/use-fine-pointer";
 import {
   DEFAULT_BASEMAP,
   ESRI_IMAGERY,
@@ -479,6 +480,8 @@ export function ChaseTrackMap({
         onProgressRef.current?.(progress);
         return;
       }
+      // Hover preview is mouse-only (touch "hover" swallows taps on iOS).
+      if (!hasFinePointer()) return;
       // While playing, hover preview is disabled; drag-seek still works above.
       if (!hoverPreviewEnabledRef.current) return;
       if (onPreviewProgressRef.current) onPreviewProgressRef.current(progress);

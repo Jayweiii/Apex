@@ -28,6 +28,10 @@ export const Mp4Player = forwardRef<
     ref,
     () => ({
       getTime: () => videoRef.current?.currentTime ?? 0,
+      getDuration: () => {
+        const d = videoRef.current?.duration ?? 0;
+        return Number.isFinite(d) && d > 0 ? d : 0;
+      },
       seek: (seconds: number) => {
         const video = videoRef.current;
         if (!video) return;

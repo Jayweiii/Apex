@@ -11,23 +11,26 @@ import {
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type RefObject,
 } from "react";
-
-/** How often to push progress into React state while playing (scrubber UI).
- * Map markers also follow this unless they subscribe to `subscribe`. */
-const UI_PROGRESS_INTERVAL_MS = 50;
 
 /**
  * Own-clock playback: absolute wall clock
  * `progress = origin + (now - start) * speed / duration`
  * so React setState / effect churn cannot throttle the rate.
  *
- * While playing, `progressRef` + `subscribe` update every frame (map/cursor
- * overlays). React `progress` state is throttled so charts are not
- * re-rendered / remounted each frame.
+ * While playing, only `progressRef` + `subscribe` advance (every frame) —
+ * React `progress` state is NOT updated, so the page does not re-render
+ * during playback. Anything that must move while playing (scrubber, map
+ * marker, chart cursor) subscribes. `progress` is re-synced on pause / end /
+ * scrub. (Re-rendering the whole session view at 20 Hz used to saturate the
+ * main thread on phones, so taps needed a second press.)
+ *
+ * The returned object is referentially stable while nothing but the clock
+ * position changes, so `useCallback([clock])` handlers stay stable too.
  */
 export function usePlaybackClock({
   durationMs,
@@ -82,6 +85,7 @@ export function usePlaybackClock({
   const pause = useCallback(() => {
     originRef.current = null;
     setPlaying(false);
+    setProgressState(progressRef.current);
   }, []);
 
   const play = useCallback(() => {
@@ -102,6 +106,7 @@ export function usePlaybackClock({
     setPlaying((was) => {
       if (was) {
         originRef.current = null;
+        setProgressState(progressRef.current);
         return false;
       }
       if (progressRef.current >= 1) {
@@ -136,7 +141,6 @@ export function usePlaybackClock({
       };
     }
     let raf = 0;
-    let lastUi = 0;
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
       const origin = originRef.current;
@@ -149,12 +153,9 @@ export function usePlaybackClock({
         speed: speedRef.current,
       });
       notify(next);
-      if (now - lastUi >= UI_PROGRESS_INTERVAL_MS || next >= 1) {
-        lastUi = now;
-        setProgressState(next);
-      }
       if (next >= 1) {
         originRef.current = null;
+        setProgressState(next);
         setPlaying(false);
       }
     };
@@ -215,17 +216,20 @@ export function usePlaybackClock({
     return () => window.removeEventListener("keydown", onKey);
   }, [enabled, rootRef, setProgress, setSpeed, toggle]);
 
-  return {
-    progress,
-    progressRef,
-    subscribe,
-    setProgress,
-    playing,
-    play,
-    pause,
-    toggle,
-    setPlaying,
-    speed,
-    setSpeed,
-  };
+  return useMemo(
+    () => ({
+      progress,
+      progressRef,
+      subscribe,
+      setProgress,
+      playing,
+      play,
+      pause,
+      toggle,
+      setPlaying,
+      speed,
+      setSpeed,
+    }),
+    [progress, subscribe, setProgress, playing, play, pause, toggle, speed, setSpeed],
+  );
 }

@@ -16,7 +16,9 @@ import {
   STACKED_SPEED_MIN_HEIGHT_SM,
 } from "@/lib/chart-height-contract";
 import type { TelemetryPoint } from "@/lib/types";
+import { useStableCallback } from "@/lib/use-stable-callback";
 import {
+  memo,
   useEffect,
   useRef,
   type ReactNode,
@@ -28,8 +30,12 @@ const CHANNEL_COLORS = ["#f97316", "#38bdf8", "#a3e635", "#e879f9"] as const;
 
 /**
  * Single-lap stacked telemetry: every available channel, no tabs.
+ *
+ * Memoized, with callbacks stabilized below, so play/pause/speed changes in
+ * the parent do not re-render every Recharts plot (that blocked the main
+ * thread long enough on phones that taps needed a second press).
  */
-export function StackedLapTelemetry({
+export const StackedLapTelemetry = memo(function StackedLapTelemetry({
   points,
   activeIndex = null,
   onPreviewIndex,
@@ -65,6 +71,12 @@ export function StackedLapTelemetry({
   /** Parent-owned cursor controller (drives solid playback overlay via rAF). */
   hoverController?: HoverCursorController;
 }) {
+  const stableSeek = useStableCallback(onSeekIndex);
+  const stableTrimDrag = useStableCallback(onTrimBoundaryDrag);
+  const seekIndex = onSeekIndex ? stableSeek : undefined;
+  const trimDrag = onTrimBoundaryDrag
+    ? (stableTrimDrag as (which: "start" | "end", t: number) => void)
+    : undefined;
   const channels = detectLapChannels(points);
   if (!channels.length) return fallback ?? null;
 
@@ -105,10 +117,10 @@ export function StackedLapTelemetry({
           <SpeedChart
             points={points}
             activeIndex={activeIndex}
-            onSeekIndex={onSeekIndex}
+            onSeekIndex={seekIndex}
             syncId={syncId}
             trimMarkers={trimMarkers}
-            onTrimBoundaryDrag={onTrimBoundaryDrag}
+            onTrimBoundaryDrag={trimDrag}
             compact
             fill
           />
@@ -122,16 +134,16 @@ export function StackedLapTelemetry({
             points={points}
             activeIndex={activeIndex}
             activeT={activeT}
-            onSeekIndex={onSeekIndex}
+            onSeekIndex={seekIndex}
             syncId={syncId}
             trimMarkers={trimMarkers}
-            onTrimBoundaryDrag={onTrimBoundaryDrag}
+            onTrimBoundaryDrag={trimDrag}
           />
         ))}
       </div>
     </HoverCursorScope>
   );
-}
+});
 
 function HoverReadoutBridge({
   elRef,
@@ -161,7 +173,7 @@ function HoverReadoutBridge({
   return null;
 }
 
-function LapChannel({
+const LapChannel = memo(function LapChannel({
   id,
   points,
   activeIndex,
@@ -266,7 +278,7 @@ function LapChannel({
     );
   }
   return null;
-}
+});
 
 /**
  * Compare stacked telemetry: all channels visible (no Delta/Speed/G tabs).
@@ -297,15 +309,6 @@ export function StackedCompareTelemetry({
   }) => ReactNode;
   CompareTooltip: (props: { mode?: "delta" | "g" | "speed" }) => ReactNode;
 }) {
-  const lapPoints = ordered.map(() =>
-    series.map((row) => {
-      // Reconstruct minimal points for channel detection from flat keys.
-      const point: TelemetryPoint = { t: 0, speed: 0 };
-      return point;
-    }),
-  );
-  void lapPoints;
-
   // Detect from series keys (throttle0, brake1, …) plus always speed/delta/g.
   const hasOptional = (key: string) =>
     series.some((row) => typeof row[key] === "number");

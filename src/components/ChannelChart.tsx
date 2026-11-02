@@ -1,5 +1,6 @@
 "use client";
 
+import { useFinePointer } from "@/lib/use-fine-pointer";
 import { hoverIndex, isSeekPointer } from "@/components/chart-hover";
 import { bindChartScrub } from "@/components/chart-scrub";
 import {
@@ -71,6 +72,7 @@ export function ChannelChart({
   showXAxis?: boolean;
   compact?: boolean;
 }) {
+  const finePointer = useFinePointer();
   // Playback cursor is the DOM overlay; activeX kept for API compat.
   void activeX;
   const hoverCursor = useHoverCursor();
@@ -117,7 +119,9 @@ export function ChannelChart({
         {...scrub}
         onPointerMove={(event) => {
           scrub.onPointerMove?.(event);
-          if ((event.buttons ?? 0) === 0) driveHover(event.clientX);
+          if (event.pointerType === "mouse" && (event.buttons ?? 0) === 0) {
+            driveHover(event.clientX);
+          }
         }}
         onMouseLeave={() => {
           if (!hoverCursor) scrub.onMouseLeave?.();
@@ -156,15 +160,17 @@ export function ChannelChart({
               width={36}
               unit={yUnit}
             />
-            <Tooltip
-              cursor={false}
-              contentStyle={tooltipStyle}
-              labelFormatter={(label) =>
-                xTick
-                  ? xTick(Number(label))
-                  : `${Number(label).toFixed(1)}s`
-              }
-            />
+            {finePointer ? (
+              <Tooltip
+                cursor={false}
+                contentStyle={tooltipStyle}
+                labelFormatter={(label) =>
+                  xTick
+                    ? xTick(Number(label))
+                    : `${Number(label).toFixed(1)}s`
+                }
+              />
+            ) : null}
             {showLegend || series.length > 1 ? (
               <Legend wrapperStyle={{ fontSize: 10 }} />
             ) : null}
@@ -177,6 +183,7 @@ export function ChannelChart({
                 stroke={item.stroke}
                 strokeWidth={1.5}
                 dot={false}
+                activeDot={finePointer ? undefined : false}
                 isAnimationActive={false}
                 connectNulls
               />

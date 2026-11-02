@@ -172,8 +172,3 @@ export function DriveMinimap({
     />
   );
 }
-
-/** Exported name kept for verify-drive-minigame string checks via DriveGame import. */
-export function drawMinimap() {
-  return null;
-}

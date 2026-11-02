@@ -5,6 +5,8 @@ import type { PlayerSyncEvent } from "@/lib/playback-sync";
 
 export type VideoPlayerHandle = {
   getTime: () => number;
+  /** Seconds, or 0 until the player knows (metadata loaded). */
+  getDuration?: () => number;
   seek: (seconds: number) => void;
   isPaused: () => boolean;
   play: () => void;

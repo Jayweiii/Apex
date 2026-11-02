@@ -1,5 +1,6 @@
 "use client";
 
+import { useFinePointer } from "@/lib/use-fine-pointer";
 import { hoverIndex, isSeekPointer } from "@/components/chart-hover";
 import { bindChartScrub } from "@/components/chart-scrub";
 import {
@@ -19,7 +20,7 @@ import {
 } from "@/lib/chart-height-contract";
 import { formatSpeed, kmhToDisplay, speedUnitSuffix } from "@/lib/format";
 import { chartTAtClientX } from "@/lib/lap-trim";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, memo } from "react";
 import {
   Area,
   AreaChart,
@@ -78,7 +79,7 @@ export type SpeedChartPoint = {
   speedInTrim?: number | null;
 };
 
-export function SpeedChart({
+export const SpeedChart = memo(function SpeedChart({
   points,
   activeIndex = null,
   onPreviewIndex,
@@ -100,6 +101,7 @@ export function SpeedChart({
   /** Grow to fill flex parent (speed hero ~40% of stacked panel). */
   fill?: boolean;
 }) {
+  const finePointer = useFinePointer();
   const [speedUnit] = useSpeedUnit();
   const active = activeIndex != null ? points[activeIndex] : null;
   const hoverCursor = useHoverCursor();
@@ -238,7 +240,9 @@ export function SpeedChart({
         onPointerMove={(event) => {
           if (dragging) return;
           scrub.onPointerMove?.(event);
-          if ((event.buttons ?? 0) === 0) driveHover(event.clientX);
+          if (event.pointerType === "mouse" && (event.buttons ?? 0) === 0) {
+            driveHover(event.clientX);
+          }
         }}
         onPointerLeave={() => {
           // Do not clear trim dragging here — window listeners + pointer capture
@@ -290,15 +294,17 @@ export function SpeedChart({
               width={48}
               allowDataOverflow
             />
-            <Tooltip
-              cursor={false}
-              contentStyle={tooltipStyle}
-              formatter={(value) => [
-                `${Number(value).toFixed(1)} ${unitLabel}`,
-                "Speed",
-              ]}
-              labelFormatter={(label) => `${Number(label).toFixed(1)}s`}
-            />
+            {finePointer ? (
+              <Tooltip
+                cursor={false}
+                contentStyle={tooltipStyle}
+                formatter={(value) => [
+                  `${Number(value).toFixed(1)} ${unitLabel}`,
+                  "Speed",
+                ]}
+                labelFormatter={(label) => `${Number(label).toFixed(1)}s`}
+              />
+            ) : null}
             {hasPad && trimMarkers ? (
               <>
                 {trimMarkers.startT > firstT + 0.01 ? (
@@ -346,6 +352,7 @@ export function SpeedChart({
                 hasPad || hasTrimOverlay ? "url(#speedFillDim)" : "url(#speedFill)"
               }
               dot={false}
+              activeDot={finePointer ? undefined : false}
               isAnimationActive={false}
             />
             {hasTrimOverlay ? (
@@ -357,6 +364,7 @@ export function SpeedChart({
                 fill="url(#speedFill)"
                 connectNulls={false}
                 dot={false}
+                activeDot={finePointer ? undefined : false}
                 isAnimationActive={false}
               />
             ) : null}
@@ -387,7 +395,7 @@ export function SpeedChart({
       </div>
     </div>
   );
-}
+});
 
 function TrimHandles({
   startT,

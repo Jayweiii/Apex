@@ -9,6 +9,15 @@ import {
 import { StackedLapTelemetry } from "@/components/StackedTelemetry";
 import { MissingGps, TrackMap } from "@/components/TrackMap";
 import { usePlaybackClock } from "@/components/usePlaybackClock";
+import { useStableCallback } from "@/lib/use-stable-callback";
+import {
+  coveredLapNumbers,
+  describeLapNumbers,
+  offsetForVideoStartingAtLap,
+  lapCoverage,
+  readCachedVideoDuration,
+  writeCachedVideoDuration,
+} from "@/lib/video-coverage";
 import { LapVideoSyncGuide } from "@/components/video/LapVideoSyncGuide";
 import { Mp4Player } from "@/components/video/Mp4Player";
 import { YouTubePlayer } from "@/components/video/YouTubePlayer";
@@ -74,10 +83,13 @@ function MissingYouTube({
 }) {
   return (
     <div
-      className={`mx-auto flex w-full max-w-full flex-col items-center justify-center rounded-xl border border-dashed border-zinc-800 bg-zinc-950/80 px-4 text-center ${
+      // Compact (session workspace): a short one-line note, not an empty
+      // 16:9 box — on phones that box pushed playback + charts off-screen.
+      data-apex-video-missing="1"
+      className={`mx-auto flex w-full max-w-full rounded-xl border border-dashed border-zinc-800 bg-zinc-950/60 px-3 ${
         compact
-          ? "h-[min(28vh,220px)] gap-1.5"
-          : "aspect-video gap-3"
+          ? "flex-wrap items-center justify-between gap-x-3 gap-y-0.5 py-2.5 text-left"
+          : "aspect-video flex-col items-center justify-center gap-3 px-4 text-center"
       }`}
     >
       <p className={`text-zinc-300 ${compact ? "text-xs" : "text-sm"}`}>
@@ -166,6 +178,8 @@ export function SyncedLapView({
   onTrimBoundaryDrag?: (which: "start" | "end", lapLocalT: number) => void;
   /** Paste a YouTube URL for this lap from the point-match stepper. */
   onAttachYouTube?: (input: {
+    /** "lap": this lap only. "from": starts at this lap, runs on. */
+    scope?: "lap" | "from";
     youtubeId: string;
     youtubeUrl: string;
     title: string;
@@ -299,22 +313,64 @@ export function SyncedLapView({
     setDraftVideo(video ?? null);
   }, [video]);
 
-  const activeVideo: SessionVideo | null =
-    draftVideo ??
-    video ??
-    (mp4Src
-      ? {
-          id: "legacy-mp4",
-          provider: "mp4",
-          offsetSec: 0,
-          rate: 1,
-          syncSource: "unsynced",
-        }
-      : null);
+  // Memoized: a fresh object each render restarted every video effect.
+  const activeVideo: SessionVideo | null = useMemo(
+    () =>
+      draftVideo ??
+      video ??
+      (mp4Src
+        ? {
+            id: "legacy-mp4",
+            provider: "mp4",
+            offsetSec: 0,
+            rate: 1,
+            syncSource: "unsynced",
+          }
+        : null),
+    [draftVideo, video, mp4Src],
+  );
 
   /** Two-way lock only after a saved sync (point-match / auto / tod). */
   void sessionStartedAtMs;
-  const locked = isVideoSynced(activeVideo);
+  const videoSynced = isVideoSynced(activeVideo);
+
+  // Video length from the player (cached per viewer) → which laps it holds.
+  const [videoDuration, setVideoDuration] = useState<number | null>(null);
+  useEffect(() => {
+    if (!activeVideo) return;
+    const cached = readCachedVideoDuration(activeVideo);
+    if (cached) setVideoDuration(cached);
+  }, [activeVideo]);
+  useEffect(() => {
+    if (!player || !activeVideo) return;
+    let tries = 0;
+    const id = window.setInterval(() => {
+      tries += 1;
+      const d = player.getDuration?.() ?? 0;
+      if (d > 0) {
+        setVideoDuration((prev) => (prev === d ? prev : d));
+        writeCachedVideoDuration(activeVideo, d);
+        window.clearInterval(id);
+      } else if (tries > 60) {
+        window.clearInterval(id);
+      }
+    }, 500);
+    return () => window.clearInterval(id);
+  }, [player, activeVideo]);
+  const coverage = activeVideo
+    ? lapCoverage(currentSyncLap, activeVideo, videoDuration)
+    : "unknown";
+  const coveredLaps = useMemo(
+    () =>
+      activeVideo && videoDuration
+        ? coveredLapNumbers(syncLaps, activeVideo, videoDuration)
+        : [],
+    [activeVideo, videoDuration, syncLaps],
+  );
+  /** Synced, but this lap is not in the video: leave the player alone. */
+  const lapOutsideVideo = videoSynced && coverage === "none";
+  /** Clock ↔ video two-way lock: synced AND the video contains this lap. */
+  const locked = videoSynced && !lapOutsideVideo;
   const [syncOpen, setSyncOpen] = useState(
     () =>
       defaultSyncOpen ??
@@ -372,23 +428,52 @@ export function SyncedLapView({
         nextProgress,
         activeVideo,
       );
+      // Part of the lap may fall outside the video (clip starts late / ends
+      // early). Never seek past either end — YouTube "ends" and the clock
+      // fought it in a play/stop loop. Hold the video until we're back in.
+      // Hold seeks until the length is known (player metadata), so an early
+      // seek can't overshoot a short clip before coverage is computed.
+      const knownDuration =
+        videoDuration ?? ((player.getDuration?.() ?? 0) || null);
+      if (!knownDuration) return;
+      if (t < 0 || t > knownDuration - 0.25) {
+        if (!player.isPaused()) drivePlayer("pause");
+        return;
+      }
       const actual = player.getTime();
+      if (playingRef.current && player.isPaused()) {
+        drivePlayer("seek", t);
+        drivePlayer("play");
+        return;
+      }
       if (force || needsDriftCorrection(t, actual)) {
         drivePlayer("seek", t);
       } else {
         setVideoTime(actual);
       }
     },
-    [activeVideo, player, currentSyncLap, drivePlayer],
+    [activeVideo, player, currentSyncLap, drivePlayer, videoDuration],
   );
 
   // Clock → video only after Synced (setup keeps YouTube independent).
   useEffect(() => {
     if (!locked || !activeVideo || !player) return;
     if (authorityRef.current !== "clock") return;
-    drivePlayer(clock.playing ? "play" : "pause");
+    // Playing: start the video only where the clip has footage for the
+    // current clock time (seekVideoToProgress holds it outside the clip).
+    if (clock.playing) seekVideoToProgress(clock.progressRef.current, false);
+    else drivePlayer("pause");
     drivePlayer("rate", clock.speed);
-  }, [locked, activeVideo, player, clock.playing, clock.speed, drivePlayer]);
+  }, [
+    locked,
+    activeVideo,
+    player,
+    clock.playing,
+    clock.progressRef,
+    clock.speed,
+    drivePlayer,
+    seekVideoToProgress,
+  ]);
 
   useEffect(() => {
     if (!locked || !activeVideo || !player) return;
@@ -408,10 +493,11 @@ export function SyncedLapView({
     if (!locked || !activeVideo || !player || !clock.playing) return;
     const id = window.setInterval(() => {
       if (authorityRef.current !== "clock") return;
-      seekVideoToProgress(clock.progress, false);
+      // progressRef: React `progress` is frozen while playing.
+      seekVideoToProgress(clock.progressRef.current, false);
     }, DRIFT_CHECK_INTERVAL_MS);
     return () => window.clearInterval(id);
-  }, [locked, activeVideo, player, clock.playing, clock.progress, seekVideoToProgress]);
+  }, [locked, activeVideo, player, clock.playing, clock.progressRef, seekVideoToProgress]);
 
   // During setup, poll video clock so Sync here sees the paused frame.
   useEffect(() => {
@@ -484,11 +570,9 @@ export function SyncedLapView({
       }
       if (event.type === "pause" || event.type === "ended") {
         // Ignore pause echoes while the shared clock is driving playback.
-        if (
-          event.type === "pause" &&
-          authorityRef.current === "clock" &&
-          playingRef.current
-        ) {
+        // (and "ended": a clip shorter than the lap ends while the clock
+        // keeps running — that is not the user stopping playback).
+        if (authorityRef.current === "clock" && playingRef.current) {
           return;
         }
         authorityRef.current = "video";
@@ -687,6 +771,10 @@ export function SyncedLapView({
     [lapProgressFromChartIndex, setProgressFromUi],
   );
 
+  // Stable identities for the memoized telemetry stack (see StackedLapTelemetry).
+  const stablePreviewFromChart = useStableCallback(previewFromChart);
+  const stableSeekFromChart = useStableCallback(seekFromChart);
+
   const chartLapTimeSec = timeSecFromProgress(
     clock.progress,
     durationSec,
@@ -726,15 +814,21 @@ export function SyncedLapView({
         nextProgress,
         activeVideo,
       );
-      const actual = player?.getTime();
-      if (
-        actual == null ||
-        actual < t - 0.15 ||
-        needsDriftCorrection(t, actual)
-      ) {
-        drivePlayer("seek", t);
+      const inVideo =
+        !videoDuration || (t >= 0 && t <= videoDuration - 0.25);
+      if (inVideo) {
+        const actual = player?.getTime();
+        if (
+          actual == null ||
+          actual < t - 0.15 ||
+          needsDriftCorrection(t, actual)
+        ) {
+          drivePlayer("seek", t);
+        }
+        drivePlayer("play");
       }
-      drivePlayer("play");
+      // Out of the clip's range: the drift check starts the video once the
+      // clock reaches footage.
     }
     clock.play();
   }, [
@@ -744,6 +838,7 @@ export function SyncedLapView({
     currentSyncLap,
     player,
     drivePlayer,
+    videoDuration,
   ]);
 
   const onSpeed = useCallback(
@@ -776,7 +871,8 @@ export function SyncedLapView({
   const playbackBar = (
     <PlaybackControls
       progress={clock.progress}
-      onProgress={(next) => setProgressFromUi(next)}
+      progressSubscribe={clock.subscribe}
+      onProgress={setProgressFromUi}
       playing={clock.playing}
       onTogglePlay={onTogglePlay}
       speed={clock.speed}
@@ -849,6 +945,44 @@ export function SyncedLapView({
       <MissingYouTube sessionId={sessionId} compact={workspace} />
     );
 
+  // Synced video that doesn't contain this lap: say so and link the laps it
+  // does contain, instead of fighting the player.
+  const coverageNotice =
+    activeVideo && videoSynced && (lapOutsideVideo || coverage === "partial") ? (
+      <div
+        className={`mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border px-3 py-2 text-xs ${
+          lapOutsideVideo
+            ? "border-amber-500/30 bg-amber-500/10 text-amber-100"
+            : "border-zinc-800 bg-zinc-950/60 text-zinc-400"
+        }`}
+        data-apex-video-coverage={coverage}
+        role={lapOutsideVideo ? "status" : undefined}
+      >
+        <span>
+          {lapOutsideVideo
+            ? `This video covers ${describeLapNumbers(coveredLaps)} — lap ${lap.lap_number} isn't in it. Telemetry still plays.`
+            : `The video only covers part of lap ${lap.lap_number}; it holds where there's no footage.`}
+        </span>
+        {lapOutsideVideo && sessionId
+          ? coveredLaps.slice(0, 6).map((n) => {
+              const target = siblingLaps.find((item) => item.lap_number === n);
+              if (!target) return null;
+              return (
+                <a
+                  key={target.id}
+                  href={sessionLapHref(sessionId, target, {
+                    videoId: activeVideo.id,
+                  })}
+                  className="apex-hit apex-hit--y font-medium text-orange-300 underline underline-offset-2"
+                >
+                  Lap {n}
+                </a>
+              );
+            })
+          : null}
+      </div>
+    ) : null;
+
   const metaRow = (
     <div
       className={`flex flex-wrap items-center gap-x-3 gap-y-1 text-zinc-400 ${
@@ -872,7 +1006,7 @@ export function SyncedLapView({
       {deltaVsBest != null ? (
         <span>Δ best {formatGap(deltaVsBest)}</span>
       ) : null}
-      {!locked && activeVideo ? (
+      {!videoSynced && activeVideo ? (
         <span className="rounded-md bg-zinc-800 px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-zinc-400">
           Sync setup · video free
         </span>
@@ -918,6 +1052,21 @@ export function SyncedLapView({
           if (locked) applyVideoTime(t);
         }}
         onAttachYouTube={onAttachYouTube}
+        onScopeChange={
+          onVideoChange && activeVideo
+            ? (scope) =>
+                handleVideoChange({
+                  ...activeVideo,
+                  // "lap": this lap only. "from": session-level, starting here.
+                  lapId: scope === "lap" ? lap.id : null,
+                  lapIndex: lap.lap_number,
+                  // Restart the guess at this lap's start; user re-syncs.
+                  offsetSec: offsetForVideoStartingAtLap(currentSyncLap),
+                  syncSource: "unsynced",
+                  videoStartedAtMs: undefined,
+                })
+            : undefined
+        }
         onPlayBoth={locked ? playBoth : undefined}
       />
     ) : null;
@@ -926,15 +1075,15 @@ export function SyncedLapView({
     <StackedLapTelemetry
       points={chartData}
       activeIndex={clock.playing ? null : playbackIndex}
-      onPreviewIndex={previewFromChart}
-      onSeekIndex={seekFromChart}
+      onPreviewIndex={stablePreviewFromChart}
+      onSeekIndex={stableSeekFromChart}
       syncId="lap-detail"
       trimMarkers={effectiveTrimMarkers}
       onTrimBoundaryDrag={onTrimBoundaryDrag}
       fallback={null}
       className={workspace ? "h-full" : undefined}
       hoverReadoutRef={hoverReadoutRef}
-      formatHoverReadout={(i) => formatCursorReadout(i)}
+      formatHoverReadout={formatCursorReadout}
       formatPlaybackReadout={formatCursorReadout}
       hoverEnabled={hoverEnabled}
       hoverController={hoverController}
@@ -948,15 +1097,18 @@ export function SyncedLapView({
       id: "sync",
       label: "Video sync",
       content: syncPanel,
-      badge: activeVideo && !locked ? "!" : null,
+      badge: activeVideo && !videoSynced ? "!" : null,
     });
   }
   for (const tab of extraToolTabs ?? []) toolTabs.push(tab);
 
   const syncOffsetMeta = (() => {
     if (!activeVideo) return null;
-    if (!locked) {
+    if (!videoSynced) {
       return { text: syncBadgeForVideo(activeVideo).label, warn: true };
+    }
+    if (lapOutsideVideo) {
+      return { text: "lap not in video", warn: true };
     }
     const sign = activeVideo.offsetSec >= 0 ? "+" : "";
     return {
@@ -1004,6 +1156,7 @@ export function SyncedLapView({
     <div>
       {videoHeader}
       {videoBlock}
+      {coverageNotice}
       {contextual && syncOpen && syncPanel ? (
         <div
           id="video-sync-panel"

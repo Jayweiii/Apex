@@ -171,8 +171,13 @@ export function usePlotHoverMove(
   return useMemo(() => {
     if (!cursor || length < 1) return {};
     return {
-      onPointerMove: (event: { clientX: number; buttons?: number }) => {
-        if ((event.buttons ?? 0) !== 0) return;
+      onPointerMove: (event: {
+        clientX: number;
+        buttons?: number;
+        pointerType?: string;
+      }) => {
+        // Hover is mouse-only (touch "hover" swallows the next tap on iOS).
+        if (event.pointerType !== "mouse" || (event.buttons ?? 0) !== 0) return;
         const plot = plotRef.current;
         if (!plot) return;
         cursor.move({

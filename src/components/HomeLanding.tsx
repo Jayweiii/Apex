@@ -63,14 +63,18 @@ export function HomeLanding({
             <h1 className="text-3xl font-semibold tracking-tight text-zinc-50 sm:text-4xl lg:text-[2.65rem] lg:leading-tight">
               Compare your laps against anyone&apos;s
             </h1>
-            <div className="flex flex-wrap gap-3">
+            {/* Phones: equal full-width CTAs; sm+: side by side. */}
+            <div className="grid gap-2.5 sm:flex sm:flex-wrap sm:gap-3">
               <Link
                 href="/upload"
-                className="apex-btn apex-btn--primary apex-btn--cta"
+                className="apex-btn apex-btn--primary apex-btn--cta w-full sm:w-auto"
               >
                 Upload a session
               </Link>
-              <Link href="/lap-comparisons" className="apex-btn apex-btn--cta">
+              <Link
+                href="/lap-comparisons"
+                className="apex-btn apex-btn--cta w-full sm:w-auto"
+              >
                 Browse lap comparisons
               </Link>
             </div>
@@ -109,7 +113,7 @@ export function HomeLanding({
               </h2>
               <Link
                 href="/lap-comparisons"
-                className="text-[11px] uppercase tracking-[0.14em] text-zinc-600 hover:text-zinc-400"
+                className="apex-hit text-[11px] uppercase tracking-[0.14em] text-zinc-600 hover:text-zinc-400"
               >
                 All
               </Link>

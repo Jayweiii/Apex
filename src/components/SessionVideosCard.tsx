@@ -44,7 +44,12 @@ export function SessionVideosCard({
     sessionDate?: string;
     startedAtMs?: number;
     created_at: string;
-    laps: Array<{ id: string; lap_number: number; lap_time_ms: number }>;
+    laps: Array<{
+      id: string;
+      lap_number: number;
+      lap_time_ms: number;
+      start_offset_sec?: number | null;
+    }>;
   };
   videos: SessionVideo[];
   onChange: (videos: SessionVideo[]) => void | Promise<void>;
@@ -138,6 +143,7 @@ export function SessionVideosCard({
         title,
         lapId: chosenLap || null,
         lapIndex: lap?.lap_number ?? null,
+        lapStartOffsetSec: lap?.start_offset_sec ?? 0,
         durationSec: catalog?.durationSec,
         lapMs: hints.lapMs ?? catalog?.lapMs,
         syncSource: "lap_match",
@@ -182,6 +188,7 @@ export function SessionVideosCard({
           title,
           lapId: lap.id,
           lapIndex: lap.lap_number,
+          lapStartOffsetSec: lap.start_offset_sec ?? 0,
           syncSource: "lap_match",
           offsetSec: 0,
         });
@@ -209,6 +216,7 @@ export function SessionVideosCard({
       title: entry.title,
       lapId: suggestedLapId ?? null,
       lapIndex: lap?.lap_number ?? null,
+      lapStartOffsetSec: lap?.start_offset_sec ?? 0,
       durationSec: entry.durationSec,
       lapMs: entry.lapMs,
       syncSource: "lap_match",

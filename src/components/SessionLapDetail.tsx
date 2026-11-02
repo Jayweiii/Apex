@@ -1,5 +1,6 @@
 "use client";
 
+import { offsetForVideoStartingAtLap } from "@/lib/video-coverage";
 import type { LapExcludeChange } from "@/components/LapList";
 import { LapTrimControls } from "@/components/LapTrimControls";
 import { SectionSaveHint } from "@/components/SectionSaveHint";
@@ -469,16 +470,21 @@ export function SessionLapDetail({
           canEditSync={canEdit}
           onAttachYouTube={
             canEdit && onVideoChange
-              ? async ({ youtubeId, youtubeUrl, title }) => {
+              ? async ({ youtubeId, youtubeUrl, title, scope }) => {
                   const next: SessionVideo = {
                     id: activeVideo?.id ?? crypto.randomUUID(),
                     provider: "youtube",
                     youtubeId,
                     youtubeUrl,
                     title,
-                    lapId: lap.id,
+                    // "from": session-level video starting at this lap.
+                    lapId: scope === "from" ? null : lap.id,
                     lapIndex: lap.lap_number,
-                    offsetSec: 0,
+                    // Offsets are on the session clock: video t=0 ↔ this
+                    // lap's start (offset 0 pointed lap N minutes into it).
+                    offsetSec: offsetForVideoStartingAtLap({
+                      startOffsetSec: lap.start_offset_sec ?? 0,
+                    }),
                     rate: 1,
                     // Fresh paste starts unsynced until point-match Sync here.
                     syncSource: "unsynced",

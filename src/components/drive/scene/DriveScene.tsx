@@ -216,8 +216,18 @@ export function DriveScene({ payload, simRef, carColor, mobile, gate }: Props) {
 
   return (
     <Canvas
-      className="absolute inset-0 h-full w-full touch-none"
-      style={{ touchAction: "none", width: "100%", height: "100%" }}
+      className="touch-none"
+      // R3F's wrapper sets inline position:relative + height:100%, which
+      // overrides an `absolute inset-0` class. Inside a min-height-only stage
+      // that 100% resolved to 0, so the canvas fell back to its default 150px
+      // (a thin strip on phones). Pin the wrapper absolutely, inline.
+      style={{
+        position: "absolute",
+        inset: 0,
+        width: "100%",
+        height: "100%",
+        touchAction: "none",
+      }}
       dpr={dpr}
       gl={{
         antialias: !mobile,

@@ -37,8 +37,8 @@ export default async function UploadPage() {
             Upload a session
           </h1>
           <p className="mt-1 text-sm text-zinc-500">
-            No account required. Guests save to the cloud; add an email later to
-            keep sessions across devices.
+            Pick a telemetry file, choose your car, upload. No account
+            required.
           </p>
         </div>
         <SessionUploadLazy />

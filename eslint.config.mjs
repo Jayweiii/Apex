@@ -14,6 +14,8 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // QA / verify scripts are Node one-shots — not app source.
     "scripts/**",
+    // Vendored MapLibre bundles copied in by scripts/copy-maplibre-worker.mjs.
+    "public/maplibre-gl-*.mjs",
   ]),
   {
     rules: {

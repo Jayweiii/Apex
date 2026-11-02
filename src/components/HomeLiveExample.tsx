@@ -157,7 +157,7 @@ export function HomeLiveExample() {
         {error ? <p className="text-xs text-amber-200/80">{error}</p> : null}
         <Link
           href="/upload"
-          className="mt-1 text-xs uppercase tracking-[0.16em] text-orange-400 hover:text-orange-300"
+          className="apex-hit mt-1 text-xs uppercase tracking-[0.16em] text-orange-400 hover:text-orange-300"
         >
           Upload a session
         </Link>
@@ -178,7 +178,7 @@ export function HomeLiveExample() {
           </p>
           <Link
             href={comparisonSharePath(row.id)}
-            className="mt-0.5 block truncate text-sm font-medium text-zinc-100 hover:text-orange-300"
+            className="-mb-2.5 block truncate py-2.5 -mt-2  text-sm font-medium text-zinc-100 hover:text-orange-300"
           >
             {row.title}
           </Link>
@@ -204,6 +204,7 @@ export function HomeLiveExample() {
       <div className="px-3 pt-3">
         <TrackMap
           compact
+          embedded
           hideCameraControls
           traces={laps.map((lap) => ({
             id: lap.id,

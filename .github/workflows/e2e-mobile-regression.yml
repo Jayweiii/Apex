@@ -89,6 +89,11 @@ jobs:
               fi
             fi
           fi
+          if [ "${URL}" = "${BASE_URL}" ] && [ "${{ github.event_name }}" = "pull_request" ]; then
+            MSG="No Vercel preview found for this PR — e2e ran against ${URL} (production), not this branch's code."
+            echo "::warning title=e2e target::${MSG}"
+            echo "> ⚠️ ${MSG}" >> "$GITHUB_STEP_SUMMARY"
+          fi
           echo "Using BASE_URL=${URL}"
           echo "url=${URL}" >> "$GITHUB_OUTPUT"
 

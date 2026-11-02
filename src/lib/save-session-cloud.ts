@@ -108,8 +108,9 @@ export function buildCloudSessionPayload(
     youtube_url: video.youtubeUrl ?? null,
     object_key: video.objectKey ?? null,
     title: video.title ?? null,
-    // lap_id resolved after lap insert when possible
+    // Single-lap uploads resolve lap_index → lap_id after the lap insert.
     lap_id: video.lapId ?? null,
+    single_lap: Boolean(video.singleLap && !video.lapId),
     lap_index: video.lapIndex ?? null,
     offset_sec: video.offsetSec,
     rate: video.rate ?? 1,
@@ -120,6 +121,26 @@ export function buildCloudSessionPayload(
   }));
 
   return { session, laps: lapRows, videos };
+}
+
+/**
+ * Single-lap videos must name a lap in this upload. Throws a readable error
+ * ("Lap 9 isn't in this file — it has 5 laps") instead of silently saving a
+ * whole-session video.
+ */
+export function assertVideoLapsExist(
+  laps: Pick<ParsedLap, "lapNumber">[],
+  videos: SessionVideo[],
+): void {
+  const numbers = new Set(laps.map((lap) => lap.lapNumber));
+  for (const video of videos) {
+    if (!video.singleLap || video.lapId) continue;
+    if (video.lapIndex == null || !numbers.has(video.lapIndex)) {
+      throw new Error(
+        `Lap ${video.lapIndex ?? "?"} isn't in this file — it has ${laps.length} lap${laps.length === 1 ? "" : "s"}`,
+      );
+    }
+  }
 }
 
 /** Minimal shape used for inserts; accepts the real Supabase browser client. */
@@ -143,6 +164,10 @@ export async function saveSessionToCloud(
   }
 
   await assertUserUploadRateLimit(client, user.id);
+
+  // Validate before writing anything, so a bad lap number can't leave a
+  // half-saved session behind.
+  assertVideoLapsExist(laps, meta.videos ?? []);
 
   const payload = buildCloudSessionPayload(user.id, laps, meta);
 
@@ -225,15 +250,31 @@ export async function saveSessionToCloud(
     id: string;
     lap_number?: number;
   }>;
-  const firstLapId = insertedLaps[0]?.id ?? null;
-
   for (const video of payload.videos) {
+    const { single_lap: singleLap, ...row } = video as typeof video & {
+      single_lap?: boolean;
+    };
+    // Whole-session / multi-lap videos stay session-level (lap_id null).
+    // Pinning them to the first lap hid the video on every other lap.
+    const lapId =
+      row.lap_id ??
+      (singleLap
+        ? (insertedLaps.find((l) => l.lap_number === row.lap_index)?.id ??
+          null)
+        : null);
+    // A single-lap video must land on its lap — never fall back to a
+    // whole-session row.
+    if (singleLap && !lapId) {
+      throw new Error(
+        `Video is for lap ${String(row.lap_index)}, which isn't in this session`,
+      );
+    }
     const { error: videoError } = await client
       .from("session_videos")
       .insert({
-        ...video,
+        ...row,
         session_id: sessionId,
-        lap_id: video.lap_id ?? firstLapId,
+        lap_id: lapId,
       })
       .select("id")
       .single();

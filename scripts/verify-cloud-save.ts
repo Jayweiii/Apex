@@ -1,5 +1,8 @@
-import { buildCloudSessionPayload } from "../src/lib/save-session-cloud";
-import type { ParsedLap } from "../src/lib/types";
+import {
+  buildCloudSessionPayload,
+  saveSessionToCloud,
+} from "../src/lib/save-session-cloud";
+import type { ParsedLap, SessionVideo } from "../src/lib/types";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -139,8 +142,115 @@ try {
 }
 assert(threw, "empty laps should throw");
 
-console.log("verify-cloud-save ok", {
-  sessionId: payload.session.id,
-  laps: payload.laps.length,
-  videos: payload.videos.length,
+// ── saveSessionToCloud: video lap_index → lap_id resolution ──────────────
+/** In-memory stand-in for the Supabase client calls saveSessionToCloud makes. */
+function fakeClient() {
+  const rows: Record<string, Array<Record<string, unknown>>> = {
+    sessions: [],
+    laps: [],
+    session_videos: [],
+  };
+  return {
+    rows,
+    auth: {
+      getUser: async () => ({ data: { user: { id: "user-1" } }, error: null }),
+    },
+    from(table: string) {
+      return {
+        // Upload rate-limit count query.
+        select: () => ({
+          eq: () => ({ gte: async () => ({ count: 0, error: null }) }),
+        }),
+        insert(input: Record<string, unknown> | Array<Record<string, unknown>>) {
+          const list = (Array.isArray(input) ? input : [input]).map((row) => ({
+            ...row,
+            id: row.id ?? `${table}-${rows[table].length + 1}-${row.lap_number ?? ""}`,
+          }));
+          rows[table].push(...list);
+          const result = { data: list, error: null };
+          return {
+            select: () => ({
+              single: async () => ({ data: list[0], error: null }),
+              then: (resolve: (value: typeof result) => unknown) =>
+                Promise.resolve(result).then(resolve),
+            }),
+          };
+        },
+      };
+    },
+  };
+}
+
+const ytVideo = (extra: Partial<SessionVideo>): SessionVideo => ({
+  id: crypto.randomUUID(),
+  provider: "youtube",
+  youtubeId: "BI0ZwJiqYk8",
+  offsetSec: 0,
+  rate: 1,
+  syncSource: "unsynced",
+  lapId: null,
+  ...extra,
 });
+
+async function verifyVideoLapResolution() {
+  const meta = {
+    name: "Video scopes",
+    filename: "scopes.csv",
+    trackId: "thunderhill-east",
+    car: "ND Miata",
+    carClass: "Spec Miata",
+    carTags: [] as string[],
+    sourceKind: "csv" as const,
+  };
+
+  // 1. Single lap resolves lap_index → that lap's lap_id.
+  const one = fakeClient();
+  await saveSessionToCloud(one, laps, {
+    ...meta,
+    videos: [ytVideo({ lapIndex: 2, singleLap: true })],
+  });
+  const lap2 = one.rows.laps.find((lap) => lap.lap_number === 2);
+  const [single] = one.rows.session_videos;
+  assert(lap2 && single.lap_id === lap2.id, "single-lap video resolves to its lap_id");
+  assert(single.lap_index === 2, "single-lap video keeps lap_index");
+  assert(!("single_lap" in single), "transient single_lap flag is not inserted");
+
+  // 2. Whole-session and from-lap videos stay session-level with lap_index.
+  const multi = fakeClient();
+  await saveSessionToCloud(multi, laps, {
+    ...meta,
+    videos: [ytVideo({ lapIndex: null }), ytVideo({ lapIndex: 2 })],
+  });
+  const [whole, fromLap] = multi.rows.session_videos;
+  assert(whole.lap_id === null, "whole-session video keeps lap_id null (not pinned to lap 1)");
+  assert(fromLap.lap_id === null, "from-lap video keeps lap_id null");
+  assert(fromLap.lap_index === 2, "from-lap video keeps lap_index");
+
+  // 3. Invalid single lap throws before anything is written.
+  const bad = fakeClient();
+  let message = "";
+  try {
+    await saveSessionToCloud(bad, laps, {
+      ...meta,
+      videos: [ytVideo({ lapIndex: 9, singleLap: true })],
+    });
+  } catch (error) {
+    message = error instanceof Error ? error.message : String(error);
+  }
+  assert(/Lap 9 isn't in this file — it has 2 laps/.test(message), `invalid single lap throws (got "${message}")`);
+  assert(bad.rows.sessions.length === 0 && bad.rows.laps.length === 0, "nothing written when the lap is invalid");
+}
+
+verifyVideoLapResolution().then(
+  () => {
+    console.log("verify-cloud-save ok", {
+      sessionId: payload.session.id,
+      laps: payload.laps.length,
+      videos: payload.videos.length,
+    });
+  },
+  (error) => {
+    console.error(error);
+    process.exit(1);
+  },
+);
