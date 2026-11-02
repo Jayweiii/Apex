@@ -118,6 +118,19 @@ export function KartGame() {
   // Smooth steering from digital buttons/keys (ramps like a real wheel).
   const steerValue = useRef(0);
 
+  // Drop every held input (and the steering ramp) so nothing sticks when the
+  // sim pauses or the window loses focus and the matching keyup/pointerup is
+  // never delivered.
+  const releaseAll = useCallback(() => {
+    for (const k of Object.keys(held.current) as ControlKey[]) held.current[k] = false;
+    steerValue.current = 0;
+    document
+      .querySelectorAll<HTMLElement>("[data-apex-kart-control][data-held='1']")
+      .forEach((el) => {
+        el.dataset.held = "0";
+      });
+  }, []);
+
   const updateHud = useCallback((world: KartWorld) => {
     const t = ticksToMs(world.tick - world.lapStartTick);
     const speedKmh = Math.round(Math.hypot(world.car.vx, world.car.vy) * 3.6);
@@ -214,8 +227,9 @@ export function KartGame() {
     return () => {
       cancelAnimationFrame(raf);
       document.removeEventListener("visibilitychange", onHidden);
+      releaseAll();
     };
-  }, [phase, updateHud]);
+  }, [phase, updateHud, releaseAll]);
 
   // Keyboard: WASD / arrows, Space = drift, Shift/E = item, P/Esc = pause.
   useEffect(() => {
@@ -249,15 +263,13 @@ export function KartGame() {
     };
     window.addEventListener("keydown", down);
     window.addEventListener("keyup", up);
+    window.addEventListener("blur", releaseAll);
     return () => {
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);
+      window.removeEventListener("blur", releaseAll);
     };
-  }, []);
-
-  const releaseAll = () => {
-    for (const k of Object.keys(held.current) as ControlKey[]) held.current[k] = false;
-  };
+  }, [releaseAll]);
 
   const start = () => {
     setPhase("racing");

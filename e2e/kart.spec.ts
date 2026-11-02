@@ -6,6 +6,7 @@ import { expect, test } from "@playwright/test";
  */
 test.describe("Apex Kart", () => {
   test("starts on one tap and drives with touch controls", async ({ page, isMobile }) => {
+    test.setTimeout(150_000);
     await page.goto("/kart");
     const start = page.locator("[data-apex-kart-start]");
     await expect(start).toBeVisible({ timeout: 90_000 });
@@ -17,6 +18,7 @@ test.describe("Apex Kart", () => {
     const read = async () => ({
       tick: Number(await probe.getAttribute("data-tick")),
       s: Number(await probe.getAttribute("data-s")),
+      gate: Number(await probe.getAttribute("data-gate")),
     });
     await expect.poll(async () => (await read()).tick, { timeout: 10_000 }).toBeGreaterThan(30);
     const before = await read();
@@ -31,6 +33,14 @@ test.describe("Apex Kart", () => {
     }
     await gas.dispatchEvent("pointerdown", { pointerId: 7, pointerType: isMobile ? "touch" : "mouse", isPrimary: true });
     await page.waitForTimeout(2500);
+    // Keep driving until the car passes the first gate; the next gate must advance.
+    expect(before.gate).toBe(1);
+    await expect
+      .poll(async () => (await read()).gate, {
+        timeout: 40_000,
+        message: "next gate advances after driving through a gate",
+      })
+      .toBeGreaterThan(before.gate);
     await gas.dispatchEvent("pointerup", { pointerId: 7, pointerType: isMobile ? "touch" : "mouse", isPrimary: true });
 
     const after = await read();
