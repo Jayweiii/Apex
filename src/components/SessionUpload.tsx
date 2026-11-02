@@ -116,6 +116,8 @@ export function SessionUpload({
     "session",
   );
   const [videoLapNumber, setVideoLapNumber] = useState(1);
+  /** Laps in the last parsed file — clamps the video lap input. */
+  const [parsedLapCount, setParsedLapCount] = useState<number | null>(null);
   const [csvAsGoProExport, setCsvAsGoProExport] = useState(false);
   const [previewQuality, setPreviewQuality] = useState<GpsQuality | null>(null);
   const [dlapHints, setDlapHints] = useState<DlapHints | null>(null);
@@ -254,6 +256,7 @@ export function SessionUpload({
     setError(null);
     setSavedBanner(null);
     setPreviewQuality(null);
+    setParsedLapCount(null);
     setDlapHints(null);
     const first = next[0];
     if (first && !name) {
@@ -558,6 +561,19 @@ export function SessionUpload({
         }
       }
       setPreviewQuality(gpsQuality);
+      setParsedLapCount(laps.length);
+
+      // A video scoped to a lap must name a lap that exists — never fall
+      // back to a whole-session video silently.
+      if (parseYouTubeId(youtubeUrl) && videoScope !== "session") {
+        const lapNumbers = laps.map((item) => item.lapNumber);
+        if (!lapNumbers.includes(videoLapNumber)) {
+          const max = lapNumbers.length ? Math.max(...lapNumbers) : 0;
+          throw new Error(
+            `Lap ${videoLapNumber} isn't in this file — it has ${laps.length} lap${laps.length === 1 ? "" : "s"}${max ? ` (1–${max})` : ""}. Pick a lap in that range.`,
+          );
+        }
+      }
 
       const sessionId = crypto.randomUUID();
       setProgress(
@@ -863,10 +879,14 @@ export function SessionUpload({
                   type="number"
                   inputMode="numeric"
                   min={1}
+                  max={parsedLapCount ?? undefined}
                   value={videoLapNumber}
-                  onChange={(e) =>
-                    setVideoLapNumber(Math.max(1, Number(e.target.value) || 1))
-                  }
+                  onChange={(e) => {
+                    const n = Math.max(1, Number(e.target.value) || 1);
+                    setVideoLapNumber(
+                      parsedLapCount ? Math.min(n, parsedLapCount) : n,
+                    );
+                  }}
                   className="min-h-11 w-20 rounded-lg border border-zinc-800 bg-zinc-950 px-3 text-base text-zinc-100 sm:text-sm"
                 />
               </label>

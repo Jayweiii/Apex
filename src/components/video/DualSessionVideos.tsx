@@ -29,7 +29,13 @@ import {
   type PlayerSyncEvent,
   type SyncAuthority,
 } from "@/lib/playback-sync";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 /** Throttle React progress while playing — map/cursors use subscribe. */
 export type MultiVideoSide = DualVideoSide & { color: string };
@@ -219,7 +225,9 @@ export function DualSessionVideos({
     }
     setPlaying((p) => !p);
   }, [onProgressStable, setPlaying]);
-  useEffect(() => {
+  // Layout effect: registered before paint, so an early tap on another Play
+  // button (map overlay) is never dropped.
+  useLayoutEffect(() => {
     onControls?.({ togglePlay });
   }, [onControls, togglePlay]);
 

@@ -431,7 +431,12 @@ export function SyncedLapView({
       // Part of the lap may fall outside the video (clip starts late / ends
       // early). Never seek past either end — YouTube "ends" and the clock
       // fought it in a play/stop loop. Hold the video until we're back in.
-      if (videoDuration && (t < 0 || t > videoDuration - 0.25)) {
+      // Hold seeks until the length is known (player metadata), so an early
+      // seek can't overshoot a short clip before coverage is computed.
+      const knownDuration =
+        videoDuration ?? ((player.getDuration?.() ?? 0) || null);
+      if (!knownDuration) return;
+      if (t < 0 || t > knownDuration - 0.25) {
         if (!player.isPaused()) drivePlayer("pause");
         return;
       }

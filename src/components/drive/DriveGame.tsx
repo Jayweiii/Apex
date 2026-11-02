@@ -117,6 +117,8 @@ export function DriveGame({ trackId, carId: carIdProp }: Props) {
   const [countdownLabel, setCountdownLabel] = useState<string | null>(null);
   const [celebrate, setCelebrate] = useState<string | null>(null);
   const [muted, setMuted] = useState(() => loadDriveMuted());
+  /** Phones: secondary header controls behind a "More" disclosure. */
+  const [moreOpen, setMoreOpen] = useState(false);
   const [tiltSteer, setTiltSteer] = useState(false);
   const [showRealGhost, setShowRealGhost] = useState(true);
   const [speedUnit] = useSpeedUnit();
@@ -880,6 +882,7 @@ export function DriveGame({ trackId, carId: carIdProp }: Props) {
       <div
         data-drive-ui
         className="z-10 flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800/80 bg-zinc-950/90 px-3 py-2 backdrop-blur"
+        data-apex-drive-header="1"
       >
         <div className="min-w-0">
           <Link
@@ -892,7 +895,45 @@ export function DriveGame({ trackId, carId: carIdProp }: Props) {
             Drive · {carPreset.name}
           </p>
         </div>
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex items-center gap-1.5 sm:order-last">
+          {phase !== "ready" ? (
+            <button
+              type="button"
+              className="apex-btn apex-btn--ghost text-xs"
+              onClick={() =>
+                setPhase((p) =>
+                  p === "paused"
+                    ? "racing"
+                    : p === "racing"
+                      ? "paused"
+                      : p,
+                )
+              }
+            >
+              {phase === "paused" ? "Resume" : "Pause"}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="apex-disclosure sm:hidden"
+            aria-expanded={moreOpen}
+            aria-controls="drive-more-controls"
+            data-apex-drive-more="1"
+            onClick={() => setMoreOpen((open) => !open)}
+          >
+            <span className="apex-disclosure__label">More</span>
+            <span className="apex-disclosure__chevron" aria-hidden>
+              ▾
+            </span>
+          </button>
+        </div>
+        {/* Phones: secondary controls fold into "More" so the header stays
+            one row and the 3D view keeps the screen (it wrapped to three). */}
+        <div
+          id="drive-more-controls"
+          className={`${moreOpen ? "flex" : "hidden"} w-full flex-wrap gap-1.5 sm:flex sm:w-auto`}
+          data-apex-drive-more-panel="1"
+        >
           <SpeedUnitToggle className="text-xs" />
           <button
             type="button"
@@ -917,21 +958,7 @@ export function DriveGame({ trackId, carId: carIdProp }: Props) {
           </button>
           {phase !== "ready" ? (
             <>
-              <button
-                type="button"
-                className="apex-btn apex-btn--ghost text-xs"
-                onClick={() =>
-                  setPhase((p) =>
-                    p === "paused"
-                      ? "racing"
-                      : p === "racing"
-                        ? "paused"
-                        : p,
-                  )
-                }
-              >
-                {phase === "paused" ? "Resume" : "Pause"}
-              </button>
+
               <button
                 type="button"
                 className="apex-btn apex-btn--ghost text-xs"

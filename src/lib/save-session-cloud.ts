@@ -123,6 +123,26 @@ export function buildCloudSessionPayload(
   return { session, laps: lapRows, videos };
 }
 
+/**
+ * Single-lap videos must name a lap in this upload. Throws a readable error
+ * ("Lap 9 isn't in this file — it has 5 laps") instead of silently saving a
+ * whole-session video.
+ */
+export function assertVideoLapsExist(
+  laps: Pick<ParsedLap, "lapNumber">[],
+  videos: SessionVideo[],
+): void {
+  const numbers = new Set(laps.map((lap) => lap.lapNumber));
+  for (const video of videos) {
+    if (!video.singleLap || video.lapId) continue;
+    if (video.lapIndex == null || !numbers.has(video.lapIndex)) {
+      throw new Error(
+        `Lap ${video.lapIndex ?? "?"} isn't in this file — it has ${laps.length} lap${laps.length === 1 ? "" : "s"}`,
+      );
+    }
+  }
+}
+
 /** Minimal shape used for inserts; accepts the real Supabase browser client. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SupabaseLike = any;
@@ -144,6 +164,10 @@ export async function saveSessionToCloud(
   }
 
   await assertUserUploadRateLimit(client, user.id);
+
+  // Validate before writing anything, so a bad lap number can't leave a
+  // half-saved session behind.
+  assertVideoLapsExist(laps, meta.videos ?? []);
 
   const payload = buildCloudSessionPayload(user.id, laps, meta);
 
@@ -238,6 +262,13 @@ export async function saveSessionToCloud(
         ? (insertedLaps.find((l) => l.lap_number === row.lap_index)?.id ??
           null)
         : null);
+    // A single-lap video must land on its lap — never fall back to a
+    // whole-session row.
+    if (singleLap && !lapId) {
+      throw new Error(
+        `Video is for lap ${String(row.lap_index)}, which isn't in this session`,
+      );
+    }
     const { error: videoError } = await client
       .from("session_videos")
       .insert({
