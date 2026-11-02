@@ -331,6 +331,20 @@ export function DriveHub() {
           </Link>
         ) : null}
 
+        <Link
+          href="/kart"
+          data-apex-kart-entry="1"
+          className="flex min-h-12 items-center justify-between gap-3 rounded-xl border border-orange-500/40 bg-orange-500/10 px-4 py-3 text-sm"
+        >
+          <span>
+            <span className="font-semibold text-orange-200">New: Apex Kart</span>
+            <span className="block text-xs text-zinc-400">
+              Pixel kart drifting on Thunder Hills (beta)
+            </span>
+          </span>
+          <span aria-hidden className="text-orange-300">→</span>
+        </Link>
+
         <p className="text-[11px] text-zinc-600">
           Local game boards are stored in this browser only under{" "}
           <code className="text-zinc-500">apex.drive.*</code> and never feed
