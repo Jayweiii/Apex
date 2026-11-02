@@ -15,6 +15,13 @@ import {
 
 export const GRAVITY = 9.81;
 
+/** Below this speed (m/s) the handbrake is a light brake, not a drift. */
+export const DRIFT_MIN_SPEED = 6;
+/** Yaw-rate kick (rad/s) when a drift starts at speed. */
+const DRIFT_KICK = 0.55;
+/** Yaw damping while drifting (1/s). */
+const DRIFT_YAW_DAMP = 1.4;
+
 export type CarParams = {
   massKg: number;
   /** Yaw inertia, kg·m². */
@@ -53,17 +60,18 @@ export const DEFAULT_CAR: CarParams = {
   trackWidthM: 1.45,
   cgHeightM: 0.38,
   frontFrac: 0.52,
-  // ~3.5 m/s² off the line: full throttle uses most (not all) of the rear
-  // grip, so throttle steers the rear instead of always spinning it.
-  driveForceN: 3700,
-  powerW: 98000,
+  // ~6.5 m/s² off the line (about 0→80 km/h in 3.5 s): near the rear
+  // tires' traction limit, so launches feel punchy and the rear still steps
+  // out under power. Cornering with full throttle is capped (see stepCar).
+  driveForceN: 6800,
+  powerW: 140000,
   topSpeed: 46,
   brakeForceN: 11500,
   brakeBiasFront: 0.7,
   maxSteer: 0.6,
   steerRate: 3.4,
   lsdBias: 2.6,
-  handbrakeLateral: 0.25,
+  handbrakeLateral: 0.5,
   frontTire: DEFAULT_TIRE,
   // Same grip front and rear: stable at the limit, so slides come from
   // throttle / handbrake / weight transfer, not from just turning in.
@@ -105,6 +113,10 @@ export type KartCar = {
   extraDrag: number;
   /** Extra drive force from a Turbo (N). */
   boostForce: number;
+  /** Extra top speed while a boost is active (m/s). Set by the race. */
+  topBonus: number;
+  /** Drifting last step, to detect the tap that starts a drift. */
+  hbPrev: boolean;
 };
 
 export function createCar(params: CarParams = DEFAULT_CAR): KartCar {
@@ -127,6 +139,8 @@ export function createCar(params: CarParams = DEFAULT_CAR): KartCar {
     rearMuScale: 1,
     extraDrag: 0,
     boostForce: 0,
+    topBonus: 0,
+    hbPrev: false,
   };
   computeLoads(car);
   return car;
@@ -176,7 +190,9 @@ export function stepCar(car: KartCar, input: CarInput, dt: number): void {
 
   // Steering: slew toward the target, less lock at speed (arcade-friendly).
   const speed = Math.hypot(car.vx, car.vy);
-  const lockScale = 1 / (1 + speed * 0.075);
+  // Softer lock at crawling speed so a short tap doesn't whip the nose round.
+  const lowSpeed = 0.7 + 0.3 * clamp(speed / 9, 0, 1);
+  const lockScale = lowSpeed / (1 + speed * 0.075);
   const target = -clamp(input.steer, -1, 1) * p.maxSteer * lockScale;
   const maxDelta = p.steerRate * dt;
   car.steer += clamp(target - car.steer, -maxDelta, maxDelta);
@@ -189,7 +205,7 @@ export function stepCar(car: KartCar, input: CarInput, dt: number): void {
   const vAbs = Math.max(Math.abs(car.vx), 0.1);
   const engine = Math.min(p.driveForceN, p.powerW / Math.max(vAbs, 4));
   let driveReq = input.throttle * engine + car.boostForce;
-  if (car.vx > p.topSpeed) driveReq *= 0.2;
+  if (car.vx > p.topSpeed + car.topBonus) driveReq *= 0.2;
   // LSD: open diff sends 2× the weaker wheel's grip; bias ratio lets the
   // locked side carry more, up to the axle's total grip.
   const capL = peakForce(car.fz[2], p.rearTire, mu * car.rearMuScale);
@@ -200,11 +216,22 @@ export function stepCar(car: KartCar, input: CarInput, dt: number): void {
   const dir = car.vx >= 0 ? 1 : -1;
   let fxRear: number;
   let fxFront: number;
-  if (input.handbrake && Math.abs(car.vx) > 0.5) {
-    // Locked rears slide: full friction backwards, very little lateral.
-    fxRear = -dir * (capL + capR) * 0.85;
+  // Below DRIFT_MIN_SPEED the handbrake is just a light brake; above it, it
+  // starts a drift that keeps most of your speed.
+  const slideBrake = input.handbrake && Math.abs(car.vx) > 0.5;
+  const drifting = slideBrake && Math.abs(car.vx) >= DRIFT_MIN_SPEED;
+  if (slideBrake && !drifting) {
+    // Light brake: throttle still drives, rears only scrub a little, and
+    // side grip stays intact so there is no stall-out at crawling speed.
+    fxRear = clamp(driveReq, -rearDriveCap, rearDriveCap) - dir * (capL + capR) * 0.12;
+  } else if (drifting) {
+    // Throttle still pulls through the slide; rears only scrub a little.
+    fxRear = clamp(driveReq, -rearDriveCap, rearDriveCap) * 0.7 - dir * (capL + capR) * 0.1;
   } else {
-    fxRear = clamp(driveReq, -rearDriveCap, rearDriveCap);
+    // Pinned throttle mid-corner would use all the rear grip; keep some for
+    // side force unless the wheel is nearly straight.
+    const cornerCap = 1 - 0.2 * clamp(Math.abs(input.steer) * 2, 0, 1);
+    fxRear = clamp(driveReq, -rearDriveCap * cornerCap, rearDriveCap * cornerCap);
     // ABS: braking never takes more than 75% of an axle's grip, so the
     // tires keep side grip and braking into a corner doesn't spin you.
     const rearBrakeCap = 0.75 * (capL + capR);
@@ -229,7 +256,15 @@ export function stepCar(car: KartCar, input: CarInput, dt: number): void {
   car.rearSlip = alphaR;
   const fyF = lateralForce(alphaF, fzF, fxFront, p.frontTire, mu);
   let fyR = lateralForce(alphaR, fzR, fxRear, p.rearTire, mu * car.rearMuScale);
-  if (input.handbrake && Math.abs(car.vx) > 0.5) fyR *= p.handbrakeLateral;
+  if (drifting) {
+    fyR *= p.handbrakeLateral;
+    // The tap kicks the tail out toward the outside of the turn.
+    if (!car.hbPrev && Math.abs(input.steer) > 0.1) {
+      const kick = Math.min(1, Math.abs(car.vx) / 15) * DRIFT_KICK;
+      car.r += (input.steer > 0 ? -1 : 1) * kick;
+    }
+  }
+  car.hbPrev = drifting;
 
   // Body-frame forces (front forces rotated by steer angle).
   const cs = Math.cos(car.steer);
@@ -244,6 +279,9 @@ export function stepCar(car: KartCar, input: CarInput, dt: number): void {
   car.vx += (axBody + car.vy * car.r) * dt;
   car.vy += (ayBody - car.vx * car.r) * dt;
   car.r += (mz / p.izz) * dt;
+  // Forgiving slides: gently damp yaw while drifting so the slide can be
+  // held and caught without constant counter-steer.
+  if (drifting) car.r -= car.r * Math.min(1, DRIFT_YAW_DAMP * dt);
   car.ax = axBody;
   car.ay = ayBody;
 

@@ -10,12 +10,14 @@
  */
 import { THUNDERHILL_LEVEL } from "@/lib/kart/levels/thunderhill";
 import {
+  applyLaunch,
   comboMultiplier,
   createWorld,
   DT,
   ITEM_NONE,
   ITEM_OIL,
   ITEM_TURBO,
+  KART_RULES,
   SURFACE_GRASS,
   stepWorld,
   ticksToMs,
@@ -27,9 +29,11 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createRenderer, type KartRenderer } from "./renderer";
 
-type Phase = "ready" | "racing" | "paused";
+type Phase = "ready" | "countdown" | "racing" | "paused";
 
 const LEVEL = THUNDERHILL_LEVEL;
+/** 3-2-1 then GO. */
+const COUNTDOWN_S = 3;
 const BEST_KEY = `apex.kart.best.${LEVEL.id}`;
 const MAX_STEPS_PER_FRAME = 8;
 
@@ -81,6 +85,12 @@ export function KartGame() {
     useItem: false,
   });
   const bestRef = useRef(0);
+  // The loop reads the phase from a ref so stale closures can never run the
+  // race clock outside "racing".
+  const phaseRef = useRef<Phase>("ready");
+  const countdownS = useRef(0);
+  /** Countdown time when Gas was last pressed (−1 = not held). */
+  const gasDownAt = useRef(-1);
 
   // HUD nodes (written directly each frame).
   const hudLap = useRef<HTMLSpanElement | null>(null);
@@ -100,6 +110,7 @@ export function KartGame() {
     if (!canvas) return;
     const world = createWorld(LEVEL, Date.now() & 0xffff);
     worldRef.current = world;
+    phaseRef.current = "ready";
     const renderer = createRenderer(canvas, world);
     rendererRef.current = renderer;
     bestRef.current = loadBest();
@@ -151,7 +162,10 @@ export function KartGame() {
     // Centre flash: most recent event wins for ~1 s.
     const since = (tick: number) => world.tick - tick;
     let msg = "";
-    if (since(world.lastResetTick) < TICK_HZ) msg = "Back on track";
+    if (since(world.lastMiniTick) < TICK_HZ * 0.9 && world.lastMiniLaunch) msg = "GO! Perfect launch!";
+    else if (world.tick < TICK_HZ * 0.7) msg = "GO!";
+    else if (since(world.lastMiniTick) < TICK_HZ * 0.9) msg = "Mini-turbo!";
+    else if (since(world.lastResetTick) < TICK_HZ) msg = "Back on track";
     else if (world.wrongWayTicks > TICK_HZ / 2) msg = "Wrong way!";
     else if (since(world.lastWipeTick) < TICK_HZ) msg = "Wiped out!";
     else if (since(world.lastBankTick) < TICK_HZ && world.lastBank > 0) msg = `+${world.lastBank} drift`;
@@ -171,9 +185,15 @@ export function KartGame() {
     }
   }, []);
 
-  // Game loop while racing.
+  // Keep the loop's phase ref in step with React state (declared before the
+  // loop effect so it is current when the loop starts).
   useEffect(() => {
-    if (phase !== "racing") return;
+    phaseRef.current = phase;
+  }, [phase]);
+
+  // Game loop: countdown (draw only), then racing (sim + draw).
+  useEffect(() => {
+    if (phase !== "racing" && phase !== "countdown") return;
     const world = worldRef.current;
     const renderer = rendererRef.current;
     if (!world || !renderer) return;
@@ -184,11 +204,36 @@ export function KartGame() {
       raf = requestAnimationFrame(tick);
       const frameDt = Math.min(0.1, (now - last) / 1000);
       last = now;
-      acc += frameDt;
       const h = held.current;
+      if (phaseRef.current === "countdown") {
+        // The race clock does not run here: the world isn't stepped.
+        const t = countdownS.current + frameDt;
+        countdownS.current = t;
+        if (h.gas) {
+          if (gasDownAt.current < 0) gasDownAt.current = t;
+        } else gasDownAt.current = -1;
+        const el = hudFlash.current;
+        if (el) {
+          const n = Math.ceil(COUNTDOWN_S - t);
+          const text = n > 0 ? String(n) : "GO!";
+          if (el.textContent !== text) el.textContent = text;
+        }
+        renderer.draw(world, frameDt);
+        if (t >= COUNTDOWN_S) {
+          // Gas pressed in the last moment of the countdown = perfect launch.
+          if (gasDownAt.current >= COUNTDOWN_S - KART_RULES.launchWindowS) applyLaunch(world);
+          phaseRef.current = "racing";
+          setPhase("racing");
+        }
+        return;
+      }
+      if (phaseRef.current !== "racing") return;
+      acc += frameDt;
       const target = (h.right ? 1 : 0) - (h.left ? 1 : 0);
-      // Ramp toward the target; snap back to centre faster.
-      const rate = target === 0 ? 7 : 4.5;
+      // Ramp toward the target; snap back to centre faster. Gentler
+      // steer-in at low speed so a tap doesn't overshoot.
+      const carSpeed = Math.hypot(world.car.vx, world.car.vy);
+      const rate = target === 0 ? 7 : carSpeed < 12 ? 2.8 + carSpeed * 0.14 : 4.5;
       steerValue.current += Math.max(-rate * frameDt, Math.min(rate * frameDt, target - steerValue.current));
       const inp = input.current;
       inp.steer = steerValue.current;
@@ -208,7 +253,9 @@ export function KartGame() {
     };
     raf = requestAnimationFrame(tick);
     const onHidden = () => {
-      if (document.visibilityState === "hidden") setPhase("paused");
+      if (document.visibilityState !== "hidden") return;
+      // Mid-countdown: back to the start card; mid-race: pause.
+      setPhase(phaseRef.current === "countdown" ? "ready" : "paused");
     };
     document.addEventListener("visibilitychange", onHidden);
     return () => {
@@ -259,37 +306,73 @@ export function KartGame() {
     for (const k of Object.keys(held.current) as ControlKey[]) held.current[k] = false;
   };
 
+  // Never carry held inputs across a pause / start card: clear them whenever
+  // the phase leaves racing/countdown (Pause button, P, visibilitychange, blur).
+  useEffect(() => {
+    if (phase === "racing" || phase === "countdown") return;
+    for (const k of Object.keys(held.current) as ControlKey[]) held.current[k] = false;
+    steerValue.current = 0;
+  }, [phase]);
+
+  // Window blur (tab switch, phone lock): release inputs and pause.
+  useEffect(() => {
+    const onBlur = () => {
+      for (const k of Object.keys(held.current) as ControlKey[]) held.current[k] = false;
+      steerValue.current = 0;
+      if (phaseRef.current === "racing") setPhase("paused");
+      else if (phaseRef.current === "countdown") setPhase("ready");
+    };
+    window.addEventListener("blur", onBlur);
+    return () => window.removeEventListener("blur", onBlur);
+  }, []);
+
   const start = () => {
-    setPhase("racing");
+    if (phaseRef.current === "paused") {
+      setPhase("racing");
+      return;
+    }
+    if (phaseRef.current !== "ready") return;
+    // Fresh world + inputs every time, so no stale state can start the
+    // clock or skip the countdown.
+    releaseAll();
+    steerValue.current = 0;
+    countdownS.current = 0;
+    gasDownAt.current = -1;
+    const world = createWorld(LEVEL, Date.now() & 0xffff);
+    worldRef.current = world;
+    rendererRef.current?.draw(world, 0);
+    phaseRef.current = "countdown";
+    setPhase("countdown");
   };
 
   return (
     <div
       className="relative flex h-[100dvh] flex-col overflow-hidden bg-[#1c3a17] text-zinc-50 select-none"
       data-apex-kart="1"
+      data-phase={phase}
     >
       {/* HUD bar */}
-      <div className="z-10 flex items-center justify-between gap-2 bg-zinc-950/85 px-3 py-1.5 font-mono text-xs backdrop-blur">
-        <div className="flex min-w-0 items-center gap-3">
-          <Link href="/drive" className="apex-hit text-zinc-400" aria-label="Back to Drive">
+      <div className="z-10 flex items-center justify-between gap-1.5 whitespace-nowrap bg-zinc-950/90 px-2 py-1.5 font-mono text-xs font-semibold backdrop-blur min-[360px]:gap-2 min-[360px]:px-3 min-[360px]:text-sm sm:text-base">
+        <div className="flex min-w-0 items-center gap-1.5 min-[360px]:gap-2.5 sm:gap-4">
+          <Link href="/drive" className="apex-hit text-zinc-200" aria-label="Back to Drive">
             ←
           </Link>
-          <span ref={hudLap} className="text-zinc-300">Lap 1</span>
-          <span ref={hudTime} className="text-base text-orange-300">0:00.00</span>
-          <span className="hidden text-zinc-500 sm:inline">
+          <span ref={hudLap} className="text-zinc-100">Lap 1</span>
+          <span ref={hudTime} className="text-base text-orange-300 min-[360px]:text-lg sm:text-xl">0:00.00</span>
+          <span className="hidden text-zinc-300 sm:inline">
             best <span ref={hudBest}>—</span>
           </span>
           <span ref={hudGate} className="text-yellow-300">Gate 1/8</span>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-zinc-400">
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="text-zinc-200">
             <span ref={hudScore}>0</span> pts
           </span>
           <button
             type="button"
-            className="apex-btn apex-btn--ghost min-h-11 min-w-11 px-3 text-xs"
+            className="apex-btn apex-btn--ghost min-h-11 min-w-11 px-2 text-xs min-[360px]:px-3"
             onClick={() => setPhase((p) => (p === "racing" ? "paused" : "racing"))}
-            disabled={phase === "ready"}
+            disabled={phase === "ready" || phase === "countdown"}
             data-apex-kart-pause="1"
           >
             {phase === "paused" ? "Resume" : "Pause"}
@@ -306,11 +389,11 @@ export function KartGame() {
           aria-label="Apex Kart track"
           data-apex-kart-canvas="1"
         />
-        <span ref={hudSpeed} className="pointer-events-none absolute left-3 top-2 rounded bg-black/40 px-1.5 font-mono text-sm" />
-        <span ref={hudCombo} className="pointer-events-none absolute right-3 top-2 font-mono text-sm font-bold text-yellow-300 drop-shadow" />
+        <span ref={hudSpeed} className="pointer-events-none absolute left-3 top-2 rounded bg-black/40 px-1.5 font-mono text-base font-semibold sm:text-lg" />
+        <span ref={hudCombo} className="pointer-events-none absolute right-3 top-2 font-mono text-base font-bold text-yellow-300 drop-shadow-[0_2px_0_rgba(0,0,0,0.8)] sm:text-lg" />
         <div
           ref={hudFlash}
-          className="pointer-events-none absolute inset-x-0 top-[22%] text-center font-mono text-lg font-bold text-white drop-shadow-[0_2px_0_rgba(0,0,0,0.8)]"
+          className="pointer-events-none absolute inset-x-0 top-[22%] text-center font-mono text-2xl font-bold sm:text-3xl text-white drop-shadow-[0_2px_0_rgba(0,0,0,0.8)]"
           aria-live="polite"
         />
         <span ref={hudProbe} hidden data-apex-kart-probe="1" />
@@ -326,7 +409,7 @@ export function KartGame() {
           />
         </div>
 
-        {phase !== "racing" ? (
+        {phase === "ready" || phase === "paused" ? (
           <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/55 p-4">
             <div className="w-full max-w-sm rounded-2xl border border-zinc-700 bg-zinc-950/95 p-5 text-center">
               <p className="text-[10px] uppercase tracking-[0.2em] text-orange-400">Apex Kart · beta</p>
@@ -337,6 +420,7 @@ export function KartGame() {
                   <li>• Drive through every <span className="text-yellow-300">gold gate</span> in order.</li>
                   <li>• Rear-wheel drive: throttle or <b>Drift</b> kicks the tail out — counter-steer to hold it.</li>
                   <li>• Grass slows you down. Hit <span className="text-yellow-300">? boxes</span> for Turbo or Oil.</li>
+                  <li>• Tap <b>Gas</b> right as the countdown hits <b>GO</b> for a launch boost. Hold <b>Drift</b> while steering, release for a mini-turbo.</li>
                   <li className="text-zinc-500">Keys: arrows/WASD · Space drift · E item · P pause</li>
                 </ul>
               ) : null}

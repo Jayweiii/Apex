@@ -13,10 +13,17 @@ test.describe("Apex Kart", () => {
     else await start.click();
     await expect(start).toBeHidden();
 
+    // 3-2-1-GO: the race clock must not run until the countdown ends.
+    const root = page.locator("[data-apex-kart]");
+    await expect(root).toHaveAttribute("data-phase", "countdown");
+    expect(Number(await page.locator("[data-apex-kart-probe]").getAttribute("data-tick") ?? 0)).toBe(0);
+    await expect(root).toHaveAttribute("data-phase", "racing", { timeout: 8_000 });
+
     const probe = page.locator("[data-apex-kart-probe]");
     const read = async () => ({
       tick: Number(await probe.getAttribute("data-tick")),
       s: Number(await probe.getAttribute("data-s")),
+      gate: Number(await probe.getAttribute("data-gate")),
     });
     await expect.poll(async () => (await read()).tick, { timeout: 10_000 }).toBeGreaterThan(30);
     const before = await read();
@@ -31,6 +38,8 @@ test.describe("Apex Kart", () => {
     }
     await gas.dispatchEvent("pointerdown", { pointerId: 7, pointerType: isMobile ? "touch" : "mouse", isPrimary: true });
     await page.waitForTimeout(2500);
+    // Keep Gas held until the next gate registers: it must advance past its start.
+    await expect.poll(async () => (await read()).gate, { timeout: 25_000 }).not.toBe(before.gate);
     await gas.dispatchEvent("pointerup", { pointerId: 7, pointerType: isMobile ? "touch" : "mouse", isPrimary: true });
 
     const after = await read();

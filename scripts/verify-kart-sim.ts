@@ -6,6 +6,7 @@
 import { computeLoads, createCar, DEFAULT_CAR, GRAVITY, stepCar } from "../src/lib/kart/car";
 import { THUNDERHILL_LEVEL } from "../src/lib/kart/levels/thunderhill";
 import {
+  applyLaunch,
   createWorld,
   hashWorld,
   ITEM_NONE,
@@ -70,6 +71,63 @@ const power = rearSlipAfter(1);
 const hand = rearSlipAfter(0.4, true);
 assert(power > calm, `throttle breaks the rear loose (calm ${calm.toFixed(3)}, power ${power.toFixed(3)})`);
 assert(hand > calm, `handbrake kicks the rear out (${hand.toFixed(3)})`);
+
+// ── Fast start: ~0→80 km/h in a few seconds, not eight ──
+{
+  const c = createCar();
+  let t = 0;
+  while (c.vx < 22.2 && t < 12) {
+    stepCar(c, { steer: 0, throttle: 1, brake: 0, handbrake: false }, 1 / TICK_HZ);
+    t += 1 / TICK_HZ;
+  }
+  assert(t < 4.5, `0→80 km/h is quick (${t.toFixed(2)} s)`);
+}
+
+// ── Forgiving drift: keeps speed, and is only a light brake when slow ──
+{
+  const fast = createCar();
+  fast.vx = 18;
+  for (let i = 0; i < TICK_HZ; i += 1) {
+    stepCar(fast, { steer: 0.5, throttle: 1, brake: 0, handbrake: true }, 1 / TICK_HZ);
+  }
+  const fastSpeed = Math.hypot(fast.vx, fast.vy);
+  assert(fastSpeed > 18 * 0.85, `drift keeps most speed (${fastSpeed.toFixed(1)} m/s)`);
+  assert(Math.abs(Math.atan2(fast.vy, Math.abs(fast.vx))) > 0.1, "drift visibly slides the rear");
+
+  const slow = createCar();
+  slow.vx = 4.4; // ~16 km/h
+  for (let i = 0; i < TICK_HZ; i += 1) {
+    stepCar(slow, { steer: 0.5, throttle: 1, brake: 0, handbrake: true }, 1 / TICK_HZ);
+  }
+  assert(Math.hypot(slow.vx, slow.vy) > 4.4, "handbrake at crawling speed does not bleed speed");
+}
+
+// ── Mini-turbo on drift release, scaled by hold time; perfect launch ──
+{
+  const w = createWorld(THUNDERHILL_LEVEL, 3);
+  const inp: KartInput = { steer: 0.5, throttle: 1, brake: 0, handbrake: true, useItem: false };
+  w.car.vx = 18;
+  for (let i = 0; i < TICK_HZ * 1.2; i += 1) {
+    w.car.vx = Math.max(w.car.vx, 14); // keep drifting speed on the straight start
+    stepWorld(w, inp);
+  }
+  assert(w.holdTicks > TICK_HZ, "drift hold time is counted");
+  inp.handbrake = false;
+  stepWorld(w, inp);
+  assert(w.miniTicks > 0, "releasing a held drift gives a mini-turbo");
+
+  const quick = createWorld(THUNDERHILL_LEVEL, 3);
+  quick.car.vx = 18;
+  inp.handbrake = true;
+  for (let i = 0; i < 20; i += 1) stepWorld(quick, inp);
+  inp.handbrake = false;
+  stepWorld(quick, inp);
+  assert(quick.miniTicks === 0, "a quick tap gives no mini-turbo");
+
+  const l = createWorld(THUNDERHILL_LEVEL, 3);
+  applyLaunch(l);
+  assert(l.car.vx > 0 && l.miniTicks > 0, "perfect launch kicks and boosts");
+}
 
 // ── Bot driver (shared headless bot) ──
 function bot(world: KartWorld, input: KartInput, opts: { offset?: number } = {}) {
