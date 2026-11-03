@@ -9,7 +9,7 @@
  * found in #43. Touch controls act on pointerdown (single tap, no click).
  */
 import { THUNDERHILL_LEVEL } from "@/lib/kart/levels/thunderhill";
-import { createLapClock, guardLapTime } from "@/lib/kart/laptime";
+import { createLapClock, guardLapTime, resetLapClock } from "@/lib/kart/laptime";
 import {
   applyLaunch,
   comboMultiplier,
@@ -111,6 +111,7 @@ export function KartGame() {
     if (!canvas) return;
     const world = createWorld(LEVEL, Date.now() & 0xffff);
     worldRef.current = world;
+    resetLapClock(lapClock.current);
     phaseRef.current = "ready";
     const renderer = createRenderer(canvas, world);
     rendererRef.current = renderer;
@@ -342,6 +343,7 @@ export function KartGame() {
     gasDownAt.current = -1;
     const world = createWorld(LEVEL, Date.now() & 0xffff);
     worldRef.current = world;
+    resetLapClock(lapClock.current);
     rendererRef.current?.draw(world, 0);
     phaseRef.current = "countdown";
     setPhase("countdown");

@@ -21,7 +21,7 @@ import {
 } from "../src/lib/kart/sim";
 import { DEFAULT_TIRE, lateralForce, magicFormula, peakForce } from "../src/lib/kart/tire";
 import { botInput, DEFAULT_BOT } from "../src/lib/kart/bot";
-import { createLapClock, guardLapTime } from "../src/lib/kart/laptime";
+import { createLapClock, guardLapTime, resetLapClock } from "../src/lib/kart/laptime";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -245,6 +245,26 @@ assert(run(9) === run(9), "same seed and inputs replay identically");
   }
   assert(guardLapTime(c, 1, 0) === 41000, "respawn rewind keeps shown time");
   assert(guardLapTime(c, 2, 50) === 50, "new lap resets clock");
+  // Restart: lap number stays 1, so only an explicit reset un-freezes the clock.
+  guardLapTime(c, 1, 60000);
+  resetLapClock(c);
+  assert(guardLapTime(c, 1, 120) === 120, "restart (same lap number) resets clock");
+}
+
+// ── The sim itself never rewinds the raw lap time (the guard is a backstop) ──
+{
+  const w = createWorld(THUNDERHILL_LEVEL, 3);
+  const inp: KartInput = { steer: 0, throttle: 0, brake: 0, handbrake: false, useItem: false };
+  let prevLap = w.lap;
+  let prevRaw = 0;
+  for (let i = 0; i < TICK_HZ * 150; i += 1) {
+    bot(w, inp);
+    stepWorld(w, inp);
+    const raw = w.tick - w.lapStartTick;
+    if (w.lap === prevLap) assert(raw >= prevRaw, "raw lap ticks never decrease within a lap");
+    prevLap = w.lap;
+    prevRaw = raw;
+  }
 }
 
 console.log(JSON.stringify({
