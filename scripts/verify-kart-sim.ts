@@ -21,6 +21,7 @@ import {
 } from "../src/lib/kart/sim";
 import { DEFAULT_TIRE, lateralForce, magicFormula, peakForce } from "../src/lib/kart/tire";
 import { botInput, DEFAULT_BOT } from "../src/lib/kart/bot";
+import { STICK_RADIUS, stickOutput } from "../src/lib/kart/joystick";
 import { createLapClock, guardLapTime, resetLapClock } from "../src/lib/kart/laptime";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -265,6 +266,24 @@ assert(run(9) === run(9), "same seed and inputs replay identically");
     prevLap = w.lap;
     prevRaw = raw;
   }
+}
+
+// ── Floating stick: steer, throttle curve, dead zone, clamping ──
+{
+  const z = stickOutput(0, 0);
+  assert(z.steer === 0 && z.throttle === 0 && !z.handbrake, "stick at rest outputs nothing");
+  assert(stickOutput(0, -STICK_RADIUS).throttle === 0, "pushing up gives no throttle");
+  assert(stickOutput(4, 4).steer === 0 && stickOutput(4, 4).throttle === 0, "dead zone ignored");
+  assert(stickOutput(STICK_RADIUS, 0).steer > 0.99, "full right = +1");
+  assert(stickOutput(-STICK_RADIUS, 0).steer < -0.99, "full left = -1");
+  assert(stickOutput(0, STICK_RADIUS).throttle > 0.99, "full down = full throttle");
+  assert(stickOutput(0, STICK_RADIUS * 5).throttle <= 1, "offset clamps to the radius");
+  assert(
+    stickOutput(0, STICK_RADIUS * 0.8).throttle > stickOutput(0, STICK_RADIUS * 0.4).throttle,
+    "more down = more throttle",
+  );
+  assert(stickOutput(STICK_RADIUS, STICK_RADIUS * 0.7).handbrake, "hard pull on throttle holds the drift");
+  assert(!stickOutput(STICK_RADIUS, 0).handbrake, "no throttle, no drift hold");
 }
 
 console.log(JSON.stringify({
