@@ -419,7 +419,7 @@ export function KartGame() {
     };
     window.addEventListener("blur", onBlur);
     return () => window.removeEventListener("blur", onBlur);
-  }, []);
+  }, [releaseAll]);
 
   const start = () => {
     if (phaseRef.current === "paused") {
@@ -518,7 +518,15 @@ export function KartGame() {
         <span ref={hudProbe} hidden data-apex-kart-probe="1" />
         {/* Item button sits on the play area, right above the thumbs. */}
         <div className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2">
-          <ItemButton held={held} buttonRef={hudItem} />
+          <ItemButton
+            onPress={() => {
+              held.current.item = true;
+            }}
+            onRelease={() => {
+              held.current.item = false;
+            }}
+            buttonRef={hudItem}
+          />
         </div>
 
         {phase === "ready" || phase === "paused" ? (
@@ -563,20 +571,22 @@ export function KartGame() {
  * never stick. Stops propagation so it never starts the stick.
  */
 function ItemButton({
-  held,
+  onPress,
+  onRelease,
   buttonRef,
 }: {
-  held: React.RefObject<Record<ControlKey, boolean>>;
+  onPress: () => void;
+  onRelease: () => void;
   buttonRef: React.RefObject<HTMLButtonElement | null>;
 }) {
   const press = (e: React.PointerEvent<HTMLButtonElement>) => {
     e.stopPropagation();
-    held.current.item = true;
+    onPress();
     e.currentTarget.dataset.held = "1";
     capture(e.currentTarget, e.pointerId);
   };
   const release = (e: React.PointerEvent<HTMLButtonElement>) => {
-    held.current.item = false;
+    onRelease();
     e.currentTarget.dataset.held = "0";
   };
   return (
