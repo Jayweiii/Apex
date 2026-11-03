@@ -9,6 +9,7 @@
  * found in #43. Touch controls act on pointerdown (single tap, no click).
  */
 import { THUNDERHILL_LEVEL } from "@/lib/kart/levels/thunderhill";
+import { clampToRadius, STICK_RADIUS, stickOutput } from "@/lib/kart/joystick";
 import { createLapClock, guardLapTime, resetLapClock } from "@/lib/kart/laptime";
 import {
   applyLaunch,
@@ -38,6 +39,15 @@ const COUNTDOWN_S = 3;
 const BEST_KEY = `apex.kart.best.${LEVEL.id}`;
 const MAX_STEPS_PER_FRAME = 8;
 
+/** Capture the pointer so up/cancel still arrive after a drag-off. */
+function capture(el: HTMLElement, pointerId: number) {
+  try {
+    el.setPointerCapture(pointerId);
+  } catch {
+    // unknown / already-ended pointer — nothing to capture
+  }
+}
+
 function formatLap(ms: number): string {
   if (!ms) return "—";
   const m = Math.floor(ms / 60000);
@@ -63,7 +73,19 @@ function saveBest(ms: number) {
   }
 }
 
+/** Keyboard keys + the Item button. Touch driving goes through the stick. */
 type ControlKey = "left" | "right" | "gas" | "brake" | "drift" | "item";
+
+/** Floating stick state: where the thumb landed and the current offset. */
+interface StickState {
+  pointerId: number;
+  ox: number;
+  oy: number;
+  dx: number;
+  dy: number;
+  /** True after the first touch of a race: releasing the stick then brakes. */
+  engaged: boolean;
+}
 
 export function KartGame() {
   const [phase, setPhase] = useState<Phase>("ready");
@@ -78,6 +100,10 @@ export function KartGame() {
     drift: false,
     item: false,
   });
+  const stick = useRef<StickState>({ pointerId: -1, ox: 0, oy: 0, dx: 0, dy: 0, engaged: false });
+  const stickBase = useRef<HTMLDivElement | null>(null);
+  const stickKnob = useRef<HTMLDivElement | null>(null);
+  const itemTapTimer = useRef(0);
   const input = useRef<KartInput>({
     steer: 0,
     throttle: 0,
@@ -212,7 +238,9 @@ export function KartGame() {
         // The race clock does not run here: the world isn't stepped.
         const t = countdownS.current + frameDt;
         countdownS.current = t;
-        if (h.gas) {
+        const cst = stick.current;
+        const stickGas = cst.pointerId >= 0 && stickOutput(cst.dx, cst.dy).throttle > 0.5;
+        if (h.gas || stickGas) {
           if (gasDownAt.current < 0) gasDownAt.current = t;
         } else gasDownAt.current = -1;
         const el = hudFlash.current;
@@ -232,7 +260,9 @@ export function KartGame() {
       }
       if (phaseRef.current !== "racing") return;
       acc += frameDt;
-      const target = (h.right ? 1 : 0) - (h.left ? 1 : 0);
+      const st = stick.current;
+      const so = st.pointerId >= 0 ? stickOutput(st.dx, st.dy) : null;
+      const target = so ? so.steer : (h.right ? 1 : 0) - (h.left ? 1 : 0);
       // Ramp toward the target; snap back to centre faster. Gentler
       // steer-in at low speed so a tap doesn't overshoot.
       const carSpeed = Math.hypot(world.car.vx, world.car.vy);
@@ -240,9 +270,17 @@ export function KartGame() {
       steerValue.current += Math.max(-rate * frameDt, Math.min(rate * frameDt, target - steerValue.current));
       const inp = input.current;
       inp.steer = steerValue.current;
-      inp.throttle = h.gas ? 1 : 0;
-      inp.brake = h.brake ? 1 : 0;
-      inp.handbrake = h.drift;
+      // Stick wins while touched. Once released after a touch, brake; before
+      // any touch (and on keyboard) nothing brakes.
+      if (so) {
+        inp.throttle = so.throttle;
+        inp.brake = 0;
+        inp.handbrake = so.handbrake || h.drift;
+      } else {
+        inp.throttle = h.gas ? 1 : 0;
+        inp.brake = h.brake || st.engaged ? 1 : 0;
+        inp.handbrake = h.drift;
+      }
       inp.useItem = h.item;
       let steps = 0;
       while (acc >= DT && steps < MAX_STEPS_PER_FRAME) {
@@ -305,29 +343,83 @@ export function KartGame() {
     };
   }, []);
 
-  const releaseAll = () => {
+  const releaseAll = useCallback(() => {
     for (const k of Object.keys(held.current) as ControlKey[]) held.current[k] = false;
-  };
+    const st = stick.current;
+    st.pointerId = -1;
+    st.dx = 0;
+    st.dy = 0;
+    st.engaged = false;
+    window.clearTimeout(itemTapTimer.current);
+    if (stickBase.current) stickBase.current.style.opacity = "0";
+  }, []);
 
   // Never carry held inputs across a pause / start card: clear them whenever
   // the phase leaves racing/countdown (Pause button, P, visibilitychange, blur).
   useEffect(() => {
     if (phase === "racing" || phase === "countdown") return;
-    for (const k of Object.keys(held.current) as ControlKey[]) held.current[k] = false;
+    releaseAll();
     steerValue.current = 0;
-  }, [phase]);
+  }, [phase, releaseAll]);
+
+  // Floating stick: first finger = stick, any further finger tap = item.
+  const onStickDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (phaseRef.current !== "racing" && phaseRef.current !== "countdown") return;
+    const st = stick.current;
+    if (st.pointerId >= 0) {
+      if (e.pointerId === st.pointerId) return;
+      // Second finger: quick item tap (edge-triggered in the sim).
+      held.current.item = true;
+      window.clearTimeout(itemTapTimer.current);
+      itemTapTimer.current = window.setTimeout(() => {
+        held.current.item = false;
+      }, 120);
+      return;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    st.pointerId = e.pointerId;
+    st.ox = e.clientX - rect.left;
+    st.oy = e.clientY - rect.top;
+    st.dx = 0;
+    st.dy = 0;
+    st.engaged = true;
+    capture(e.currentTarget, e.pointerId);
+    const base = stickBase.current;
+    if (base) {
+      base.style.transform = `translate(${st.ox - STICK_RADIUS}px, ${st.oy - STICK_RADIUS}px)`;
+      base.style.opacity = "1";
+    }
+    if (stickKnob.current) stickKnob.current.style.transform = "translate(0px, 0px)";
+  };
+  const onStickMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const st = stick.current;
+    if (e.pointerId !== st.pointerId) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    st.dx = e.clientX - rect.left - st.ox;
+    st.dy = e.clientY - rect.top - st.oy;
+    const k = clampToRadius(st.dx, st.dy);
+    if (stickKnob.current) stickKnob.current.style.transform = `translate(${k.x}px, ${k.y}px)`;
+  };
+  const onStickEnd = (e: React.PointerEvent<HTMLDivElement>) => {
+    const st = stick.current;
+    if (e.pointerId !== st.pointerId) return;
+    st.pointerId = -1;
+    st.dx = 0;
+    st.dy = 0;
+    if (stickBase.current) stickBase.current.style.opacity = "0";
+  };
 
   // Window blur (tab switch, phone lock): release inputs and pause.
   useEffect(() => {
     const onBlur = () => {
-      for (const k of Object.keys(held.current) as ControlKey[]) held.current[k] = false;
+      releaseAll();
       steerValue.current = 0;
       if (phaseRef.current === "racing") setPhase("paused");
       else if (phaseRef.current === "countdown") setPhase("ready");
     };
     window.addEventListener("blur", onBlur);
     return () => window.removeEventListener("blur", onBlur);
-  }, []);
+  }, [releaseAll]);
 
   const start = () => {
     if (phaseRef.current === "paused") {
@@ -393,6 +485,29 @@ export function KartGame() {
           aria-label="Apex Kart track"
           data-apex-kart-canvas="1"
         />
+        {/* Single touch surface: the stick appears wherever the thumb lands. */}
+        <div
+          className="absolute inset-0 z-[5] touch-none"
+          data-apex-kart-stick-area="1"
+          onPointerDown={onStickDown}
+          onPointerMove={onStickMove}
+          onPointerUp={onStickEnd}
+          onPointerCancel={onStickEnd}
+          onLostPointerCapture={onStickEnd}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          <div
+            ref={stickBase}
+            data-apex-kart-stick="1"
+            className="pointer-events-none absolute left-0 top-0 rounded-full border-2 border-white/40 bg-white/10 opacity-0"
+            style={{ width: STICK_RADIUS * 2, height: STICK_RADIUS * 2 }}
+          >
+            <div
+              ref={stickKnob}
+              className="absolute left-1/2 top-1/2 -ml-6 -mt-6 h-12 w-12 rounded-full bg-orange-400/80 shadow-lg shadow-black/40"
+            />
+          </div>
+        </div>
         <span ref={hudSpeed} className="pointer-events-none absolute left-3 top-2 rounded bg-black/40 px-1.5 font-mono text-base font-semibold sm:text-lg" />
         <span ref={hudCombo} className="pointer-events-none absolute right-3 top-2 font-mono text-base font-bold text-yellow-300 drop-shadow-[0_2px_0_rgba(0,0,0,0.8)] sm:text-lg" />
         <div
@@ -403,12 +518,13 @@ export function KartGame() {
         <span ref={hudProbe} hidden data-apex-kart-probe="1" />
         {/* Item button sits on the play area, right above the thumbs. */}
         <div className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2">
-          <HoldPad
-            control="item"
-            held={held}
-            label="No item"
-            ariaLabel="No item"
-            small
+          <ItemButton
+            onPress={() => {
+              held.current.item = true;
+            }}
+            onRelease={() => {
+              held.current.item = false;
+            }}
             buttonRef={hudItem}
           />
         </div>
@@ -422,9 +538,10 @@ export function KartGame() {
               {phase === "ready" ? (
                 <ul className="mt-3 space-y-1 text-left text-xs text-zinc-300">
                   <li>• Drive through every <span className="text-yellow-300">gold gate</span> in order.</li>
-                  <li>• Rear-wheel drive: throttle or <b>Drift</b> kicks the tail out — counter-steer to hold it.</li>
+                  <li>• Touch anywhere to place the stick: <b>left/right</b> swings the tail, pull <b>down</b> for throttle, let go to brake.</li>
                   <li>• Grass slows you down. Hit <span className="text-yellow-300">? boxes</span> for Turbo or Oil.</li>
-                  <li>• Tap <b>Gas</b> right as the countdown hits <b>GO</b> for a launch boost. Hold <b>Drift</b> while steering, release for a mini-turbo.</li>
+                  <li>• Pull down right as the countdown hits <b>GO</b> for a launch boost. Hold a hard sideways pull, release for a mini-turbo.</li>
+                  <li>• Tap <b>Item</b> (or tap with a second finger) to use an item.</li>
                   <li className="text-zinc-500">Keys: arrows/WASD · Space drift · E item · P pause</li>
                 </ul>
               ) : null}
@@ -444,69 +561,47 @@ export function KartGame() {
         ) : null}
       </div>
 
-      {/* Touch controls: act on pointerdown, release on up/cancel/leave. */}
-      <div
-        className="z-10 grid grid-cols-[auto_1fr_auto] items-end gap-2 bg-zinc-950/70 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2"
-        onContextMenu={(e) => e.preventDefault()}
-        onPointerCancel={releaseAll}
-      >
-        <div className="flex gap-2">
-          <HoldPad control="left" held={held} label="◀" ariaLabel="Steer left" />
-          <HoldPad control="right" held={held} label="▶" ariaLabel="Steer right" />
-        </div>
-        <div />
-        <div className="flex items-end gap-2">
-          <div className="flex flex-col gap-2">
-            <HoldPad control="drift" held={held} label="Drift" ariaLabel="Drift (handbrake)" small />
-            <HoldPad control="brake" held={held} label="Brake" ariaLabel="Brake" small />
-          </div>
-          <HoldPad control="gas" held={held} label="Gas" ariaLabel="Gas" big />
-        </div>
-      </div>
     </div>
   );
 }
 
-function HoldPad({
-  control,
-  held,
-  label,
-  ariaLabel,
-  big,
-  small,
+/**
+ * Item button. Captures the pointer on down so a drag-off still delivers the
+ * release, and treats cancel / lost-capture as a release so `held.item` can
+ * never stick. Stops propagation so it never starts the stick.
+ */
+function ItemButton({
+  onPress,
+  onRelease,
   buttonRef,
 }: {
-  control: ControlKey;
-  held: React.RefObject<Record<ControlKey, boolean>>;
-  label: string;
-  ariaLabel: string;
-  big?: boolean;
-  small?: boolean;
-  buttonRef?: React.RefObject<HTMLButtonElement | null>;
+  onPress: () => void;
+  onRelease: () => void;
+  buttonRef: React.RefObject<HTMLButtonElement | null>;
 }) {
-  const set = (on: boolean) => (e: React.PointerEvent<HTMLButtonElement>) => {
-    held.current[control] = on;
-    if (on) e.currentTarget.setPointerCapture?.(e.pointerId);
-    e.currentTarget.dataset.held = on ? "1" : "0";
+  const press = (e: React.PointerEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    onPress();
+    e.currentTarget.dataset.held = "1";
+    capture(e.currentTarget, e.pointerId);
   };
-  const size = big
-    ? "h-[5.25rem] w-[5.25rem] text-base"
-    : small
-      ? "h-12 min-w-[3.75rem] px-2.5 text-xs"
-      : "h-16 w-16 text-2xl";
+  const release = (e: React.PointerEvent<HTMLButtonElement>) => {
+    onRelease();
+    e.currentTarget.dataset.held = "0";
+  };
   return (
     <button
       ref={buttonRef}
       type="button"
-      aria-label={ariaLabel}
-      data-apex-kart-control={control}
-      className={`touch-none rounded-2xl border border-white/15 bg-white/10 font-semibold text-white shadow-lg shadow-black/30 data-[held=1]:bg-orange-500/70 ${size}`}
-      onPointerDown={set(true)}
-      onPointerUp={set(false)}
-      onPointerCancel={set(false)}
-      onLostPointerCapture={set(false)}
+      aria-label="No item"
+      data-apex-kart-control="item"
+      className="h-12 min-w-[3.75rem] touch-none rounded-2xl border border-white/15 bg-white/10 px-2.5 text-xs font-semibold text-white shadow-lg shadow-black/30 active:scale-95 data-[held=1]:bg-orange-500/70"
+      onPointerDown={press}
+      onPointerUp={release}
+      onPointerCancel={release}
+      onLostPointerCapture={release}
     >
-      {label}
+      No item
     </button>
   );
 }
