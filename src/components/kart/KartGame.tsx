@@ -118,6 +118,8 @@ export function KartGame() {
   const countdownS = useRef(0);
   /** Countdown time when Gas was last pressed (−1 = not held). */
   const gasDownAt = useRef(-1);
+  /** Analog throttle (0..1) held at the moment of GO; scales the launch. */
+  const launchPower = useRef(0);
 
   // HUD nodes (written directly each frame).
   const hudLap = useRef<HTMLSpanElement | null>(null);
@@ -239,8 +241,9 @@ export function KartGame() {
         const t = countdownS.current + frameDt;
         countdownS.current = t;
         const cst = stick.current;
-        const stickGas = cst.pointerId >= 0 && stickOutput(cst.dx, cst.dy).throttle > 0.5;
-        if (h.gas || stickGas) {
+        const gasPower = h.gas ? 1 : cst.pointerId >= 0 ? stickOutput(cst.dx, cst.dy).throttle : 0;
+        launchPower.current = gasPower;
+        if (gasPower > 0.05) {
           if (gasDownAt.current < 0) gasDownAt.current = t;
         } else gasDownAt.current = -1;
         const el = hudFlash.current;
@@ -252,7 +255,7 @@ export function KartGame() {
         renderer.draw(world, frameDt);
         if (t >= COUNTDOWN_S) {
           // Gas pressed in the last moment of the countdown = perfect launch.
-          if (gasDownAt.current >= COUNTDOWN_S - KART_RULES.launchWindowS) applyLaunch(world);
+          if (gasDownAt.current >= COUNTDOWN_S - KART_RULES.launchWindowS) applyLaunch(world, launchPower.current);
           phaseRef.current = "racing";
           setPhase("racing");
         }

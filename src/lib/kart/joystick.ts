@@ -40,9 +40,9 @@ export function clampToRadius(dx: number, dy: number, r = STICK_RADIUS): { x: nu
 export function stickOutput(dx: number, dy: number, r = STICK_RADIUS): StickOutput {
   const c = clampToRadius(dx, dy, r);
   const steer = dead(c.x / r);
-  // Up / centre = no throttle; down ramps in with a gentle (squared-ish) curve.
-  const down = dead(Math.max(0, c.y / r));
-  const throttle = Math.min(1, down * (0.6 + 0.4 * down));
+  // Up / centre = no throttle; down is linear past the dead zone so throttle
+  // (and so drive force) scales directly with how far the stick is pulled.
+  const throttle = Math.min(1, dead(Math.max(0, c.y / r)));
   return {
     steer,
     throttle,

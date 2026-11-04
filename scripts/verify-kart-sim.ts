@@ -286,6 +286,41 @@ assert(run(9) === run(9), "same seed and inputs replay identically");
   assert(!stickOutput(STICK_RADIUS, 0).handbrake, "no throttle, no drift hold");
 }
 
+// ── Analog throttle: pull distance scales drive force end to end ──
+{
+  // Stick output is linear past the dead zone (no on/off collapse).
+  const t25 = stickOutput(0, STICK_RADIUS * 0.4).throttle;
+  const t50 = stickOutput(0, STICK_RADIUS * 0.5).throttle;
+  const t75 = stickOutput(0, STICK_RADIUS * 0.7).throttle;
+  assert(t25 > 0 && t25 < t50 && t50 < t75 && t75 < 1, "throttle rises smoothly with pull");
+  assert(t50 > 0.35 && t50 < 0.55, `half pull is roughly half throttle (${t50})`);
+  assert(Math.abs((t75 - t50) - (t50 - t25) * 2) < 1e-9, "throttle is linear in pull");
+
+  // Net drive force at identical state: a stepCar from 10 m/s, straight.
+  const driveForce = (throttle: number): number => {
+    const c = createCar();
+    c.vx = 10;
+    stepCar(c, { steer: 0, throttle, brake: 0, handbrake: false }, 1 / TICK_HZ);
+    const drag = 0.42 * 10 * 10 + 140;
+    return c.ax * DEFAULT_CAR.massKg + drag;
+  };
+  const f20 = driveForce(0.2);
+  const f40 = driveForce(0.4);
+  assert(f20 > 0, "some throttle drives");
+  assert(Math.abs(f40 / f20 - 2) < 0.05, `double the throttle gives double the drive force (${f40 / f20})`);
+  const fHalf = driveForce(0.5);
+  const fFull = driveForce(1);
+  assert(fHalf / fFull > 0.4 && fHalf / fFull < 0.6, `half throttle ≈ half drive force (${fHalf / fFull})`);
+
+  // Launch scales with throttle at GO.
+  const lw = createWorld(THUNDERHILL_LEVEL, 3);
+  const hw = createWorld(THUNDERHILL_LEVEL, 3);
+  applyLaunch(lw, 1);
+  applyLaunch(hw, 0.5);
+  assert(Math.abs(hw.car.vx - lw.car.vx / 2) < 1e-9, "half-throttle launch kicks half as hard");
+  assert(hw.miniTicks < lw.miniTicks && hw.miniTicks > 0, "half-throttle launch boosts for less time");
+}
+
 console.log(JSON.stringify({
   ok: true,
   lap1Ms: lap1,
