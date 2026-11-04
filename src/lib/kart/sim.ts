@@ -208,9 +208,11 @@ export function resetCar(world: KartWorld): void {
  * window. Gives a small kick plus a short mini-turbo. Deterministic — a
  * replay just records the tick it was applied.
  */
-export function applyLaunch(world: KartWorld): void {
-  world.car.vx += KART_RULES.launchKick;
-  world.miniTicks = Math.max(world.miniTicks, KART_RULES.launchTicks);
+export function applyLaunch(world: KartWorld, power = 1): void {
+  // Analog: a half-pulled stick at GO gives a half-strength launch.
+  const p = Math.max(0, Math.min(1, power));
+  world.car.vx += KART_RULES.launchKick * p;
+  world.miniTicks = Math.max(world.miniTicks, Math.round(KART_RULES.launchTicks * p));
   world.lastMiniTick = world.tick;
   world.lastMiniLaunch = true;
 }
