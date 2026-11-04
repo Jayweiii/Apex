@@ -14,6 +14,28 @@ export const DRIFT_STEER = 0.7;
 /** Minimum throttle for the drift-hold to engage. */
 export const DRIFT_THROTTLE = 0.3;
 
+/**
+ * Throttle at which the countdown launch arms. Above the resting-thumb range
+ * (a 5-10 px touch is <= ~0.07 throttle), below a deliberate pull.
+ */
+export const LAUNCH_ARM_THROTTLE = 0.18;
+
+/**
+ * Countdown launch arming. Returns the new "armed at" countdown time (-1 =
+ * not armed). Arms on the first frame throttle reaches the threshold, keeps
+ * that time while held (so it can't re-arm later in the window), and resets
+ * when throttle drops below it.
+ */
+export function updateLaunchArm(armedAt: number, throttle: number, t: number): number {
+  if (throttle < LAUNCH_ARM_THROTTLE) return -1;
+  return armedAt < 0 ? t : armedAt;
+}
+
+/** Stick pull (fraction of radius, straight down) that yields throttle t. */
+export function pullForThrottle(t: number): number {
+  return STICK_DEAD + t * (1 - STICK_DEAD);
+}
+
 export interface StickOutput {
   /** −1 (left) … +1 (right): rear-end steer target. */
   steer: number;

@@ -119,6 +119,14 @@ export type KartCar = {
   hbPrev: boolean;
 };
 
+/** Aero (N per (m/s)^2) and rolling resistance (N) along the body x axis. */
+export const DRAG_QUAD = 0.42;
+export const DRAG_ROLL = 140;
+/** Longitudinal drag force at forward speed vx (m/s), excluding extraDrag. */
+export function dragForce(vx: number): number {
+  return DRAG_QUAD * vx * Math.abs(vx) + DRAG_ROLL * Math.sign(vx);
+}
+
 export function createCar(params: CarParams = DEFAULT_CAR): KartCar {
   const car: KartCar = {
     params,
@@ -269,7 +277,7 @@ export function stepCar(car: KartCar, input: CarInput, dt: number): void {
   // Body-frame forces (front forces rotated by steer angle).
   const cs = Math.cos(car.steer);
   const sn = Math.sin(car.steer);
-  const drag = 0.42 * car.vx * Math.abs(car.vx) + 140 * Math.sign(car.vx);
+  const drag = dragForce(car.vx);
   const fx = fxRear + fxFront * cs - fyF * sn - drag - car.extraDrag * car.vx;
   const fy = fyR + fyF * cs + fxFront * sn - car.extraDrag * car.vy;
   const mz = a * (fyF * cs + fxFront * sn) - b * fyR;

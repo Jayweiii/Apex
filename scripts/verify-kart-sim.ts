@@ -3,7 +3,7 @@
  * order, grass slowdown, items, drift scoring and determinism — driven by a
  * simple pure-pursuit bot on the Thunderhill level.
  */
-import { computeLoads, createCar, DEFAULT_CAR, GRAVITY, stepCar } from "../src/lib/kart/car";
+import { computeLoads, createCar, dragForce, DEFAULT_CAR, GRAVITY, stepCar } from "../src/lib/kart/car";
 import { THUNDERHILL_LEVEL } from "../src/lib/kart/levels/thunderhill";
 import {
   applyLaunch,
@@ -21,7 +21,7 @@ import {
 } from "../src/lib/kart/sim";
 import { DEFAULT_TIRE, lateralForce, magicFormula, peakForce } from "../src/lib/kart/tire";
 import { botInput, DEFAULT_BOT } from "../src/lib/kart/bot";
-import { STICK_RADIUS, stickOutput } from "../src/lib/kart/joystick";
+import { LAUNCH_ARM_THROTTLE, pullForThrottle, STICK_RADIUS, stickOutput, updateLaunchArm } from "../src/lib/kart/joystick";
 import { createLapClock, guardLapTime, resetLapClock } from "../src/lib/kart/laptime";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -289,11 +289,12 @@ assert(run(9) === run(9), "same seed and inputs replay identically");
 // ── Analog throttle: pull distance scales drive force end to end ──
 {
   // Stick output is linear past the dead zone (no on/off collapse).
-  const t25 = stickOutput(0, STICK_RADIUS * 0.4).throttle;
-  const t50 = stickOutput(0, STICK_RADIUS * 0.5).throttle;
-  const t75 = stickOutput(0, STICK_RADIUS * 0.7).throttle;
+  const t25 = stickOutput(0, STICK_RADIUS * pullForThrottle(0.25)).throttle;
+  const t50 = stickOutput(0, STICK_RADIUS * pullForThrottle(0.5)).throttle;
+  const t75 = stickOutput(0, STICK_RADIUS * pullForThrottle(0.75)).throttle;
+  assert(Math.abs(t25 - 0.25) < 1e-9 && Math.abs(t50 - 0.5) < 1e-9 && Math.abs(t75 - 0.75) < 1e-9, "samples are 25/50/75% throttle");
   assert(t25 > 0 && t25 < t50 && t50 < t75 && t75 < 1, "throttle rises smoothly with pull");
-  assert(t50 > 0.35 && t50 < 0.55, `half pull is roughly half throttle (${t50})`);
+  assert(Math.abs(t50 - 0.5) < 1e-9, `half throttle (${t50})`);
   assert(Math.abs((t75 - t50) - (t50 - t25) * 2) < 1e-9, "throttle is linear in pull");
 
   // Net drive force at identical state: a stepCar from 10 m/s, straight.
@@ -301,8 +302,7 @@ assert(run(9) === run(9), "same seed and inputs replay identically");
     const c = createCar();
     c.vx = 10;
     stepCar(c, { steer: 0, throttle, brake: 0, handbrake: false }, 1 / TICK_HZ);
-    const drag = 0.42 * 10 * 10 + 140;
-    return c.ax * DEFAULT_CAR.massKg + drag;
+    return c.ax * DEFAULT_CAR.massKg + dragForce(10) + c.extraDrag * 10;
   };
   const f20 = driveForce(0.2);
   const f40 = driveForce(0.4);
@@ -319,6 +319,24 @@ assert(run(9) === run(9), "same seed and inputs replay identically");
   applyLaunch(hw, 0.5);
   assert(Math.abs(hw.car.vx - lw.car.vx / 2) < 1e-9, "half-throttle launch kicks half as hard");
   assert(hw.miniTicks < lw.miniTicks && hw.miniTicks > 0, "half-throttle launch boosts for less time");
+
+  // A zero-boost launch must not claim a perfect launch.
+  const tw = createWorld(THUNDERHILL_LEVEL, 3);
+  applyLaunch(tw, 0.001);
+  assert(tw.miniTicks === 0 && !tw.lastMiniLaunch, "tiny launch with no boost shows no message");
+  assert(lw.lastMiniLaunch && lw.miniTicks > 0, "real launch flags perfect launch");
+}
+
+// Countdown launch arming
+{
+  for (const px of [5, 8, 10]) {
+    assert(stickOutput(0, px).throttle < LAUNCH_ARM_THROTTLE, `${px}px rest does not arm`);
+  }
+  assert(updateLaunchArm(-1, LAUNCH_ARM_THROTTLE - 0.01, 1) === -1, "below threshold does not arm");
+  const armed = updateLaunchArm(-1, LAUNCH_ARM_THROTTLE, 1.5);
+  assert(armed === 1.5, "at threshold arms at that time");
+  assert(updateLaunchArm(armed, 0.9, 2.5) === 1.5, "arms once: later frames keep the first time");
+  assert(updateLaunchArm(armed, 0.05, 2.6) === -1, "dropping below disarms");
 }
 
 console.log(JSON.stringify({

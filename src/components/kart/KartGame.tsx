@@ -9,7 +9,7 @@
  * found in #43. Touch controls act on pointerdown (single tap, no click).
  */
 import { THUNDERHILL_LEVEL } from "@/lib/kart/levels/thunderhill";
-import { clampToRadius, STICK_RADIUS, stickOutput } from "@/lib/kart/joystick";
+import { clampToRadius, STICK_RADIUS, stickOutput, updateLaunchArm } from "@/lib/kart/joystick";
 import { createLapClock, guardLapTime, resetLapClock } from "@/lib/kart/laptime";
 import {
   applyLaunch,
@@ -243,9 +243,7 @@ export function KartGame() {
         const cst = stick.current;
         const gasPower = h.gas ? 1 : cst.pointerId >= 0 ? stickOutput(cst.dx, cst.dy).throttle : 0;
         launchPower.current = gasPower;
-        if (gasPower > 0.05) {
-          if (gasDownAt.current < 0) gasDownAt.current = t;
-        } else gasDownAt.current = -1;
+        gasDownAt.current = updateLaunchArm(gasDownAt.current, gasPower, t);
         const el = hudFlash.current;
         if (el) {
           const n = Math.ceil(COUNTDOWN_S - t);
@@ -255,7 +253,7 @@ export function KartGame() {
         renderer.draw(world, frameDt);
         if (t >= COUNTDOWN_S) {
           // Gas pressed in the last moment of the countdown = perfect launch.
-          if (gasDownAt.current >= COUNTDOWN_S - KART_RULES.launchWindowS) applyLaunch(world, launchPower.current);
+          if (gasDownAt.current >= 0 && gasDownAt.current >= COUNTDOWN_S - KART_RULES.launchWindowS) applyLaunch(world, launchPower.current);
           phaseRef.current = "racing";
           setPhase("racing");
         }

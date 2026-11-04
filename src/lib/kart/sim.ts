@@ -212,9 +212,13 @@ export function applyLaunch(world: KartWorld, power = 1): void {
   // Analog: a half-pulled stick at GO gives a half-strength launch.
   const p = Math.max(0, Math.min(1, power));
   world.car.vx += KART_RULES.launchKick * p;
-  world.miniTicks = Math.max(world.miniTicks, Math.round(KART_RULES.launchTicks * p));
-  world.lastMiniTick = world.tick;
-  world.lastMiniLaunch = true;
+  const boost = Math.round(KART_RULES.launchTicks * p);
+  world.miniTicks = Math.max(world.miniTicks, boost);
+  // Only announce a perfect launch when it actually gave a boost.
+  if (boost > 0) {
+    world.lastMiniTick = world.tick;
+    world.lastMiniLaunch = true;
+  }
 }
 
 /** Signed wrap of an arc-length difference to (−L/2, L/2]. */
