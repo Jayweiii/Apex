@@ -278,10 +278,14 @@ export function KartGame() {
       if (so) {
         inp.throttle = so.throttle;
         inp.brake = 0;
+        inp.allowReverse = false;
         inp.handbrake = so.handbrake || h.drift;
       } else {
         inp.throttle = h.gas ? 1 : 0;
         inp.brake = h.brake || st.engaged ? 1 : 0;
+        // Let go of the stick = brake to a stop, never back up. Only the
+        // explicit brake key may reverse.
+        inp.allowReverse = h.brake || !st.engaged;
         inp.handbrake = h.drift;
       }
       inp.useItem = h.item;
