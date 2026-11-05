@@ -231,7 +231,7 @@ function passed(s0: number, ds: number, g: number, length: number): boolean {
   return rel > 0 && rel <= ds;
 }
 
-const scratchInput: CarInput = { steer: 0, throttle: 0, brake: 0, handbrake: false };
+const scratchInput: CarInput = { steer: 0, throttle: 0, brake: 0, handbrake: false, allowReverse: true };
 
 /** Advance the world one fixed tick. Allocation-free. */
 export function stepWorld(world: KartWorld, input: KartInput): void {
@@ -245,6 +245,7 @@ export function stepWorld(world: KartWorld, input: KartInput): void {
   scratchInput.throttle = Math.round(Math.max(0, Math.min(1, input.throttle)) * 16) / 16;
   scratchInput.brake = Math.round(Math.max(0, Math.min(1, input.brake)) * 16) / 16;
   scratchInput.handbrake = input.handbrake;
+  scratchInput.allowReverse = input.allowReverse !== false;
 
   // Surface from last projection.
   const off = Math.abs(world.hit.d) - track.halfWidth;

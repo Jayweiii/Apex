@@ -321,6 +321,79 @@ assert(run(9) === run(9), "same seed and inputs replay identically");
   assert(hw.miniTicks < lw.miniTicks && hw.miniTicks > 0, "half-throttle launch boosts for less time");
 }
 
+// ── No reverse from the stick (Jason: kart drove backwards on release) ──
+{
+  const TRACK_LEN = createWorld(THUNDERHILL_LEVEL, 3).track.length;
+  /** Signed arc-length change, wrap-safe. */
+  const dS = (from: number, to: number) => {
+    let d = to - from;
+    if (d > TRACK_LEN / 2) d -= TRACK_LEN;
+    if (d < -TRACK_LEN / 2) d += TRACK_LEN;
+    return d;
+  };
+  // Mirrors KartGame's stick paths: pull = throttle, release = brake, no reverse.
+  const pull = (throttle: number): KartInput => ({ steer: 0, throttle, brake: 0, handbrake: false, allowReverse: false, useItem: false });
+  const release = (): KartInput => ({ steer: 0, throttle: 0, brake: 1, handbrake: false, allowReverse: false, useItem: false });
+
+  // 1. Pull then release: vx never negative, s never goes back.
+  {
+    const w = createWorld(THUNDERHILL_LEVEL, 3);
+    for (let i = 0; i < 2 * TICK_HZ; i++) stepWorld(w, pull(0.5));
+    assert(w.car.vx > 3, `half pull for 2 s drives forward (${w.car.vx})`);
+    let prevS = w.hit.s;
+    let backed = 0;
+    for (let i = 0; i < 6 * TICK_HZ; i++) {
+      stepWorld(w, release());
+      assert(w.car.vx >= -1e-3, `released stick never reverses (vx ${w.car.vx}, tick ${i})`);
+      backed = Math.max(backed, -dS(prevS, w.hit.s) > 0 ? -dS(prevS, w.hit.s) : 0);
+      prevS = w.hit.s;
+    }
+    assert(Math.abs(w.car.vx) < 0.05, `released stick brakes to a stop (${w.car.vx})`);
+    assert(backed <= 0.5, `released stick never rolls back (${backed} m)`);
+  }
+
+  // 2. Thumb pattern: pulls with releases in between. Deterministic PRNG.
+  {
+    const w = createWorld(THUNDERHILL_LEVEL, 3);
+    let seed = 12345;
+    const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+    let net = 0;
+    let prevS = w.hit.s;
+    for (let n = 0; n < 20; n++) {
+      const pullTicks = Math.round((0.3 + 0.5 * rnd()) * TICK_HZ);
+      const relTicks = Math.round((0.3 + 0.5 * rnd()) * TICK_HZ);
+      const th = 0.2 + 0.8 * rnd();
+      for (let i = 0; i < pullTicks + relTicks; i++) {
+        stepWorld(w, i < pullTicks ? pull(th) : release());
+        assert(w.car.vx >= -1e-3, `thumb pattern never reverses (vx ${w.car.vx})`);
+        net += dS(prevS, w.hit.s);
+        prevS = w.hit.s;
+      }
+    }
+    assert(net > 0, `thumb pattern makes net forward progress (${net})`);
+  }
+
+  // 3. From rest, any throttle moves the kart forward, monotonically.
+  for (const th of [0.05, 0.2, 0.5, 1]) {
+    const w = createWorld(THUNDERHILL_LEVEL, 3);
+    let prev = w.car.vx;
+    for (let i = 0; i < TICK_HZ; i++) {
+      stepWorld(w, pull(th));
+      assert(w.car.vx >= prev - 1e-6, `vx rises monotonically from rest (throttle ${th})`);
+      prev = w.car.vx;
+    }
+    assert(w.car.vx > 0, `throttle ${th} from rest gives vx > 0 (${w.car.vx})`);
+  }
+
+  // 4. The explicit brake (keyboard / Realistic) can still reverse.
+  {
+    const w = createWorld(THUNDERHILL_LEVEL, 3);
+    const back: KartInput = { steer: 0, throttle: 0, brake: 1, handbrake: false, useItem: false };
+    for (let i = 0; i < 3 * TICK_HZ; i++) stepWorld(w, back);
+    assert(w.car.vx < -0.5, `explicit brake still reverses (${w.car.vx})`);
+  }
+}
+
 console.log(JSON.stringify({
   ok: true,
   lap1Ms: lap1,

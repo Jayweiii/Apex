@@ -84,6 +84,12 @@ export type CarInput = {
   throttle: number;
   brake: number;
   handbrake: boolean;
+  /**
+   * Brake at standstill backs the kart up. Default true (keyboard / Realistic
+   * brake button). The joystick sets false: its brake stops the kart and holds
+   * vx >= 0, and never reverses.
+   */
+  allowReverse?: boolean;
 };
 
 export type KartCar = {
@@ -239,7 +245,8 @@ export function stepCar(car: KartCar, input: CarInput, dt: number): void {
     fxRear = clampLongitudinal(fxRear, fzR, p.rearTire, mu * car.rearMuScale);
   }
   // Reverse: brake held at (near) standstill backs up slowly.
-  if (input.brake > 0 && input.throttle === 0 && car.vx < 0.8) {
+  const allowReverse = input.allowReverse !== false;
+  if (allowReverse && input.brake > 0 && input.throttle === 0 && car.vx < 0.8) {
     fxRear = -0.35 * p.driveForceN * input.brake;
     fxFront = 0;
   } else {
@@ -277,6 +284,8 @@ export function stepCar(car: KartCar, input: CarInput, dt: number): void {
   const axBody = fx / m;
   const ayBody = fy / m;
   car.vx += (axBody + car.vy * car.r) * dt;
+  // Stick brake stops the kart; it never rolls backwards.
+  if (!allowReverse && input.brake > 0 && input.throttle === 0 && car.vx < 0) car.vx = 0;
   car.vy += (ayBody - car.vx * car.r) * dt;
   car.r += (mz / p.izz) * dt;
   // Forgiving slides: gently damp yaw while drifting so the slide can be
