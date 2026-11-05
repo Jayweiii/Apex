@@ -328,11 +328,48 @@ assert(run(9) === run(9), "same seed and inputs replay identically");
       const a = (k * Math.PI) / 4; // screen angle, 0 = up, + = left (CCW)
       const dx = -Math.sin(a) * R * 0.8;
       const dy = -Math.cos(a) * R * 0.8;
-      const r = drive(cam, cam, dx, dy, 12);
+      // Camera is latched (fixed) for one pull. A 180° pull saturates the
+      // steer for longest, so give every direction time to settle.
+      const r = drive(cam, cam, dx, dy, 20);
       assert(r.err < 0.3, `heading converges to the stick angle (cam ${cam}, dir ${k * 45}°: err ${r.err.toFixed(3)} rad)`);
       assert(r.minVx >= -1e-3, `stick turns never reverse (cam ${cam}, dir ${k * 45}°: vx ${r.minVx})`);
     }
   }
+}
+
+// ── Regression: a held stick with a FOLLOWING camera must not circle ──
+// The camera rotates with the kart; the stick maps against the rotation latched
+// at thumb-down, so one pull is one fixed world heading.
+{
+  const R = STICK_RADIUS;
+  const DT = 1 / TICK_HZ;
+  const angDiff = (a: number, b: number) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
+  const run = (latch: boolean, dx: number, dy: number) => {
+    const c = createCar();
+    c.vx = 8;
+    let cam = c.heading;
+    const latched = cam;
+    let steerV = 0;
+    const headings: number[] = [];
+    for (let i = 0; i < 12 * TICK_HZ; i++) {
+      const so = stickOutput(dx, dy, c.heading, latch ? latched : cam);
+      steerV += Math.max(-4.5 * DT, Math.min(4.5 * DT, so.steer - steerV));
+      stepCar(c, { steer: steerV, throttle: so.throttle, brake: 0, handbrake: so.handbrake, allowReverse: false }, DT);
+      // Following camera (same smoothing idea as the renderer).
+      cam += Math.atan2(Math.sin(c.heading - cam), Math.cos(c.heading - cam)) * (1 - Math.exp(-DT * 6));
+      headings.push(c.heading);
+    }
+    // Total absolute heading change in the last 3 s ≈ path curvature × distance.
+    const tail = headings.slice(-3 * TICK_HZ);
+    let turn = 0;
+    for (let i = 1; i < tail.length; i++) turn += angDiff(tail[i], tail[i - 1]);
+    return { turn, err: angDiff(c.heading, latched - Math.PI / 2) };
+  };
+  const held = run(true, R * 0.8, 0); // stick right
+  assert(held.err < 0.3, `held right stick settles on its heading (err ${held.err.toFixed(3)} rad)`);
+  assert(held.turn < 0.3, `held right stick stops turning: last 3 s turned ${held.turn.toFixed(3)} rad`);
+  const live = run(false, R * 0.8, 0);
+  assert(live.turn > held.turn * 3, "live-camera mapping keeps turning (the bug the latch fixes)");
 }
 
 // ── Stick through the real sim: pull, brake to a stop, re-pull — never backwards ──
