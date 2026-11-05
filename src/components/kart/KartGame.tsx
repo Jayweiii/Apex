@@ -620,7 +620,7 @@ export function KartGame() {
                   <li>• Drive through every <span className="text-yellow-300">gold gate</span> in order.</li>
                   <li>• Touch anywhere to place the stick: the kart turns to face wherever you <b>point</b> it and always drives forward. Pull <b>further</b> for more throttle, let go to brake.</li>
                   <li>• Grass slows you down. Hit <span className="text-yellow-300">? boxes</span> for Turbo or Oil.</li>
-                  <li>• Hold the stick as the countdown hits <b>GO</b> for a launch boost. Point it hard to one side and hold to charge a drift, release for a mini-turbo.</li>
+                  <li>• Hold the stick as the countdown hits <b>GO</b> for a launch boost. On keyboard, hold Space to drift and release for a mini-turbo.</li>
                   <li>• Tap <b>Item</b> (or tap with a second finger) to use an item.</li>
                   <li className="text-zinc-500">Keys: arrows/WASD · Space drift · E item · P pause</li>
                 </ul>

@@ -297,7 +297,7 @@ assert(run(9) === run(9), "same seed and inputs replay identically");
   assert(stickOutput(R, 0, 0, 0).steer > 0, "target right of heading = steer right");
   assert(Math.abs(stickOutput(0, -R, 0, 0).steer) < 1e-9, "target dead ahead = no steer");
   // Sharp heading change on throttle holds the drift; straight ahead does not.
-  assert(stickOutput(R, 0, 0, 0).handbrake, "sharp turn on throttle holds the drift");
+  assert(!stickOutput(R, 0, 0, 0).handbrake, "stick never holds the handbrake (it pinned the heading)");
   assert(!stickOutput(0, -R, 0, 0).handbrake, "straight ahead does not drift");
   assert(!stickOutput(R * 0.2, 0, 0, 0).handbrake, "sharp turn at tiny throttle does not drift");
 }
@@ -363,9 +363,20 @@ assert(run(9) === run(9), "same seed and inputs replay identically");
     const tail = headings.slice(-3 * TICK_HZ);
     let turn = 0;
     for (let i = 1; i < tail.length; i++) turn += angDiff(tail[i], tail[i - 1]);
-    return { turn, err: angDiff(c.heading, latched - Math.PI / 2) };
+    // Overshoot-plateau guard: error at 4 s and total spin over the whole hold.
+    let cum = 0;
+    for (let i = 1; i < headings.length; i++) cum += angDiff(headings[i], headings[i - 1]);
+    const goal = latched - Math.sign(dx) * (Math.PI / 2);
+    const err4 = angDiff(headings[4 * TICK_HZ - 1], goal);
+    return { turn, cum, err4, err: angDiff(c.heading, goal) };
   };
   const held = run(true, R * 0.8, 0); // stick right
+  assert(held.err4 < 0.3, `held right stick is on target within 4 s (err ${held.err4.toFixed(3)} rad)`);
+  assert(held.cum < Math.PI / 2 + Math.PI, `held right stick does not overshoot/spin (total turn ${held.cum.toFixed(2)} rad)`);
+  for (const [name, dx] of [["left", -R * 0.8], ["right", R]] as const) {
+    const r = run(true, dx, 0);
+    assert(r.err4 < 0.3 && r.cum < 1.5 * Math.PI, `${name} hold converges without overshoot (err4 ${r.err4.toFixed(2)}, cum ${r.cum.toFixed(2)})`);
+  }
   assert(held.err < 0.3, `held right stick settles on its heading (err ${held.err.toFixed(3)} rad)`);
   assert(held.turn < 0.3, `held right stick stops turning: last 3 s turned ${held.turn.toFixed(3)} rad`);
   const live = run(false, R * 0.8, 0);
