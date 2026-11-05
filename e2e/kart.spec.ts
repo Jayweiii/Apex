@@ -60,11 +60,16 @@ test.describe("Apex Kart", () => {
     await page.waitForTimeout(2500);
     // Keep the stick pulled, re-aiming it at the track ahead like a player
     // would, until the next gate registers.
-    const aim = async () => Number(await probe.getAttribute("data-aim"));
+    const num = async (k: string) => Number(await probe.getAttribute(k));
+    const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
     await expect
       .poll(
         async () => {
-          const a = await aim(); // + = track ahead is to the left
+          // Wanted world heading = kart heading + bearing to the track ahead;
+          // the stick angle is measured from the camera rotation latched at
+          // thumb-down (exposed as data-latch).
+          const want = (await num("data-heading")) + (await num("data-aim"));
+          const a = wrap(want - (await num("data-latch"))); // + = left of screen-up
           await area.dispatchEvent(
             "pointermove",
             ptr(7, ox - Math.sin(a) * 56, oy - Math.cos(a) * 56),
