@@ -15,6 +15,8 @@ export const STICK_DEAD = 0.12;
 export const DRIFT_THROTTLE = 0.3;
 /** Heading error (rad) at/above which a sharp turn holds the drift. */
 export const DRIFT_HEADING_ERR = 1;
+/** At/above this error (rad) the drift hold lets go so a near-U-turn can finish. */
+export const DRIFT_HEADING_MAX = 2.5;
 /** Steer gain: full steer lock at a heading error of 1 / this (rad). */
 export const HEADING_GAIN = 2.5;
 
@@ -72,7 +74,7 @@ export function stickOutput(dx: number, dy: number, heading = 0, camRot = 0, r =
   return {
     steer,
     throttle,
-    handbrake: Math.abs(err) >= DRIFT_HEADING_ERR && throttle >= DRIFT_THROTTLE,
+    handbrake: Math.abs(err) >= DRIFT_HEADING_ERR && Math.abs(err) < DRIFT_HEADING_MAX && throttle >= DRIFT_THROTTLE,
     target,
   };
 }
