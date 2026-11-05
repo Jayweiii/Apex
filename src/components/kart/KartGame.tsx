@@ -9,7 +9,8 @@
  * found in #43. Touch controls act on pointerdown (single tap, no click).
  */
 import { THUNDERHILL_LEVEL } from "@/lib/kart/levels/thunderhill";
-import { clampToRadius, STICK_RADIUS, stickOutput } from "@/lib/kart/joystick";
+import { clampToRadius, STICK_RADIUS, stickOutput, stickThrottle, wrapAngle } from "@/lib/kart/joystick";
+import { poseAt } from "@/lib/kart/track";
 import { createLapClock, guardLapTime, resetLapClock } from "@/lib/kart/laptime";
 import {
   applyLaunch,
@@ -85,6 +86,8 @@ interface StickState {
   dy: number;
   /** Camera rotation latched at thumb-down: one pull = one fixed world heading. */
   camRot: number;
+  /** Screen angle of the stick when camRot was latched. */
+  latchAng: number;
   /** True after the first touch of a race: releasing the stick then brakes. */
   engaged: boolean;
 }
@@ -102,7 +105,7 @@ export function KartGame() {
     drift: false,
     item: false,
   });
-  const stick = useRef<StickState>({ pointerId: -1, ox: 0, oy: 0, dx: 0, dy: 0, camRot: 0, engaged: false });
+  const stick = useRef<StickState>({ pointerId: -1, ox: 0, oy: 0, dx: 0, dy: 0, camRot: 0, latchAng: 0, engaged: false });
   const stickBase = useRef<HTMLDivElement | null>(null);
   const stickKnob = useRef<HTMLDivElement | null>(null);
   const itemTapTimer = useRef(0);
@@ -214,6 +217,12 @@ export function KartGame() {
       probe.dataset.speed = (Math.hypot(world.car.vx, world.car.vy)).toFixed(2);
       probe.dataset.s = world.hit.s.toFixed(1);
       probe.dataset.heading = world.car.heading.toFixed(3);
+      // Bearing (rad, + = left of the kart's heading) to a point ~14m ahead on
+      // the centerline: lets e2e tests aim the stick like a player would.
+      const ahead = poseAt(world.track, world.hit.s + 14);
+      probe.dataset.aim = wrapAngle(
+        Math.atan2(ahead.y - world.car.y, ahead.x - world.car.x) - world.car.heading,
+      ).toFixed(3);
       probe.dataset.item = String(world.item);
       probe.dataset.surface = String(world.surface);
     }
@@ -399,6 +408,7 @@ export function KartGame() {
     st.dx = 0;
     st.dy = 0;
     st.camRot = rendererRef.current?.cameraRotation() ?? 0;
+    st.latchAng = 0;
     st.engaged = true;
     capture(e.currentTarget, e.pointerId);
     const base = stickBase.current;
@@ -414,6 +424,16 @@ export function KartGame() {
     const rect = e.currentTarget.getBoundingClientRect();
     st.dx = e.clientX - rect.left - st.ox;
     st.dy = e.clientY - rect.top - st.oy;
+    // Re-aiming (angle well away from the latched one) re-latches the camera
+    // so the new pull is relative to the current view; a steady hold or thumb
+    // jitter keeps the heading fixed.
+    if (stickThrottle(st.dx, st.dy) > 0) {
+      const ang = Math.atan2(-st.dx, -st.dy);
+      if (Math.abs(wrapAngle(ang - st.latchAng)) > 0.15) {
+        st.camRot = rendererRef.current?.cameraRotation() ?? st.camRot;
+        st.latchAng = ang;
+      }
+    }
     const k = clampToRadius(st.dx, st.dy);
     if (stickKnob.current) stickKnob.current.style.transform = `translate(${k.x}px, ${k.y}px)`;
   };

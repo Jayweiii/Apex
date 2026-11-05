@@ -58,8 +58,22 @@ test.describe("Apex Kart", () => {
     // forward) and the kart drives straight ahead; distance = throttle.
     await area.dispatchEvent("pointermove", ptr(7, ox, oy - 56));
     await page.waitForTimeout(2500);
-    // Keep the stick pulled until the next gate registers.
-    await expect.poll(async () => (await read()).gate, { timeout: 25_000 }).not.toBe(before.gate);
+    // Keep the stick pulled, re-aiming it at the track ahead like a player
+    // would, until the next gate registers.
+    const aim = async () => Number(await probe.getAttribute("data-aim"));
+    await expect
+      .poll(
+        async () => {
+          const a = await aim(); // + = track ahead is to the left
+          await area.dispatchEvent(
+            "pointermove",
+            ptr(7, ox - Math.sin(a) * 56, oy - Math.cos(a) * 56),
+          );
+          return (await read()).gate;
+        },
+        { timeout: 25_000, intervals: [200] },
+      )
+      .not.toBe(before.gate);
 
     // Releasing the stick brakes the kart to a stop.
     await area.dispatchEvent("pointerup", ptr(7, ox, oy - 56));
