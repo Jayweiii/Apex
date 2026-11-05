@@ -84,6 +84,8 @@ interface StickState {
   oy: number;
   dx: number;
   dy: number;
+  /** Camera rotation latched at thumb-down: one pull = one fixed world heading. */
+  camRot: number;
   /** True after the first touch of a race: releasing the stick then brakes. */
   engaged: boolean;
 }
@@ -101,7 +103,7 @@ export function KartGame() {
     drift: false,
     item: false,
   });
-  const stick = useRef<StickState>({ pointerId: -1, ox: 0, oy: 0, dx: 0, dy: 0, engaged: false });
+  const stick = useRef<StickState>({ pointerId: -1, ox: 0, oy: 0, dx: 0, dy: 0, camRot: 0, engaged: false });
   const stickBase = useRef<HTMLDivElement | null>(null);
   const stickKnob = useRef<HTMLDivElement | null>(null);
   const itemTapTimer = useRef(0);
@@ -295,11 +297,12 @@ export function KartGame() {
       if (phaseRef.current !== "racing") return;
       acc += frameDt;
       const st = stick.current;
-      // Stick angle → world heading via the live camera rotation, so screen
-      // up on the stick is screen up in the game.
+      // Stick angle → world heading via the camera rotation latched at
+      // thumb-down. The camera follows the kart, so the live rotation would
+      // move the aim point every frame and the kart would circle.
       const so =
         st.pointerId >= 0
-          ? stickOutput(st.dx, st.dy, world.car.heading, renderer.cameraRotation())
+          ? stickOutput(st.dx, st.dy, world.car.heading, st.camRot)
           : null;
       const target = so ? so.steer : (h.right ? 1 : 0) - (h.left ? 1 : 0);
       // Ramp toward the target; snap back to centre faster. Gentler
@@ -425,6 +428,7 @@ export function KartGame() {
     st.oy = e.clientY - rect.top;
     st.dx = 0;
     st.dy = 0;
+    st.camRot = rendererRef.current?.cameraRotation() ?? 0;
     st.engaged = true;
     capture(e.currentTarget, e.pointerId);
     const base = stickBase.current;
@@ -595,7 +599,7 @@ export function KartGame() {
                   <li>• Drive through every <span className="text-yellow-300">gold gate</span> in order.</li>
                   <li>• Touch anywhere to place the stick: the kart turns to face wherever you <b>point</b> it and always drives forward. Pull <b>further</b> for more throttle, let go to brake.</li>
                   <li>• Grass slows you down. Hit <span className="text-yellow-300">? boxes</span> for Turbo or Oil.</li>
-                  <li>• Pull down right as the countdown hits <b>GO</b> for a launch boost. Hold a hard sideways pull, release for a mini-turbo.</li>
+                  <li>• Hold the stick as the countdown hits <b>GO</b> for a launch boost. Point it hard to one side and hold to charge a drift, release for a mini-turbo.</li>
                   <li>• Tap <b>Item</b> (or tap with a second finger) to use an item.</li>
                   <li className="text-zinc-500">Keys: arrows/WASD · Space drift · E item · P pause</li>
                 </ul>
