@@ -17,8 +17,12 @@ export const DRIFT_THROTTLE = 0.3;
 export const DRIFT_HEADING_ERR = 1;
 /** At/above this error (rad) the drift hold lets go so a near-U-turn can finish. */
 export const DRIFT_HEADING_MAX = 2.5;
-/** Steer gain: full steer lock at a heading error of 1 / this (rad). */
-export const HEADING_GAIN = 2.5;
+/**
+ * Steer gain: full steer lock at a heading error of 1 / this (rad). Kept low:
+ * with the steer slew + tyre lag, 2.5 put the loop into a limit cycle that
+ * never settled on a 90° aim.
+ */
+export const HEADING_GAIN = 0.8;
 
 export interface StickOutput {
   /** −1 (left) … +1 (right): rear-end steer toward the target heading. */
