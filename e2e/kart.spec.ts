@@ -37,7 +37,7 @@ test.describe("Apex Kart", () => {
       expect(Math.min(b!.width, b!.height)).toBeGreaterThanOrEqual(44);
     }
 
-    // Floating stick: touch down mid-stage, pull down for throttle.
+    // Floating stick: touch down mid-stage, point where the kart should go.
     const area = page.locator("[data-apex-kart-stick-area]");
     const ab = (await area.boundingBox())!;
     const ox = ab.x + ab.width / 2;
@@ -54,13 +54,15 @@ test.describe("Apex Kart", () => {
     await expect(stick).toHaveCSS("opacity", "0");
     await area.dispatchEvent("pointerdown", ptr(7, ox, oy));
     await expect(stick).toHaveCSS("opacity", "1"); // appears where the thumb landed
-    await area.dispatchEvent("pointermove", ptr(7, ox, oy + 56));
+    // Direction-based: point the stick screen-up (the heading-up camera's
+    // forward) and the kart drives straight ahead; distance = throttle.
+    await area.dispatchEvent("pointermove", ptr(7, ox, oy - 56));
     await page.waitForTimeout(2500);
-    // Keep the stick pulled down until the next gate registers.
+    // Keep the stick pulled until the next gate registers.
     await expect.poll(async () => (await read()).gate, { timeout: 25_000 }).not.toBe(before.gate);
 
     // Releasing the stick brakes the kart to a stop.
-    await area.dispatchEvent("pointerup", ptr(7, ox, oy + 56));
+    await area.dispatchEvent("pointerup", ptr(7, ox, oy - 56));
     await expect(stick).toHaveCSS("opacity", "0");
     const speed = async () => Number(await probe.getAttribute("data-speed"));
     await expect.poll(speed, { timeout: 15_000 }).toBeLessThan(1);

@@ -211,6 +211,7 @@ export function KartGame() {
       probe.dataset.gate = String(world.nextGate);
       probe.dataset.speed = (Math.hypot(world.car.vx, world.car.vy)).toFixed(2);
       probe.dataset.s = world.hit.s.toFixed(1);
+      probe.dataset.heading = world.car.heading.toFixed(3);
       probe.dataset.item = String(world.item);
       probe.dataset.surface = String(world.surface);
     }
@@ -264,7 +265,12 @@ export function KartGame() {
       if (phaseRef.current !== "racing") return;
       acc += frameDt;
       const st = stick.current;
-      const so = st.pointerId >= 0 ? stickOutput(st.dx, st.dy) : null;
+      // Stick angle → world heading via the live camera rotation, so screen
+      // up on the stick is screen up in the game.
+      const so =
+        st.pointerId >= 0
+          ? stickOutput(st.dx, st.dy, world.car.heading, renderer.cameraRotation())
+          : null;
       const target = so ? so.steer : (h.right ? 1 : 0) - (h.left ? 1 : 0);
       // Ramp toward the target; snap back to centre faster. Gentler
       // steer-in at low speed so a tap doesn't overshoot.
@@ -545,7 +551,7 @@ export function KartGame() {
               {phase === "ready" ? (
                 <ul className="mt-3 space-y-1 text-left text-xs text-zinc-300">
                   <li>• Drive through every <span className="text-yellow-300">gold gate</span> in order.</li>
-                  <li>• Touch anywhere to place the stick: <b>left/right</b> swings the tail, pull <b>down</b> for throttle, let go to brake.</li>
+                  <li>• Touch anywhere to place the stick: the kart turns to face wherever you <b>point</b> it and always drives forward. Pull <b>further</b> for more throttle, let go to brake.</li>
                   <li>• Grass slows you down. Hit <span className="text-yellow-300">? boxes</span> for Turbo or Oil.</li>
                   <li>• Pull down right as the countdown hits <b>GO</b> for a launch boost. Hold a hard sideways pull, release for a mini-turbo.</li>
                   <li>• Tap <b>Item</b> (or tap with a second finger) to use an item.</li>
