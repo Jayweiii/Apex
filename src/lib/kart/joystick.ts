@@ -74,7 +74,9 @@ export function stickOutput(dx: number, dy: number, heading = 0, camRot = 0, r =
   return {
     steer,
     throttle,
-    handbrake: Math.abs(err) >= DRIFT_HEADING_ERR && Math.abs(err) < DRIFT_HEADING_MAX && throttle >= DRIFT_THROTTLE,
+    // The stick never holds the handbrake itself: a held drift pinned the
+    // heading short of (or past) the target. Drift is the explicit Space key.
+    handbrake: false,
     target,
   };
 }
