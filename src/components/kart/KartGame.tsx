@@ -253,6 +253,7 @@ export function KartGame() {
       probe.dataset.aim = wrapAngle(
         Math.atan2(ahead.y - world.car.y, ahead.x - world.car.x) - world.car.heading,
       ).toFixed(3);
+      probe.dataset.latch = stick.current.camRot.toFixed(3);
       probe.dataset.item = String(world.item);
       probe.dataset.surface = String(world.surface);
     }
