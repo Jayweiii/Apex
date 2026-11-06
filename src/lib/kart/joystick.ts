@@ -37,6 +37,10 @@ export const YAW_RATE_GAIN = HEADING_GAIN / YAW_DAMP;
 export const LATERAL_G = 1.6;
 /** Speed floor (m/s) in the cap so crawling speeds don't demand huge yaw rates. */
 export const CAP_MIN_SPEED = 6;
+/** Lateral grip (g) the friction-circle throttle limit budgets for. */
+export const GRIP_G = 1.0;
+/** Lowest fraction of the pulled throttle kept while cornering at the limit. */
+export const TRACTION_FLOOR = 0.3;
 
 export interface StickOutput {
   /** −1 (left) … +1 (right): rear-end steer toward the target heading. */
@@ -104,9 +108,17 @@ export function stickOutput(
   // PD on yaw rate (steer + = right): backs off as the nose swings in, so the
   // kart stops on the target instead of spinning past it.
   const steer = Math.max(-1, Math.min(1, -(rDes - yawRate) * YAW_DAMP));
+  // Friction circle: the rears can't both drive and corner at the limit. Full
+  // throttle through a big turn spends the rear grip on drive force and the
+  // tail steps out into a sustained spin (the full-radius right hold circled
+  // 14 rad while the 0.8-radius hold, with less throttle, settled). Scale the
+  // throttle by the grip left after the lateral demand of the commanded yaw
+  // rate. Zero when speed is unknown/zero, so a standing start is unaffected.
+  const ayDemand = Math.min(1, (speed * Math.abs(rDes)) / (GRIP_G * 9.81));
+  const tractionScale = Math.max(TRACTION_FLOOR, Math.sqrt(1 - ayDemand * ayDemand));
   return {
     steer,
-    throttle,
+    throttle: throttle * tractionScale,
     // The stick never holds the handbrake itself: a held drift pinned the
     // heading short of (or past) the target. Drift is the explicit Space key.
     handbrake: false,
