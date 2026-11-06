@@ -312,7 +312,7 @@ export function KartGame() {
       // move the aim point every frame and the kart would circle.
       const so =
         st.pointerId >= 0
-          ? stickOutput(st.dx, st.dy, world.car.heading, st.camRot)
+          ? stickOutput(st.dx, st.dy, world.car.heading, st.camRot, undefined, world.car.r)
           : null;
       const target = so ? so.steer : (h.right ? 1 : 0) - (h.left ? 1 : 0);
       // Ramp toward the target; snap back to centre faster. Gentler

@@ -23,6 +23,8 @@ export const DRIFT_HEADING_MAX = 2.5;
  * never settled on a 90° aim.
  */
 export const HEADING_GAIN = 0.8;
+/** Steer backed off per rad/s of yaw rate (damps overshoot / spin-out). */
+export const YAW_DAMP = 0.4;
 
 export interface StickOutput {
   /** −1 (left) … +1 (right): rear-end steer toward the target heading. */
@@ -69,12 +71,22 @@ export function stickTargetHeading(dx: number, dy: number, camRot: number): numb
  * @param heading current kart heading (world rad)
  * @param camRot  world angle that points to screen-up (camera rotation)
  */
-export function stickOutput(dx: number, dy: number, heading = 0, camRot = 0, r = STICK_RADIUS): StickOutput {
+export function stickOutput(
+  dx: number,
+  dy: number,
+  heading = 0,
+  camRot = 0,
+  r = STICK_RADIUS,
+  yawRate = 0,
+): StickOutput {
   const throttle = stickThrottle(dx, dy, r);
   if (throttle <= 0) return { steer: 0, throttle: 0, handbrake: false, target: null };
   const target = stickTargetHeading(dx, dy, camRot);
   const err = wrapAngle(target - heading); // + = target is to the left
-  const steer = Math.max(-1, Math.min(1, -err * HEADING_GAIN));
+  // PD: the yaw-rate term (+ = turning left) backs off the steer as the nose
+  // swings in, so the kart stops on the target instead of spinning past it
+  // and sliding backwards.
+  const steer = Math.max(-1, Math.min(1, -err * HEADING_GAIN + yawRate * YAW_DAMP));
   return {
     steer,
     throttle,
