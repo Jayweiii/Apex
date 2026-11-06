@@ -34,7 +34,7 @@ export const YAW_DAMP = 0.4;
  */
 export const YAW_RATE_GAIN = HEADING_GAIN / YAW_DAMP;
 /** Lateral acceleration (in g) the yaw-rate cap assumes the tyres can hold. */
-export const LATERAL_G = 1.0;
+export const LATERAL_G = 1.6;
 /** Speed floor (m/s) in the cap so crawling speeds don't demand huge yaw rates. */
 export const CAP_MIN_SPEED = 6;
 
