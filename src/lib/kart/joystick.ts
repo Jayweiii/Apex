@@ -31,7 +31,9 @@ export const YAW_DAMP = 0.4;
  * travel direction and body vx goes negative (a backwards slide). Capping the
  * lead keeps vx = |v|·cos(slip) > 0 for any aim, up to a full U-turn.
  */
-export const MAX_SLIP_LEAD = 0.9;
+export const MAX_SLIP_LEAD = 1.1;
+/** Minimum steer-error (rad) kept toward the target even when the lead cap is hit. */
+export const LEAD_FLOOR = 0.3;
 
 export interface StickOutput {
   /** −1 (left) … +1 (right): rear-end steer toward the target heading. */
@@ -98,7 +100,13 @@ export function stickOutput(
     const slip = Math.atan2(vy, vx);
     // Cap only on the side the target lies. (Wrapping err - slip flipped the
     // sign for big turns, steering away from a 135° aim.)
-    err = err >= 0 ? Math.min(err, slip + MAX_SLIP_LEAD) : Math.max(err, slip - MAX_SLIP_LEAD);
+    // Never cap below LEAD_FLOOR toward the target: a hard cap reaching 0 (or
+    // flipping sign) parked the kart in a steady slide short of a 135° aim.
+    // The yaw damping still bounds the swing rate, so the slip stays < 90°.
+    err =
+      err >= 0
+        ? Math.min(err, Math.max(slip + MAX_SLIP_LEAD, Math.min(err, LEAD_FLOOR)))
+        : Math.max(err, Math.min(slip - MAX_SLIP_LEAD, Math.max(err, -LEAD_FLOOR)));
   }
   // PD: the yaw-rate term (+ = turning left) backs off the steer as the nose
   // swings in, so the kart stops on the target instead of spinning past it
