@@ -26,16 +26,17 @@ export const HEADING_GAIN = 0.8;
 /** Steer backed off per rad/s of yaw rate (damps overshoot / spin-out). */
 export const YAW_DAMP = 0.4;
 /**
- * Max angle (rad) the steer may lead the velocity direction. Beyond it the kart
- * turns faster than the tyres can bend its path, the nose swings past the
- * travel direction and body vx goes negative (a backwards slide). Capping the
- * lead keeps vx = |v|·cos(slip) > 0 for any aim, up to a full U-turn.
+ * Yaw-rate controller: the commanded yaw rate is YAW_RATE_GAIN·err (the same PD
+ * as before: steer = -err·HEADING_GAIN + r·YAW_DAMP), but capped at what the
+ * tyres can bend the path at this speed (LATERAL_G·g / v). Turning the nose
+ * faster than the path can follow is what swung it >90° past the travel
+ * direction (body vx < 0); capping the rate keeps slip small at any aim.
  */
-export const MAX_SLIP_LEAD = 0.8;
-/** Counter-steer (rad of error per rad of lead past the limit). */
-export const LEAD_STIFFNESS = 10;
-/** Seconds of yaw rate added to the lead, to act before the slew/lag catch up. */
-export const LEAD_ANTICIPATE = 0.25;
+export const YAW_RATE_GAIN = HEADING_GAIN / YAW_DAMP;
+/** Lateral acceleration (in g) the yaw-rate cap assumes the tyres can hold. */
+export const LATERAL_G = 1.0;
+/** Speed floor (m/s) in the cap so crawling speeds don't demand huge yaw rates. */
+export const CAP_MIN_SPEED = 6;
 
 export interface StickOutput {
   /** −1 (left) … +1 (right): rear-end steer toward the target heading. */
@@ -95,25 +96,14 @@ export function stickOutput(
   const throttle = stickThrottle(dx, dy, r);
   if (throttle <= 0) return { steer: 0, throttle: 0, handbrake: false, target: null };
   const target = stickTargetHeading(dx, dy, camRot);
-  let err = wrapAngle(target - heading); // + = target is to the left
-  // Velocity direction relative to the nose (+ = travelling to the left). Don't
-  // aim the nose further than MAX_SLIP_LEAD past it: let the path catch up.
-  if (Math.hypot(vx, vy) > 1) {
-    // Lead = how far the nose is swung past the travel direction, toward the
-    // target (+ = leading). A plain PD handles normal turns (it converged at
-    // every angle); this only acts as a limiter once the lead nears 90°, where
-    // body vx would go negative. Past MAX_SLIP_LEAD it counter-steers
-    // proportionally, which holds the lead there while the path catches up. The
-    // yaw-rate term anticipates the steer slew + tyre lag.
-    const sgn = err >= 0 ? 1 : -1;
-    const lead = -sgn * Math.atan2(vy, vx) + LEAD_ANTICIPATE * sgn * yawRate;
-    const excess = lead - MAX_SLIP_LEAD;
-    if (excess > 0) err -= sgn * LEAD_STIFFNESS * excess;
-  }
-  // PD: the yaw-rate term (+ = turning left) backs off the steer as the nose
-  // swings in, so the kart stops on the target instead of spinning past it
-  // and sliding backwards.
-  const steer = Math.max(-1, Math.min(1, -err * HEADING_GAIN + yawRate * YAW_DAMP));
+  const err = wrapAngle(target - heading); // + = target is to the left
+  // Commanded yaw rate (+ = left), capped to what the tyres can follow.
+  const speed = Math.hypot(vx, vy);
+  const rMax = (LATERAL_G * 9.81) / Math.max(speed, CAP_MIN_SPEED);
+  const rDes = Math.max(-rMax, Math.min(rMax, err * YAW_RATE_GAIN));
+  // PD on yaw rate (steer + = right): backs off as the nose swings in, so the
+  // kart stops on the target instead of spinning past it.
+  const steer = Math.max(-1, Math.min(1, -(rDes - yawRate) * YAW_DAMP));
   return {
     steer,
     throttle,
