@@ -96,8 +96,9 @@ export function stickOutput(
   // aim the nose further than MAX_SLIP_LEAD past it: let the path catch up.
   if (Math.hypot(vx, vy) > 1) {
     const slip = Math.atan2(vy, vx);
-    const lead = Math.max(-MAX_SLIP_LEAD, Math.min(MAX_SLIP_LEAD, wrapAngle(err - slip)));
-    err = slip + lead;
+    // Cap only on the side the target lies. (Wrapping err - slip flipped the
+    // sign for big turns, steering away from a 135° aim.)
+    err = err >= 0 ? Math.min(err, slip + MAX_SLIP_LEAD) : Math.max(err, slip - MAX_SLIP_LEAD);
   }
   // PD: the yaw-rate term (+ = turning left) backs off the steer as the nose
   // swings in, so the kart stops on the target instead of spinning past it
