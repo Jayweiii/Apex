@@ -25,6 +25,13 @@ export const DRIFT_HEADING_MAX = 2.5;
 export const HEADING_GAIN = 0.8;
 /** Steer backed off per rad/s of yaw rate (damps overshoot / spin-out). */
 export const YAW_DAMP = 0.4;
+/**
+ * Max angle (rad) the steer may lead the velocity direction. Beyond it the kart
+ * turns faster than the tyres can bend its path, the nose swings past the
+ * travel direction and body vx goes negative (a backwards slide). Capping the
+ * lead keeps vx = |v|·cos(slip) > 0 for any aim, up to a full U-turn.
+ */
+export const MAX_SLIP_LEAD = 0.9;
 
 export interface StickOutput {
   /** −1 (left) … +1 (right): rear-end steer toward the target heading. */
@@ -78,11 +85,20 @@ export function stickOutput(
   camRot = 0,
   r = STICK_RADIUS,
   yawRate = 0,
+  vx = 0,
+  vy = 0,
 ): StickOutput {
   const throttle = stickThrottle(dx, dy, r);
   if (throttle <= 0) return { steer: 0, throttle: 0, handbrake: false, target: null };
   const target = stickTargetHeading(dx, dy, camRot);
-  const err = wrapAngle(target - heading); // + = target is to the left
+  let err = wrapAngle(target - heading); // + = target is to the left
+  // Velocity direction relative to the nose (+ = travelling to the left). Don't
+  // aim the nose further than MAX_SLIP_LEAD past it: let the path catch up.
+  if (Math.hypot(vx, vy) > 1) {
+    const slip = Math.atan2(vy, vx);
+    const lead = Math.max(-MAX_SLIP_LEAD, Math.min(MAX_SLIP_LEAD, wrapAngle(err - slip)));
+    err = slip + lead;
+  }
   // PD: the yaw-rate term (+ = turning left) backs off the steer as the nose
   // swings in, so the kart stops on the target instead of spinning past it
   // and sliding backwards.
