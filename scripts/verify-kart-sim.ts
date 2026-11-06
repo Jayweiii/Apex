@@ -315,7 +315,7 @@ assert(run(9) === run(9), "same seed and inputs replay identically");
     let steerV = 0;
     let minVx = c.vx;
     for (let i = 0; i < secs * TICK_HZ; i++) {
-      const so = stickOutput(dx, dy, c.heading, cam);
+      const so = stickOutput(dx, dy, c.heading, cam, undefined, c.r);
       steerV += Math.max(-4.5 * DT, Math.min(4.5 * DT, so.steer - steerV));
       stepCar(c, { steer: steerV, throttle: so.throttle, brake: 0, handbrake: so.handbrake, allowReverse: false }, DT);
       minVx = Math.min(minVx, c.vx);
@@ -352,7 +352,7 @@ assert(run(9) === run(9), "same seed and inputs replay identically");
     let steerV = 0;
     const headings: number[] = [];
     for (let i = 0; i < 12 * TICK_HZ; i++) {
-      const so = stickOutput(dx, dy, c.heading, latch ? latched : cam);
+      const so = stickOutput(dx, dy, c.heading, latch ? latched : cam, undefined, c.r);
       steerV += Math.max(-4.5 * DT, Math.min(4.5 * DT, so.steer - steerV));
       stepCar(c, { steer: steerV, throttle: so.throttle, brake: 0, handbrake: so.handbrake, allowReverse: false }, DT);
       // Following camera (same smoothing idea as the renderer).
