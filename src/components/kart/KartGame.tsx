@@ -87,7 +87,7 @@ interface StickState {
   /** Camera rotation latched at thumb-down: one pull = one fixed world heading. */
   camRot: number;
   /** Screen angle of the stick when camRot was latched. */
-  latchAng: number;
+  latchAng: number | null;
   /** True after the first touch of a race: releasing the stick then brakes. */
   engaged: boolean;
 }
@@ -105,7 +105,7 @@ export function KartGame() {
     drift: false,
     item: false,
   });
-  const stick = useRef<StickState>({ pointerId: -1, ox: 0, oy: 0, dx: 0, dy: 0, camRot: 0, latchAng: 0, engaged: false });
+  const stick = useRef<StickState>({ pointerId: -1, ox: 0, oy: 0, dx: 0, dy: 0, camRot: 0, latchAng: null, engaged: false });
   const stickBase = useRef<HTMLDivElement | null>(null);
   const stickKnob = useRef<HTMLDivElement | null>(null);
   const itemTapTimer = useRef(0);
@@ -409,7 +409,7 @@ export function KartGame() {
     st.dx = 0;
     st.dy = 0;
     st.camRot = rendererRef.current?.cameraRotation() ?? 0;
-    st.latchAng = 0;
+    st.latchAng = null;
     st.engaged = true;
     capture(e.currentTarget, e.pointerId);
     const base = stickBase.current;
@@ -430,7 +430,11 @@ export function KartGame() {
     // jitter keeps the heading fixed.
     if (stickThrottle(st.dx, st.dy) > 0) {
       const ang = Math.atan2(-st.dx, -st.dy);
-      if (Math.abs(wrapAngle(ang - st.latchAng)) > 0.15) {
+      if (st.latchAng === null) {
+        // First aimed angle keeps the thumb-down latch (no re-latch on the
+        // initial pull away from "up").
+        st.latchAng = ang;
+      } else if (Math.abs(wrapAngle(ang - st.latchAng)) > 0.15) {
         st.camRot = rendererRef.current?.cameraRotation() ?? st.camRot;
         st.latchAng = ang;
       }

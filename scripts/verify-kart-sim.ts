@@ -383,6 +383,46 @@ assert(run(9) === run(9), "same seed and inputs replay identically");
   assert(live.turn > held.turn * 3, "live-camera mapping keeps turning (the bug the latch fixes)");
 }
 
+// ── Full-stick holds FROM REST (the phone gate): settle on target, no circling ──
+{
+  const R = STICK_RADIUS;
+  const DT = 1 / TICK_HZ;
+  const angDiff = (a: number, b: number) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
+  const cases: Array<[string, number, number, number]> = [
+    ["left", -R, 0, Math.PI / 2],
+    ["right", R, 0, Math.PI / 2],
+    ["down", 0, R, Math.PI],
+    ["up-right", R * Math.SQRT1_2, -R * Math.SQRT1_2, Math.PI / 4],
+  ];
+  for (const [name, dx, dy, turn] of cases) {
+    const c = createCar();
+    c.heading = 0;
+    const target = stickOutput(dx, dy, 0, 0).target!;
+    let steerV = 0;
+    let minVx = 0;
+    let cum = 0;
+    let late = 0;
+    let prev = 0;
+    for (let i = 0; i < 8 * TICK_HZ; i++) {
+      const so = stickOutput(dx, dy, c.heading, 0, undefined, c.r, c.vx, c.vy);
+      const speed = Math.hypot(c.vx, c.vy);
+      const rate = so.steer === 0 ? 7 : speed < 12 ? 2.8 + speed * 0.14 : 4.5;
+      steerV += Math.max(-rate * DT, Math.min(rate * DT, so.steer - steerV));
+      stepCar(c, { steer: steerV, throttle: so.throttle, brake: 0, handbrake: false, allowReverse: false }, DT);
+      const d = angDiff(c.heading, prev);
+      cum += d;
+      if (i >= 6.5 * TICK_HZ) late += d;
+      prev = c.heading;
+      minVx = Math.min(minVx, c.vx);
+    }
+    const err = angDiff(c.heading, target);
+    assert(err < 0.3, `from-rest full ${name} hold is on target at 8 s (err ${err.toFixed(3)} rad)`);
+    assert(late / 1.5 < 0.15, `from-rest full ${name} hold has settled (late rate ${(late / 1.5).toFixed(3)} rad/s)`);
+    assert(cum < turn + 0.6, `from-rest full ${name} hold does not circle (total turn ${cum.toFixed(2)} rad)`);
+    assert(minVx >= -1e-3, `from-rest full ${name} hold never reverses (vx ${minVx})`);
+  }
+}
+
 // ── Stick through the real sim: pull, brake to a stop, re-pull — never backwards ──
 {
   const w = createWorld(THUNDERHILL_LEVEL, 3);

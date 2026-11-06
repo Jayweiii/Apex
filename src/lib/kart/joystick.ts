@@ -41,6 +41,10 @@ export const CAP_MIN_SPEED = 6;
 export const GRIP_G = 1.0;
 /** Lowest fraction of the pulled throttle kept while cornering at the limit. */
 export const TRACTION_FLOOR = 0.3;
+/** Speed (m/s) below which the traction budget uses the actual yaw rate only. */
+export const TRACTION_FF_LO = 4;
+/** Speed (m/s) at/above which it uses the full commanded yaw rate. */
+export const TRACTION_FF_HI = 8;
 
 export interface StickOutput {
   /** −1 (left) … +1 (right): rear-end steer toward the target heading. */
@@ -114,7 +118,14 @@ export function stickOutput(
   // 14 rad while the 0.8-radius hold, with less throttle, settled). Scale the
   // throttle by the grip left after the lateral demand of the commanded yaw
   // rate. Zero when speed is unknown/zero, so a standing start is unaffected.
-  const ayDemand = Math.min(1, (speed * Math.abs(rDes)) / (GRIP_G * 9.81));
+  // At crawling speeds the commanded rate is a feed-forward the car can't yet
+  // follow, and budgeting for it cut drive to the floor right when a standing
+  // start needs speed (the 90°/180° holds from rest spent 1–4 s at 30% throttle).
+  // Below TRACTION_FF_LO use the yaw rate the car actually has; fade to the
+  // commanded rate by TRACTION_FF_HI, where the tail-out spin can happen.
+  const ff = Math.max(0, Math.min(1, (speed - TRACTION_FF_LO) / (TRACTION_FF_HI - TRACTION_FF_LO)));
+  const rBudget = Math.abs(yawRate) + ff * Math.max(0, Math.abs(rDes) - Math.abs(yawRate));
+  const ayDemand = Math.min(1, (speed * rBudget) / (GRIP_G * 9.81));
   const tractionScale = Math.max(TRACTION_FLOOR, Math.sqrt(1 - ayDemand * ayDemand));
   return {
     steer,
