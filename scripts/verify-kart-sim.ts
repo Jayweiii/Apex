@@ -716,6 +716,34 @@ assert(run(9) === run(9), "same seed and inputs replay identically");
   }
 }
 
+// ── Altitude: real USGS relief, and gravity along the slope ──
+{
+  const t = createWorld(THUNDERHILL_LEVEL, 1).track;
+  const top = Math.max(...t.pz);
+  assert(top > 10 && top < 30, `track climbs a real hill (${top.toFixed(1)} m)`);
+  let up = 0;
+  let down = 0;
+  for (let k = 0; k < t.count; k += 1) {
+    if (t.grade[k] > t.grade[up]) up = k;
+    if (t.grade[k] < t.grade[down]) down = k;
+  }
+  assert(t.grade[up] > 0.04 && t.grade[down] < -0.04, "has real climbs and descents");
+  function coastAt(k: number) {
+    const w = createWorld(THUNDERHILL_LEVEL, 1);
+    w.car.x = t.px[k];
+    w.car.y = t.py[k];
+    w.car.heading = Math.atan2(t.ty[k], t.tx[k]);
+    w.car.vx = 15;
+    w.hit.index = k;
+    const coast: KartInput = { steer: 0, throttle: 0, brake: 0, handbrake: false, useItem: false };
+    for (let i = 0; i < TICK_HZ * 0.8; i += 1) stepWorld(w, coast);
+    return Math.hypot(w.car.vx, w.car.vy);
+  }
+  const uphill = coastAt(up);
+  const downhill = coastAt(down);
+  assert(downhill > uphill + 0.5, `gravity: coasting downhill keeps more speed than uphill (${downhill.toFixed(2)} vs ${uphill.toFixed(2)} m/s)`);
+}
+
 console.log(JSON.stringify({
   ok: true,
   lap1Ms: lap1,

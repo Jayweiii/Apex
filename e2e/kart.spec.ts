@@ -178,4 +178,23 @@ test.describe("Apex Kart", () => {
     await expect(panel).toContainText("debug on");
     await expect(panel).toContainText(/countdown|racing/);
   });
+
+  test("3D view loads (falls back to 2D without WebGL) with no page errors", async ({ page, isMobile }) => {
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    await page.goto("/kart");
+    const start = page.locator("[data-apex-kart-start]");
+    await expect(start).toBeVisible({ timeout: 90_000 });
+    const canvas = page.locator("[data-apex-kart-canvas]");
+    await expect(canvas).toHaveAttribute("data-apex-kart-renderer", /^(3d|2d)$/);
+    if (isMobile) await start.tap();
+    else await start.click();
+    await page.waitForTimeout(1500);
+    expect(errors).toEqual([]);
+    // ?2d=1 forces the pixel renderer.
+    await page.goto("/kart?2d=1");
+    await expect(page.locator("[data-apex-kart-canvas]")).toHaveAttribute("data-apex-kart-renderer", "2d", {
+      timeout: 90_000,
+    });
+  });
 });

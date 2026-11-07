@@ -120,6 +120,8 @@ export type KartCar = {
   extraDrag: number;
   /** Extra drive force from a Turbo (N). */
   boostForce: number;
+  /** Gravity along the slope, body-forward component (N). Set by the race. */
+  gradeForce: number;
   /** Extra top speed while a boost is active (m/s). Set by the race. */
   topBonus: number;
   /** Drifting last step, to detect the tap that starts a drift. */
@@ -146,6 +148,7 @@ export function createCar(params: CarParams = DEFAULT_CAR): KartCar {
     rearMuScale: 1,
     extraDrag: 0,
     boostForce: 0,
+    gradeForce: 0,
     topBonus: 0,
     hbPrev: false,
   };
@@ -285,7 +288,8 @@ export function stepCar(car: KartCar, input: CarInput, dt: number): void {
   const cs = Math.cos(car.steer);
   const sn = Math.sin(car.steer);
   const drag = 0.42 * car.vx * Math.abs(car.vx) + 140 * Math.sign(car.vx);
-  const fx = fxRear + fxFront * cs - fyF * sn - drag - car.extraDrag * car.vx;
+  const fx =
+    fxRear + fxFront * cs - fyF * sn - drag - car.extraDrag * car.vx + car.gradeForce;
   const fy = fyR + fyF * cs + fxFront * sn - car.extraDrag * car.vy;
   const mz = a * (fyF * cs + fxFront * sn) - b * fyR;
 

@@ -38,6 +38,7 @@ import {
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createRenderer, type KartRenderer } from "./renderer";
+import { createRenderer3D } from "./renderer3d";
 import { attachTouchDebug, guardPlaySurface, lockPageOverscroll } from "./touch-guard";
 
 type Phase = "ready" | "countdown" | "racing" | "paused";
@@ -188,7 +189,17 @@ export function KartGame() {
     worldRef.current = world;
     resetLapClock(lapClock.current);
     phaseRef.current = "ready";
-    const renderer = createRenderer(canvas, world);
+    // 3D by default; 2D pixel renderer if WebGL is unavailable or ?2d=1.
+    let renderer: KartRenderer;
+    const force2d = new URLSearchParams(window.location.search).get("2d") === "1";
+    try {
+      if (force2d) throw new Error("2d requested");
+      renderer = createRenderer3D(canvas, world);
+      canvas.dataset.apexKartRenderer = "3d";
+    } catch {
+      renderer = createRenderer(canvas, world);
+      canvas.dataset.apexKartRenderer = "2d";
+    }
     rendererRef.current = renderer;
     bestRef.current = loadBest();
     renderer.draw(world, 0);
