@@ -6,7 +6,7 @@
  * a soft wall keeps you near the track, drift scoring with combos, and two
  * items (Turbo, Oil slick).
  */
-import { createCar, driftAngle, stepCar, type CarInput, type KartCar } from "./car";
+import { createCar, DRIFT_MIN_SPEED, driftAngle, stepCar, type CarInput, type KartCar } from "./car";
 import { createRng, nextRandom, type Rng } from "./rng";
 import {
   buildTrack,
@@ -38,7 +38,20 @@ export const KART_RULES = {
   /** Hard boundary this far outside the asphalt (m). */
   wallOutside: 10,
   wallSpeedKeep: 0.6,
-  boxRadius: 2.4,
+  boxRadius: 3.2,
+  /** Direct acceleration while a Turbo is active (m/s²), on top of drive force. */
+  turboAccel: 7,
+  turboTopBonus: 8,
+  /** Mini-turbo on drift release: needs this long a hold, scaled by hold time. */
+  miniMinHoldTicks: Math.round(0.5 * TICK_HZ),
+  miniBaseTicks: Math.round(0.3 * TICK_HZ),
+  miniMaxTicks: Math.round(1.1 * TICK_HZ),
+  miniAccel: 5,
+  miniTopBonus: 4,
+  /** Perfect-start window: gas first pressed this late in the countdown. */
+  launchWindowS: 0.9,
+  launchKick: 2.5,
+  launchTicks: Math.round(1.0 * TICK_HZ),
   boxRespawnTicks: 4 * TICK_HZ,
   turboTicks: Math.round(1.2 * TICK_HZ),
   turboForceN: 5200,
@@ -86,6 +99,13 @@ export type KartWorld = {
   prevUseItem: boolean;
   boxCooldown: Int32Array;
   turboTicks: number;
+  /** Mini-turbo (drift release / perfect launch) ticks left. */
+  miniTicks: number;
+  /** Ticks the handbrake has been held in a drift. */
+  holdTicks: number;
+  /** Tick of the last mini-turbo / launch (HUD flash) and its kind. */
+  lastMiniTick: number;
+  lastMiniLaunch: boolean;
   slickedTicks: number;
   slickX: Float64Array;
   slickY: Float64Array;
@@ -138,6 +158,10 @@ export function createWorld(level: KartLevelDef, seed = 1): KartWorld {
     prevUseItem: false,
     boxCooldown: new Int32Array(track.boxX.length),
     turboTicks: 0,
+    miniTicks: 0,
+    holdTicks: 0,
+    lastMiniTick: -1e9,
+    lastMiniLaunch: false,
     slickedTicks: 0,
     slickX: new Float64Array(KART_RULES.maxSlicks),
     slickY: new Float64Array(KART_RULES.maxSlicks),
@@ -179,6 +203,20 @@ export function resetCar(world: KartWorld): void {
   world.prevS = world.hit.s;
 }
 
+/**
+ * Perfect start: call once at GO when gas was pressed inside the launch
+ * window. Gives a small kick plus a short mini-turbo. Deterministic — a
+ * replay just records the tick it was applied.
+ */
+export function applyLaunch(world: KartWorld, power = 1): void {
+  // Analog: a half-pulled stick at GO gives a half-strength launch.
+  const p = Math.max(0, Math.min(1, power));
+  world.car.vx += KART_RULES.launchKick * p;
+  world.miniTicks = Math.max(world.miniTicks, Math.round(KART_RULES.launchTicks * p));
+  world.lastMiniTick = world.tick;
+  world.lastMiniLaunch = true;
+}
+
 /** Signed wrap of an arc-length difference to (−L/2, L/2]. */
 function wrapDelta(ds: number, length: number): number {
   if (ds > length / 2) return ds - length;
@@ -193,7 +231,7 @@ function passed(s0: number, ds: number, g: number, length: number): boolean {
   return rel > 0 && rel <= ds;
 }
 
-const scratchInput: CarInput = { steer: 0, throttle: 0, brake: 0, handbrake: false };
+const scratchInput: CarInput = { steer: 0, throttle: 0, brake: 0, handbrake: false, allowReverse: true };
 
 /** Advance the world one fixed tick. Allocation-free. */
 export function stepWorld(world: KartWorld, input: KartInput): void {
@@ -207,6 +245,7 @@ export function stepWorld(world: KartWorld, input: KartInput): void {
   scratchInput.throttle = Math.round(Math.max(0, Math.min(1, input.throttle)) * 16) / 16;
   scratchInput.brake = Math.round(Math.max(0, Math.min(1, input.brake)) * 16) / 16;
   scratchInput.handbrake = input.handbrake;
+  scratchInput.allowReverse = input.allowReverse !== false;
 
   // Surface from last projection.
   const off = Math.abs(world.hit.d) - track.halfWidth;
@@ -227,6 +266,26 @@ export function stepWorld(world: KartWorld, input: KartInput): void {
   // Items in effect.
   if (world.turboTicks > 0) world.turboTicks -= 1;
   car.boostForce = world.turboTicks > 0 ? R.turboForceN : 0;
+  if (world.miniTicks > 0) world.miniTicks -= 1;
+  car.topBonus = world.turboTicks > 0 ? R.turboTopBonus : world.miniTicks > 0 ? R.miniTopBonus : 0;
+  // Boosts add acceleration directly so they still push when the rear
+  // tires are already at their traction limit.
+  if (world.turboTicks > 0) car.vx += R.turboAccel * DT;
+  else if (world.miniTicks > 0) car.vx += R.miniAccel * DT;
+
+  // Mini-turbo: hold the drift, release it, get a boost scaled by hold time.
+  const dragging = input.handbrake && car.vx >= DRIFT_MIN_SPEED && Math.abs(scratchInput.steer) > 0.1;
+  if (dragging) {
+    world.holdTicks += 1;
+  } else {
+    if (world.holdTicks >= R.miniMinHoldTicks) {
+      const extra = Math.min(R.miniMaxTicks - R.miniBaseTicks, Math.round(world.holdTicks * 0.4));
+      world.miniTicks = Math.max(world.miniTicks, R.miniBaseTicks + extra);
+      world.lastMiniTick = world.tick;
+      world.lastMiniLaunch = false;
+    }
+    world.holdTicks = 0;
+  }
   if (world.slickedTicks > 0) world.slickedTicks -= 1;
   car.rearMuScale = world.slickedTicks > 0 ? R.slickRearMu : 1;
 
@@ -399,7 +458,7 @@ export function hashWorld(world: KartWorld): string {
   const values = [
     c.x, c.y, c.heading, c.vx, c.vy, c.r, c.steer,
     world.tick, world.lap, world.nextGate, world.score, world.item,
-    world.rng.state, world.turboTicks, world.slickedTicks,
+    world.rng.state, world.turboTicks, world.slickedTicks, world.miniTicks,
   ];
   let h = 0x811c9dc5;
   for (const v of values) {

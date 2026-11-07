@@ -42,12 +42,12 @@ const CAR = [
 /** Item box, 8 × 8 px. */
 const BOX = [
   "kkkkkkkk",
+  "kQQWWQQk",
+  "kQWQQWQk",
+  "kQQQWQQk",
+  "kQQWQQQk",
   "kQQQQQQk",
-  "kQqqqqQk",
-  "kQqWWqmk",
-  "kQqqWqmk",
-  "kQQqqQmk",
-  "kQmmmmmk",
+  "kQQWQQQk",
   "kkkkkkkk",
 ];
 

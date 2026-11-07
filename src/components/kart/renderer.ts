@@ -234,7 +234,13 @@ export function createRenderer(canvas: HTMLCanvasElement, world: KartWorld): Kar
     const bob = Math.sin(world.tick / 20) * 0.25;
     for (let b = 0; b < track.boxX.length; b += 1) {
       if (world.boxCooldown[b] > 0) continue;
-      ctx.drawImage(sprites.box, track.boxX[b] - 1.2, track.boxY[b] - 1.2 + bob, 2.4, 2.4);
+      // Pulsing halo + big box so pickups read from across the track.
+      const pulse = 0.5 + 0.5 * Math.sin(world.tick / 14 + b);
+      ctx.fillStyle = `rgba(253,224,71,${(0.18 + 0.2 * pulse).toFixed(2)})`;
+      ctx.beginPath();
+      ctx.arc(track.boxX[b], track.boxY[b], 2.6 + pulse * 0.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.drawImage(sprites.box, track.boxX[b] - 1.8, track.boxY[b] - 1.8 + bob, 3.6, 3.6);
     }
 
     // Smoke.
