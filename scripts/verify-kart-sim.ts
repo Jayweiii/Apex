@@ -423,6 +423,64 @@ assert(run(9) === run(9), "same seed and inputs replay identically");
   }
 }
 
+// ── Full-stick holds FROM REST through the real stepWorld + track (phone gate pose) ──
+// Judged up to the first wall hit or stuck-reset: the heading must have
+// converged (err < 0.3 and trailing-1 s yaw rate < 0.2 rad/s) before then,
+// and body vx must never go negative on the way.
+{
+  const R = STICK_RADIUS;
+  const DT = 1 / TICK_HZ;
+  const angDiff = (a: number, b: number) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
+  const cases: Array<[string, number, number]> = [
+    ["left", -R, 0],
+    ["right", R, 0],
+    ["up-right", R * Math.SQRT1_2, -R * Math.SQRT1_2],
+  ];
+  const WIN = TICK_HZ; // trailing 1 s window for the settled-yaw check
+  for (const [name, dx, dy] of cases) {
+    const w = createWorld(THUNDERHILL_LEVEL, 3);
+    const camRot = w.car.heading; // camera has caught up with the kart at touch
+    const target = stickOutput(dx, dy, w.car.heading, camRot).target!;
+    const inp: KartInput = { steer: 0, throttle: 0, brake: 0, handbrake: false, allowReverse: false, useItem: false };
+    const dHist: number[] = [];
+    let steerV = 0;
+    let minVx = 0;
+    let prev = w.car.heading;
+    let converged = false;
+    let stopT = 8;
+    let stopWhy = "8 s elapsed";
+    const startReset = w.lastResetTick;
+    for (let i = 0; i < 8 * TICK_HZ; i++) {
+      const c = w.car;
+      const so = stickOutput(dx, dy, c.heading, camRot, undefined, c.r, c.vx, c.vy);
+      const speed = Math.hypot(c.vx, c.vy);
+      const rate = so.steer === 0 ? 7 : speed < 12 ? 2.8 + speed * 0.14 : 4.5;
+      steerV += Math.max(-rate * DT, Math.min(rate * DT, so.steer - steerV));
+      inp.steer = steerV;
+      inp.throttle = so.throttle;
+      inp.handbrake = false;
+      stepWorld(w, inp);
+      if (w.wallHitTick === w.tick || w.lastResetTick !== startReset) {
+        stopT = (i + 1) * DT;
+        stopWhy = w.wallHitTick === w.tick ? "wall hit" : "stuck reset";
+        break;
+      }
+      dHist.push(angDiff(w.car.heading, prev));
+      prev = w.car.heading;
+      minVx = Math.min(minVx, w.car.vx);
+      if (dHist.length >= WIN) {
+        const yaw = dHist.slice(-WIN).reduce((a, b) => a + b, 0) / (WIN * DT);
+        if (angDiff(w.car.heading, target) < 0.3 && yaw < 0.2) {
+          converged = true;
+          break;
+        }
+      }
+    }
+    assert(minVx >= -1e-3, `stepWorld from-rest ${name} hold never reverses (vx ${minVx})`);
+    assert(converged, `stepWorld from-rest ${name} hold converges before the ${stopWhy} at ${stopT.toFixed(2)} s`);
+  }
+}
+
 // ── Stick through the real sim: pull, brake to a stop, re-pull — never backwards ──
 {
   const w = createWorld(THUNDERHILL_LEVEL, 3);
