@@ -30,6 +30,7 @@ import {
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createRenderer, type KartRenderer } from "./renderer";
+import { attachTouchDebug, guardPlaySurface, lockPageOverscroll } from "./touch-guard";
 
 type Phase = "ready" | "countdown" | "racing" | "paused";
 
@@ -132,6 +133,35 @@ export function KartGame() {
   const hudItem = useRef<HTMLButtonElement | null>(null);
   const hudFlash = useRef<HTMLDivElement | null>(null);
   const hudProbe = useRef<HTMLSpanElement | null>(null);
+
+  const stickArea = useRef<HTMLDivElement | null>(null);
+  const debugPanel = useRef<HTMLPreElement | null>(null);
+
+  // iOS: block scroll/bounce/pinch on the play surface (a downward stick
+  // drag could start Safari's rubber-band and cancel the touch = brakes),
+  // and turn off page overscroll while the game is mounted. `?debug=1`
+  // shows an on-screen event log to diagnose touch issues on a real phone.
+  useEffect(() => {
+    const area = stickArea.current;
+    const cleanups: Array<() => void> = [lockPageOverscroll()];
+    if (area) cleanups.push(guardPlaySurface(area));
+    const panel = debugPanel.current;
+    if (panel && new URLSearchParams(window.location.search).get("debug") === "1") {
+      panel.hidden = false;
+      cleanups.push(
+        attachTouchDebug(panel, () => {
+          const st = stick.current;
+          const out = st.pointerId >= 0 ? stickOutput(st.dx, st.dy) : null;
+          const car = worldRef.current?.car;
+          const speed = car ? Math.hypot(car.vx, car.vy).toFixed(1) : "—";
+          return `${phaseRef.current} · stick ${st.pointerId >= 0 ? `#${st.pointerId} dx${Math.round(st.dx)} dy${Math.round(st.dy)} thr ${out?.throttle.toFixed(2)} str ${out?.steer.toFixed(2)}` : "up"} · ${speed} m/s`;
+        }),
+      );
+    }
+    return () => {
+      for (const fn of cleanups) fn();
+    };
+  }, []);
 
   // World + renderer, created once on mount.
   useEffect(() => {
@@ -457,7 +487,12 @@ export function KartGame() {
       {/* HUD bar */}
       <div className="z-10 flex items-center justify-between gap-1.5 whitespace-nowrap bg-zinc-950/90 px-2 py-1.5 font-mono text-xs font-semibold backdrop-blur min-[360px]:gap-2 min-[360px]:px-3 min-[360px]:text-sm sm:text-base">
         <div className="flex min-w-0 items-center gap-1.5 min-[360px]:gap-2.5 sm:gap-4">
-          <Link href="/drive" className="apex-hit text-zinc-200" aria-label="Back to Drive">
+          <Link
+            href="/drive"
+            className="-my-1.5 -ml-3.5 -mr-3.5 inline-flex h-11 w-11 shrink-0 items-center justify-center text-lg text-zinc-200"
+            aria-label="Back to Drive"
+            data-apex-kart-back="1"
+          >
             ←
           </Link>
           <span ref={hudLap} className="text-zinc-100">Lap 1</span>
@@ -495,6 +530,7 @@ export function KartGame() {
         {/* Single touch surface: the stick appears wherever the thumb lands. */}
         <div
           className="absolute inset-0 z-[5] touch-none"
+          ref={stickArea}
           data-apex-kart-stick-area="1"
           onPointerDown={onStickDown}
           onPointerMove={onStickMove}
@@ -523,6 +559,12 @@ export function KartGame() {
           aria-live="polite"
         />
         <span ref={hudProbe} hidden data-apex-kart-probe="1" />
+        <pre
+          ref={debugPanel}
+          hidden
+          data-apex-kart-debug="1"
+          className="pointer-events-none absolute left-1 top-10 z-30 max-w-[95%] whitespace-pre-wrap rounded bg-black/75 p-1.5 font-mono text-[10px] leading-tight text-lime-300"
+        />
         {/* Item button sits on the play area, right above the thumbs. */}
         <div className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2">
           <ItemButton

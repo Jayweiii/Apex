@@ -118,4 +118,43 @@ test.describe("Apex Kart", () => {
     await item.dispatchEvent("pointerup", ev);
     await expect(item).toHaveAttribute("data-held", "0");
   });
+
+  test("play surface blocks iOS scroll/bounce and the page can't overscroll", async ({ page }) => {
+    // A downward stick drag must never become Safari's pull-down bounce
+    // (which cancels the touch = stick released = brakes).
+    await page.goto("/kart");
+    await expect(page.locator("[data-apex-kart-start]")).toBeVisible({ timeout: 90_000 });
+    const result = await page.evaluate(() => {
+      const el = document.querySelector("[data-apex-kart-stick-area]") as HTMLElement;
+      const fire = (type: string) => {
+        const e = new Event(type, { bubbles: true, cancelable: true });
+        el.dispatchEvent(e);
+        return e.defaultPrevented;
+      };
+      return {
+        touchstart: fire("touchstart"),
+        touchmove: fire("touchmove"),
+        overscroll: getComputedStyle(document.documentElement).overscrollBehaviorY,
+      };
+    });
+    expect(result).toEqual({ touchstart: true, touchmove: true, overscroll: "none" });
+    // Back button: a real 44×44 target.
+    const back = await page.locator("[data-apex-kart-back]").boundingBox();
+    expect(Math.min(back!.width, back!.height)).toBeGreaterThanOrEqual(44);
+  });
+
+  test("?debug=1 shows the on-screen touch log; hidden by default", async ({ page, isMobile }) => {
+    await page.goto("/kart");
+    await expect(page.locator("[data-apex-kart-start]")).toBeVisible({ timeout: 90_000 });
+    await expect(page.locator("[data-apex-kart-debug]")).toBeHidden();
+    await page.goto("/kart?debug=1");
+    const start = page.locator("[data-apex-kart-start]");
+    await expect(start).toBeVisible({ timeout: 90_000 });
+    if (isMobile) await start.tap();
+    else await start.click();
+    const panel = page.locator("[data-apex-kart-debug]");
+    await expect(panel).toBeVisible();
+    await expect(panel).toContainText("debug on");
+    await expect(panel).toContainText(/countdown|racing/);
+  });
 });
