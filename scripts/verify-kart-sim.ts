@@ -271,19 +271,246 @@ assert(run(9) === run(9), "same seed and inputs replay identically");
 // ── Floating stick: steer, throttle curve, dead zone, clamping ──
 {
   const z = stickOutput(0, 0);
-  assert(z.steer === 0 && z.throttle === 0 && !z.handbrake, "stick at rest outputs nothing");
-  assert(stickOutput(0, -STICK_RADIUS).throttle === 0, "pushing up gives no throttle");
+  assert(z.steer === 0 && z.throttle === 0 && !z.handbrake && z.target === null, "stick at rest outputs nothing");
   assert(stickOutput(4, 4).steer === 0 && stickOutput(4, 4).throttle === 0, "dead zone ignored");
-  assert(stickOutput(STICK_RADIUS, 0).steer > 0.99, "full right = +1");
-  assert(stickOutput(-STICK_RADIUS, 0).steer < -0.99, "full left = -1");
-  assert(stickOutput(0, STICK_RADIUS).throttle > 0.99, "full down = full throttle");
   assert(stickOutput(0, STICK_RADIUS * 5).throttle <= 1, "offset clamps to the radius");
-  assert(
-    stickOutput(0, STICK_RADIUS * 0.8).throttle > stickOutput(0, STICK_RADIUS * 0.4).throttle,
-    "more down = more throttle",
-  );
-  assert(stickOutput(STICK_RADIUS, STICK_RADIUS * 0.7).handbrake, "hard pull on throttle holds the drift");
-  assert(!stickOutput(STICK_RADIUS, 0).handbrake, "no throttle, no drift hold");
+  // Throttle is the stick DISTANCE, whatever the direction.
+  for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0], [0.7071, -0.7071]]) {
+    assert(stickOutput(dx * STICK_RADIUS, dy * STICK_RADIUS).throttle > 0.99, `full pull (${dx},${dy}) = full throttle`);
+    assert(
+      stickOutput(dx * STICK_RADIUS * 0.8, dy * STICK_RADIUS * 0.8).throttle >
+        stickOutput(dx * STICK_RADIUS * 0.4, dy * STICK_RADIUS * 0.4).throttle,
+      `further pull = more throttle (${dx},${dy})`,
+    );
+  }
+  // Stick angle → world heading through the camera rotation (up = camRot).
+  const R = STICK_RADIUS;
+  const angDiff = (a: number, b: number) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
+  for (const cam of [0, 1.1, -2.3, 3]) {
+    assert(angDiff(stickOutput(0, -R, 0, cam).target!, cam) < 1e-9, `up = screen up (cam ${cam})`);
+    assert(angDiff(stickOutput(-R, 0, 0, cam).target!, cam + Math.PI / 2) < 1e-9, `left = camera left (cam ${cam})`);
+    assert(angDiff(stickOutput(R, 0, 0, cam).target!, cam - Math.PI / 2) < 1e-9, `right = camera right (cam ${cam})`);
+    assert(angDiff(stickOutput(0, R, 0, cam).target!, cam + Math.PI) < 1e-9, `down = behind the camera (cam ${cam})`);
+  }
+  // Steer sign: target to the left steers left (−), to the right steers right (+).
+  assert(stickOutput(-R, 0, 0, 0).steer < 0, "target left of heading = steer left");
+  assert(stickOutput(R, 0, 0, 0).steer > 0, "target right of heading = steer right");
+  assert(Math.abs(stickOutput(0, -R, 0, 0).steer) < 1e-9, "target dead ahead = no steer");
+  // Sharp heading change on throttle holds the drift; straight ahead does not.
+  assert(!stickOutput(R, 0, 0, 0).handbrake, "stick never holds the handbrake (it pinned the heading)");
+  assert(!stickOutput(0, -R, 0, 0).handbrake, "straight ahead does not drift");
+  assert(!stickOutput(R * 0.2, 0, 0, 0).handbrake, "sharp turn at tiny throttle does not drift");
+}
+
+// ── Direction-based stick: heading converges to the stick angle, forward only ──
+{
+  const R = STICK_RADIUS;
+  const angDiff = (a: number, b: number) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
+  const DT = 1 / TICK_HZ;
+  /** Closed loop mirroring KartGame: stickOutput → steer ramp → stepCar. */
+  const drive = (cam: number, startHeading: number, dx: number, dy: number, secs: number) => {
+    const c = createCar();
+    c.heading = startHeading;
+    c.vx = 8;
+    let steerV = 0;
+    let minVx = c.vx;
+    for (let i = 0; i < secs * TICK_HZ; i++) {
+      const so = stickOutput(dx, dy, c.heading, cam, undefined, c.r, c.vx, c.vy);
+      steerV += Math.max(-4.5 * DT, Math.min(4.5 * DT, so.steer - steerV));
+      stepCar(c, { steer: steerV, throttle: so.throttle, brake: 0, handbrake: so.handbrake, allowReverse: false }, DT);
+      minVx = Math.min(minVx, c.vx);
+    }
+    return { err: angDiff(c.heading, stickOutput(dx, dy, c.heading, cam).target!), minVx };
+  };
+  // 8 stick directions (screen), unrotated and rotated cameras.
+  for (const cam of [0, 0.9, -2.0]) {
+    for (let k = 0; k < 8; k++) {
+      const a = (k * Math.PI) / 4; // screen angle, 0 = up, + = left (CCW)
+      const dx = -Math.sin(a) * R * 0.8;
+      const dy = -Math.cos(a) * R * 0.8;
+      // Camera is latched (fixed) for one pull. A 180° pull saturates the
+      // steer for longest, so give every direction time to settle.
+      const r = drive(cam, cam, dx, dy, 20);
+      assert(r.err < 0.3, `heading converges to the stick angle (cam ${cam}, dir ${k * 45}°: err ${r.err.toFixed(3)} rad)`);
+      assert(r.minVx >= -1e-3, `stick turns never reverse (cam ${cam}, dir ${k * 45}°: vx ${r.minVx})`);
+    }
+  }
+}
+
+// ── Regression: a held stick with a FOLLOWING camera must not circle ──
+// The camera rotates with the kart; the stick maps against the rotation latched
+// at thumb-down, so one pull is one fixed world heading.
+{
+  const R = STICK_RADIUS;
+  const DT = 1 / TICK_HZ;
+  const angDiff = (a: number, b: number) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
+  const run = (latch: boolean, dx: number, dy: number) => {
+    const c = createCar();
+    c.vx = 8;
+    let cam = c.heading;
+    const latched = cam;
+    let steerV = 0;
+    const headings: number[] = [];
+    for (let i = 0; i < 12 * TICK_HZ; i++) {
+      const so = stickOutput(dx, dy, c.heading, latch ? latched : cam, undefined, c.r, c.vx, c.vy);
+      steerV += Math.max(-4.5 * DT, Math.min(4.5 * DT, so.steer - steerV));
+      stepCar(c, { steer: steerV, throttle: so.throttle, brake: 0, handbrake: so.handbrake, allowReverse: false }, DT);
+      // Following camera (same smoothing idea as the renderer).
+      cam += Math.atan2(Math.sin(c.heading - cam), Math.cos(c.heading - cam)) * (1 - Math.exp(-DT * 6));
+      headings.push(c.heading);
+    }
+    // Total absolute heading change in the last 3 s ≈ path curvature × distance.
+    const tail = headings.slice(-3 * TICK_HZ);
+    let turn = 0;
+    for (let i = 1; i < tail.length; i++) turn += angDiff(tail[i], tail[i - 1]);
+    // Overshoot-plateau guard: error at 4 s and total spin over the whole hold.
+    let cum = 0;
+    for (let i = 1; i < headings.length; i++) cum += angDiff(headings[i], headings[i - 1]);
+    const goal = latched - Math.sign(dx) * (Math.PI / 2);
+    const err4 = angDiff(headings[4 * TICK_HZ - 1], goal);
+    return { turn, cum, err4, err: angDiff(c.heading, goal) };
+  };
+  const held = run(true, R * 0.8, 0); // stick right
+  assert(held.err4 < 0.3, `held right stick is on target within 4 s (err ${held.err4.toFixed(3)} rad)`);
+  assert(held.cum < Math.PI / 2 + Math.PI, `held right stick does not overshoot/spin (total turn ${held.cum.toFixed(2)} rad)`);
+  for (const [name, dx] of [["left", -R * 0.8], ["right", R]] as const) {
+    const r = run(true, dx, 0);
+    assert(r.err4 < 0.3 && r.cum < 1.5 * Math.PI, `${name} hold converges without overshoot (err4 ${r.err4.toFixed(2)}, cum ${r.cum.toFixed(2)})`);
+  }
+  assert(held.err < 0.3, `held right stick settles on its heading (err ${held.err.toFixed(3)} rad)`);
+  assert(held.turn < 0.3, `held right stick stops turning: last 3 s turned ${held.turn.toFixed(3)} rad`);
+  const live = run(false, R * 0.8, 0);
+  assert(live.turn > held.turn * 3, "live-camera mapping keeps turning (the bug the latch fixes)");
+}
+
+// ── Full-stick holds FROM REST (the phone gate): settle on target, no circling ──
+{
+  const R = STICK_RADIUS;
+  const DT = 1 / TICK_HZ;
+  const angDiff = (a: number, b: number) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
+  const cases: Array<[string, number, number, number]> = [
+    ["left", -R, 0, Math.PI / 2],
+    ["right", R, 0, Math.PI / 2],
+    ["down", 0, R, Math.PI],
+    ["up-right", R * Math.SQRT1_2, -R * Math.SQRT1_2, Math.PI / 4],
+  ];
+  for (const [name, dx, dy, turn] of cases) {
+    const c = createCar();
+    c.heading = 0;
+    const target = stickOutput(dx, dy, 0, 0).target!;
+    let steerV = 0;
+    let minVx = 0;
+    let cum = 0;
+    let late = 0;
+    let prev = 0;
+    for (let i = 0; i < 8 * TICK_HZ; i++) {
+      const so = stickOutput(dx, dy, c.heading, 0, undefined, c.r, c.vx, c.vy);
+      const speed = Math.hypot(c.vx, c.vy);
+      const rate = so.steer === 0 ? 7 : speed < 12 ? 2.8 + speed * 0.14 : 4.5;
+      steerV += Math.max(-rate * DT, Math.min(rate * DT, so.steer - steerV));
+      stepCar(c, { steer: steerV, throttle: so.throttle, brake: 0, handbrake: false, allowReverse: false }, DT);
+      const d = angDiff(c.heading, prev);
+      cum += d;
+      if (i >= 6.5 * TICK_HZ) late += d;
+      prev = c.heading;
+      minVx = Math.min(minVx, c.vx);
+    }
+    const err = angDiff(c.heading, target);
+    assert(err < 0.3, `from-rest full ${name} hold is on target at 8 s (err ${err.toFixed(3)} rad)`);
+    assert(late / 1.5 < 0.15, `from-rest full ${name} hold has settled (late rate ${(late / 1.5).toFixed(3)} rad/s)`);
+    assert(cum < turn + 0.6, `from-rest full ${name} hold does not circle (total turn ${cum.toFixed(2)} rad)`);
+    assert(minVx >= -1e-3, `from-rest full ${name} hold never reverses (vx ${minVx})`);
+  }
+}
+
+// ── Full-stick holds FROM REST through the real stepWorld + track (phone gate pose) ──
+// Judged up to the first wall hit or stuck-reset: the heading must have
+// converged (err < 0.3 and trailing-1 s yaw rate < 0.2 rad/s) before then,
+// and body vx must never go negative on the way.
+{
+  const R = STICK_RADIUS;
+  const DT = 1 / TICK_HZ;
+  const angDiff = (a: number, b: number) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
+  const cases: Array<[string, number, number]> = [
+    ["left", -R, 0],
+    ["right", R, 0],
+    ["up-right", R * Math.SQRT1_2, -R * Math.SQRT1_2],
+  ];
+  const WIN = TICK_HZ; // trailing 1 s window for the settled-yaw check
+  for (const [name, dx, dy] of cases) {
+    const w = createWorld(THUNDERHILL_LEVEL, 3);
+    const camRot = w.car.heading; // camera has caught up with the kart at touch
+    const target = stickOutput(dx, dy, w.car.heading, camRot).target!;
+    const inp: KartInput = { steer: 0, throttle: 0, brake: 0, handbrake: false, allowReverse: false, useItem: false };
+    const dHist: number[] = [];
+    let steerV = 0;
+    let minVx = 0;
+    let prev = w.car.heading;
+    let converged = false;
+    let stopT = 8;
+    let stopWhy = "8 s elapsed";
+    const startReset = w.lastResetTick;
+    for (let i = 0; i < 8 * TICK_HZ; i++) {
+      const c = w.car;
+      const so = stickOutput(dx, dy, c.heading, camRot, undefined, c.r, c.vx, c.vy);
+      const speed = Math.hypot(c.vx, c.vy);
+      const rate = so.steer === 0 ? 7 : speed < 12 ? 2.8 + speed * 0.14 : 4.5;
+      steerV += Math.max(-rate * DT, Math.min(rate * DT, so.steer - steerV));
+      inp.steer = steerV;
+      inp.throttle = so.throttle;
+      inp.handbrake = false;
+      stepWorld(w, inp);
+      if (w.wallHitTick === w.tick || w.lastResetTick !== startReset) {
+        stopT = (i + 1) * DT;
+        stopWhy = w.wallHitTick === w.tick ? "wall hit" : "stuck reset";
+        break;
+      }
+      dHist.push(angDiff(w.car.heading, prev));
+      prev = w.car.heading;
+      minVx = Math.min(minVx, w.car.vx);
+      if (dHist.length >= WIN) {
+        const yaw = dHist.slice(-WIN).reduce((a, b) => a + b, 0) / (WIN * DT);
+        if (angDiff(w.car.heading, target) < 0.3 && yaw < 0.2) {
+          converged = true;
+          break;
+        }
+      }
+    }
+    assert(minVx >= -1e-3, `stepWorld from-rest ${name} hold never reverses (vx ${minVx})`);
+    assert(converged, `stepWorld from-rest ${name} hold converges before the ${stopWhy} at ${stopT.toFixed(2)} s`);
+  }
+}
+
+// ── Stick through the real sim: pull, brake to a stop, re-pull — never backwards ──
+{
+  const w = createWorld(THUNDERHILL_LEVEL, 3);
+  const R = STICK_RADIUS;
+  const inp: KartInput = { steer: 0, throttle: 0, brake: 0, handbrake: false, useItem: false };
+  const phases: Array<[number, boolean]> = [[2, true], [5, false], [2, true], [4, false]];
+  let minVx = 0;
+  for (const [secs, pulled] of phases) {
+    for (let i = 0; i < secs * TICK_HZ; i++) {
+      if (pulled) {
+        // Point screen-up (camera follows the heading) at ~60% pull.
+        const so = stickOutput(0, -R * 0.6, w.car.heading, w.car.heading);
+        inp.steer = so.steer;
+        inp.throttle = so.throttle;
+        inp.brake = 0;
+        inp.handbrake = so.handbrake;
+      } else {
+        inp.steer = 0;
+        inp.throttle = 0;
+        inp.brake = 1;
+        inp.handbrake = false;
+      }
+      inp.allowReverse = false;
+      stepWorld(w, inp);
+      minVx = Math.min(minVx, w.car.vx);
+    }
+    if (!pulled) assert(Math.abs(w.car.vx) < 0.1, `released stick brakes to a stop (${w.car.vx})`);
+    else assert(w.car.vx > 1, `re-pull drives forward again (${w.car.vx})`);
+  }
+  assert(minVx >= -1e-3, `forward speed never negative through brake + re-pull (${minVx})`);
 }
 
 // ── Analog throttle: pull distance scales drive force end to end ──

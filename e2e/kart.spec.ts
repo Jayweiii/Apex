@@ -37,7 +37,7 @@ test.describe("Apex Kart", () => {
       expect(Math.min(b!.width, b!.height)).toBeGreaterThanOrEqual(44);
     }
 
-    // Floating stick: touch down mid-stage, pull down for throttle.
+    // Floating stick: touch down mid-stage, point where the kart should go.
     const area = page.locator("[data-apex-kart-stick-area]");
     const ab = (await area.boundingBox())!;
     const ox = ab.x + ab.width / 2;
@@ -54,13 +54,34 @@ test.describe("Apex Kart", () => {
     await expect(stick).toHaveCSS("opacity", "0");
     await area.dispatchEvent("pointerdown", ptr(7, ox, oy));
     await expect(stick).toHaveCSS("opacity", "1"); // appears where the thumb landed
-    await area.dispatchEvent("pointermove", ptr(7, ox, oy + 56));
+    // Direction-based: point the stick screen-up (the heading-up camera's
+    // forward) and the kart drives straight ahead; distance = throttle.
+    await area.dispatchEvent("pointermove", ptr(7, ox, oy - 56));
     await page.waitForTimeout(2500);
-    // Keep the stick pulled down until the next gate registers.
-    await expect.poll(async () => (await read()).gate, { timeout: 25_000 }).not.toBe(before.gate);
+    // Keep the stick pulled, re-aiming it at the track ahead like a player
+    // would, until the next gate registers.
+    const num = async (k: string) => Number(await probe.getAttribute(k));
+    const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
+    await expect
+      .poll(
+        async () => {
+          // Wanted world heading = kart heading + bearing to the track ahead;
+          // the stick angle is measured from the camera rotation latched at
+          // thumb-down (exposed as data-latch).
+          const want = (await num("data-heading")) + (await num("data-aim"));
+          const a = wrap(want - (await num("data-latch"))); // + = left of screen-up
+          await area.dispatchEvent(
+            "pointermove",
+            ptr(7, ox - Math.sin(a) * 56, oy - Math.cos(a) * 56),
+          );
+          return (await read()).gate;
+        },
+        { timeout: 25_000, intervals: [200] },
+      )
+      .not.toBe(before.gate);
 
     // Releasing the stick brakes the kart to a stop.
-    await area.dispatchEvent("pointerup", ptr(7, ox, oy + 56));
+    await area.dispatchEvent("pointerup", ptr(7, ox, oy - 56));
     await expect(stick).toHaveCSS("opacity", "0");
     const speed = async () => Number(await probe.getAttribute("data-speed"));
     await expect.poll(speed, { timeout: 15_000 }).toBeLessThan(1);
