@@ -602,7 +602,7 @@ export function KartGame() {
               >
                 {phase === "paused" ? "Resume" : "Start"}
               </button>
-              <Link href="/drive" className="apex-hit mt-3 inline-block text-xs text-zinc-500 underline">
+              <Link href="/drive" className="apex-hit mt-1 inline-flex min-h-11 min-w-11 items-center justify-center px-3 text-xs text-zinc-500 underline">
                 Back to Drive
               </Link>
             </div>

@@ -167,7 +167,7 @@ export function AppHeader({ email }: { email?: string }) {
         id={menuId}
         hidden={!menuOpen}
         data-apex-nav-drawer="1"
-        className="border-t border-zinc-900/80 px-3 py-2 md:hidden"
+        className="absolute inset-x-0 top-full z-50 border-b border-t border-zinc-900 bg-zinc-950 px-3 py-2 shadow-xl md:hidden"
       >
         <nav
           aria-label="Mobile"
