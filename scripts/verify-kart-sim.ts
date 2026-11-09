@@ -739,6 +739,32 @@ assert(run(9) === run(9), "same seed and inputs replay identically");
     for (let i = 0; i < TICK_HZ * 0.8; i += 1) stepWorld(w, coast);
     return Math.hypot(w.car.vx, w.car.vy);
   }
+  // Released stick on the steepest climb: the kart holds, never rolls back.
+  {
+    const w = createWorld(THUNDERHILL_LEVEL, 1);
+    w.car.x = t.px[up];
+    w.car.y = t.py[up];
+    w.car.heading = Math.atan2(t.ty[up], t.tx[up]);
+    w.car.vx = 0;
+    w.hit.index = up;
+    const release: KartInput = { steer: 0, throttle: 0, brake: 1, handbrake: false, useItem: false, allowReverse: false };
+    let minVx = 0;
+    for (let i = 0; i < TICK_HZ * 4; i += 1) {
+      stepWorld(w, release);
+      minVx = Math.min(minVx, w.car.vx);
+    }
+    assert(minVx >= 0, `released stick on the steepest climb (${(t.grade[up] * 100).toFixed(1)}%) never rolls back (min vx ${minVx.toFixed(3)})`);
+    assert(Math.hypot(w.car.vx, w.car.vy) < 0.2, "released stick on the climb holds the kart still");
+    // Same with no brake pressed (stick off the glass, allowReverse false).
+    const w2 = createWorld(THUNDERHILL_LEVEL, 1);
+    w2.car.x = t.px[up];
+    w2.car.y = t.py[up];
+    w2.car.heading = Math.atan2(t.ty[up], t.tx[up]);
+    w2.hit.index = up;
+    const idle: KartInput = { steer: 0, throttle: 0, brake: 0, handbrake: false, useItem: false, allowReverse: false };
+    for (let i = 0; i < TICK_HZ * 4; i += 1) stepWorld(w2, idle);
+    assert(w2.car.vx >= 0, "idle on the climb with reverse disallowed does not roll back");
+  }
   const uphill = coastAt(up);
   const downhill = coastAt(down);
   assert(downhill > uphill + 0.5, `gravity: coasting downhill keeps more speed than uphill (${downhill.toFixed(2)} vs ${uphill.toFixed(2)} m/s)`);

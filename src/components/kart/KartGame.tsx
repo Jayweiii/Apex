@@ -47,7 +47,8 @@ const LEVEL = THUNDERHILL_LEVEL;
 /** 3-2-1 then GO. */
 const COUNTDOWN_S = 3;
 const BEST_KEY = `apex.kart.best.${LEVEL.id}`;
-const MAX_STEPS_PER_FRAME = 8;
+const MAX_FRAME_DT = 0.25; // s; software WebGL can run at only a few fps
+const MAX_STEPS_PER_FRAME = 32; // >= MAX_FRAME_DT * 120 Hz sim ticks
 
 /** Capture the pointer so up/cancel still arrive after a drag-off. */
 function capture(el: HTMLElement, pointerId: number) {
@@ -299,7 +300,7 @@ export function KartGame() {
     let acc = 0;
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
-      const frameDt = Math.min(0.1, (now - last) / 1000);
+      const frameDt = Math.min(MAX_FRAME_DT, (now - last) / 1000);
       last = now;
       const h = held.current;
       if (phaseRef.current === "countdown") {

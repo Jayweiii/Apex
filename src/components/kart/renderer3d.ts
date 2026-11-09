@@ -768,7 +768,36 @@ export function createRenderer3D(canvas: HTMLCanvasElement, world: KartWorld): K
     camera.updateProjectionMatrix();
   }
 
+  // Adaptive resolution: when frames are slow (software WebGL, weak GPUs)
+  // render fewer pixels so the game stays responsive; recover when fast.
+  const basePixelRatio = renderer.getPixelRatio();
+  let renderScale = 1;
+  let frameEma = 1 / 60;
+  let scaleCooldown = 0;
+
+  /** Chase camera's actual yaw in sim coordinates (rad, 0 = +X east, CCW):
+   *  the world direction that points "up" on screen. */
+  function cameraRotation(): number {
+    return Math.atan2(-(camLook.z - camPos.z), camLook.x - camPos.x);
+  }
+
+  function adaptScale(frameDt: number) {
+    frameEma += (Math.min(0.25, frameDt) - frameEma) * 0.1;
+    scaleCooldown -= frameDt;
+    if (scaleCooldown > 0) return;
+    let next = renderScale;
+    if (frameEma > 0.045 && renderScale > 0.35) next = Math.max(0.35, renderScale * 0.75);
+    else if (frameEma < 0.02 && renderScale < 1) next = Math.min(1, renderScale * 1.15);
+    if (next !== renderScale) {
+      renderScale = next;
+      scaleCooldown = 1.5;
+      renderer.setPixelRatio(basePixelRatio * renderScale);
+      resize();
+    }
+  }
+
   function draw(w: KartWorld, frameDt: number) {
+    adaptScale(frameDt);
     const car = w.car;
     const k = w.hit.index;
     const h = zAt(track, k);
@@ -902,6 +931,7 @@ export function createRenderer3D(canvas: HTMLCanvasElement, world: KartWorld): K
   return {
     resize,
     draw,
+    cameraRotation,
     dispose() {
       for (const d of disposables) d.dispose();
       renderer.dispose();
