@@ -203,7 +203,7 @@ type KartModel = {
   flame: THREE.Mesh;
 };
 
-function buildKart(color: number): KartModel {
+function buildKart(color: number, keep: (x: { dispose: () => void }) => void): KartModel {
   const root = new THREE.Group();
   const body = new THREE.Group();
   root.add(body);
@@ -280,6 +280,12 @@ function buildKart(color: number): KartModel {
   flame.position.set(-0.35, 0.6, -1.75);
   flame.visible = false;
   body.add(flame);
+  // Register every geometry/material so dispose() frees them on unmount.
+  root.traverse((o) => {
+    if (!(o instanceof THREE.Mesh)) return;
+    keep(o.geometry);
+    for (const m of Array.isArray(o.material) ? o.material : [o.material]) keep(m);
+  });
   return { root, body, wheels, frontPivots, flame };
 }
 
@@ -524,21 +530,22 @@ export function createRenderer3D(canvas: HTMLCanvasElement, world: KartWorld): K
   boxes.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   scene.add(boxes);
   const boxZ = new Float32Array(track.boxX.length);
-  {
-    const hitK = (x: number, y: number) => {
-      let best = 0;
-      let bd = Infinity;
-      for (let k = 0; k < track.count; k += 2) {
-        const d = (x - track.px[k]) ** 2 + (y - track.py[k]) ** 2;
-        if (d < bd) {
-          bd = d;
-          best = k;
-        }
+  /** Nearest centreline index (coarse scan; for static placement). */
+  const hitK = (x: number, y: number) => {
+    let best = 0;
+    let bd = Infinity;
+    for (let k = 0; k < track.count; k += 2) {
+      const d = (x - track.px[k]) ** 2 + (y - track.py[k]) ** 2;
+      if (d < bd) {
+        bd = d;
+        best = k;
       }
-      return best;
-    };
-    for (let b = 0; b < track.boxX.length; b += 1) boxZ[b] = zAt(track, hitK(track.boxX[b], track.boxY[b]));
-  }
+    }
+    return best;
+  };
+  for (let b = 0; b < track.boxX.length; b += 1) boxZ[b] = zAt(track, hitK(track.boxX[b], track.boxY[b]));
+  const slickZ = new Float32Array(KART_RULES.maxSlicks);
+  const slickKey = new Float64Array(KART_RULES.maxSlicks).fill(NaN);
 
   // ── Oil slicks ──
   const slickGeo = keep(new THREE.CircleGeometry(KART_RULES.slickRadius, 16));
@@ -695,7 +702,7 @@ export function createRenderer3D(canvas: HTMLCanvasElement, world: KartWorld): K
   }
 
   // ── Kart + blob shadow ──
-  const kart = buildKart(0xf97316);
+  const kart = buildKart(0xf97316, keep);
   scene.add(kart.root);
   const shadow = new THREE.Mesh(
     keep(new THREE.CircleGeometry(1.6, 16)),
@@ -763,6 +770,13 @@ export function createRenderer3D(canvas: HTMLCanvasElement, world: KartWorld): K
     const rect = canvas.getBoundingClientRect();
     const w = Math.max(1, rect.width);
     const h = Math.max(1, rect.height);
+    // Refresh DPR (window moved between screens / browser zoom).
+    const nd = window.devicePixelRatio || 1;
+    if (nd !== lastDpr) {
+      lastDpr = nd;
+      basePixelRatio = Math.min(coarse ? 1.5 : 2, nd);
+      renderer.setPixelRatio(basePixelRatio * renderScale);
+    }
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
@@ -770,7 +784,8 @@ export function createRenderer3D(canvas: HTMLCanvasElement, world: KartWorld): K
 
   // Adaptive resolution: when frames are slow (software WebGL, weak GPUs)
   // render fewer pixels so the game stays responsive; recover when fast.
-  const basePixelRatio = renderer.getPixelRatio();
+  let lastDpr = dpr;
+  let basePixelRatio = renderer.getPixelRatio();
   let renderScale = 1;
   let frameEma = 1 / 60;
   let scaleCooldown = 0;
@@ -850,7 +865,15 @@ export function createRenderer3D(canvas: HTMLCanvasElement, world: KartWorld): K
     for (let i = 0; i < slicks.length; i += 1) {
       const on = !!w.slickActive[i];
       slicks[i].visible = on;
-      if (on) slicks[i].position.set(w.slickX[i], h + 0.08, -w.slickY[i]);
+      if (on) {
+        // Sample the slick's own ground height; re-scan only if it moved.
+        const key = w.slickX[i] * 7919 + w.slickY[i];
+        if (key !== slickKey[i]) {
+          slickKey[i] = key;
+          slickZ[i] = zAt(track, hitK(w.slickX[i], w.slickY[i]));
+        }
+        slicks[i].position.set(w.slickX[i], slickZ[i] + 0.08, -w.slickY[i]);
+      }
     }
 
     // Smoke + skids while sliding.
@@ -923,8 +946,11 @@ export function createRenderer3D(canvas: HTMLCanvasElement, world: KartWorld): K
     (scene.fog as THREE.Fog).color.setHex(w.surface === SURFACE_GRASS ? 0xd9c79a : FOG);
 
     renderer.render(scene, camera);
-    canvas.dataset.apexKartDrawCalls = String(renderer.info.render.calls);
-    canvas.dataset.apexKartTriangles = String(renderer.info.render.triangles);
+    // Debug-only stats: refresh once a second, not every frame.
+    if (w.tick % 120 === 0) {
+      canvas.dataset.apexKartDrawCalls = String(renderer.info.render.calls);
+      canvas.dataset.apexKartTriangles = String(renderer.info.render.triangles);
+    }
   }
 
   resize();
