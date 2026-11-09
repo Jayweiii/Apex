@@ -197,8 +197,12 @@ export function stepCar(car: KartCar, input: CarInput, dt: number): void {
   // Steering: slew toward the target, less lock at speed (arcade-friendly).
   const speed = Math.hypot(car.vx, car.vy);
   // Softer lock at crawling speed so a short tap doesn't whip the nose round.
+  // At crawl the kinematic yaw (v·tanδ/L) is the only turn authority, so give
+  // extra lock that fades out by ~8 m/s: a stick aim from rest can then bring
+  // the nose round before the kart runs off the road.
   const lowSpeed = 0.7 + 0.3 * clamp(speed / 9, 0, 1);
-  const lockScale = lowSpeed / (1 + speed * 0.075);
+  const crawlBoost = 1 + 0.6 * clamp(1 - speed / 8, 0, 1);
+  const lockScale = (lowSpeed * crawlBoost) / (1 + speed * 0.075);
   const target = -clamp(input.steer, -1, 1) * p.maxSteer * lockScale;
   const maxDelta = p.steerRate * dt;
   car.steer += clamp(target - car.steer, -maxDelta, maxDelta);
