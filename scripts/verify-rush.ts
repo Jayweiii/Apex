@@ -8,7 +8,7 @@ import { DRIFT_EDGE, STICK_RADIUS, stickInput, type StickInput } from "../src/li
 import { BASE_STATS, BOOST_SECONDS, createKart, DT, stepKart, type KartInput } from "../src/lib/rush/kart";
 import { RUSH_LEVELS } from "../src/lib/rush/levels";
 import { autopilot, createRace, stepRace } from "../src/lib/rush/race";
-import { buildRushTrack, poseAt, projectOnTrack, type RushTrack } from "../src/lib/rush/track";
+import { boardPose, buildRushTrack, poseAt, projectOnTrack, type RushTrack } from "../src/lib/rush/track";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -45,6 +45,32 @@ for (const [id, t] of tracks) {
 }
 assert(tracks.get("thunderhill-west")!.relief > 12, "Thunderhill West has real hills");
 assert(tracks.get("buttonwillow-13cw")!.relief < tracks.get("thunderhill-west")!.relief, "Buttonwillow is flatter than Thunderhill");
+
+// ── Trackside banners read the right way round on approach (#67) ──
+for (const [id, t] of tracks) {
+  for (let k = 0; k < 5; k += 1) {
+    const i = Math.floor(((k + 0.5) / 5) * t.n);
+    const b = boardPose(t, i);
+    // A driver 30 m before the board, on the road.
+    const driver = poseAt(t, i * t.spacing - 30, 0);
+    const toDriverX = driver.x - b.x;
+    const toDriverY = driver.y - b.y;
+    const dist = Math.hypot(toDriverX, toDriverY);
+    const facing = (toDriverX * b.nx + toDriverY * b.ny) / dist;
+    assert(facing > 0.5, `${id} board ${k}: printed face points at the approaching driver (cos ${facing.toFixed(2)})`);
+    // Text runs along the plane's +x. Seen from the front that must be the viewer's right:
+    // viewer looks along −normal, and their right is that direction turned 90° clockwise.
+    const textX = Math.cos(b.yaw); // three +x after rotation.y = yaw → game (cos yaw, sin yaw)
+    const textY = Math.sin(b.yaw);
+    const viewRightX = -b.ny; // (−n) rotated clockwise
+    const viewRightY = b.nx;
+    assert(textX * viewRightX + textY * viewRightY > 0.99, `${id} board ${k}: text reads left to right from the front`);
+    // The board stands outside the wall.
+    const hit = { i, s: 0, d: 0 };
+    projectOnTrack(t, b.x, b.y, hit);
+    assert(Math.abs(hit.d) > t.halfWidth + t.runoff + 2, `${id} board ${k}: stands beyond the wall`);
+  }
+}
 
 // ── Touch stick ──
 {
