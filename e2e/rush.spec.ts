@@ -144,11 +144,13 @@ test.describe("Apex Rush", () => {
   });
 
   /**
-   * Heading change over a short window on a fresh Buttonwillow 13CW start. The
-   * track bends right off the line (and walls turn the kart along it), so the
-   * road alone moves the heading; callers compare against a centred baseline.
+   * Start a fresh Buttonwillow 13CW time trial, get moving, then steer one way
+   * (or not at all) and return a reader for the heading change since the steer
+   * began. Callers assert on the turn itself, early, while the kart is still on
+   * the start straight: a fixed window can run into the wall, which swings the
+   * kart back along the track and hides the steering.
    */
-  async function headingDelta(page: Page, isMobile: boolean, via: "stick" | "keys", dir: -1 | 0 | 1) {
+  async function steerFromStart(page: Page, isMobile: boolean, via: "stick" | "keys", dir: -1 | 0 | 1) {
     await openMenu(page);
     await activate(page, '[data-rush-track="buttonwillow-13cw"]', isMobile);
     await activate(page, '[data-rush-mode="tt"]', isMobile);
@@ -164,18 +166,14 @@ test.describe("Apex Rush", () => {
     const off = dir * 44;
     if (via === "stick") await fire("pointerdown", x);
     else await page.keyboard.down("ArrowUp");
-    await expect.poll(() => num(page, "speed"), { timeout: 15_000 }).toBeGreaterThan(13);
+    await expect.poll(() => num(page, "speed"), { timeout: 15_000 }).toBeGreaterThan(6);
     const h0 = await num(page, "heading");
     if (via === "stick") await fire("pointermove", x + off);
     else if (dir !== 0) await page.keyboard.down(dir < 0 ? "ArrowLeft" : "ArrowRight");
-    await page.waitForTimeout(700);
-    const h1 = await num(page, "heading");
-    if (via === "stick") await fire("pointerup", x + off);
-    else {
-      await page.keyboard.up("ArrowUp");
-      if (dir !== 0) await page.keyboard.up(dir < 0 ? "ArrowLeft" : "ArrowRight");
-    }
-    return Math.atan2(Math.sin(h1 - h0), Math.cos(h1 - h0));
+    return async () => {
+      const h = await num(page, "heading");
+      return Math.atan2(Math.sin(h - h0), Math.cos(h - h0));
+    };
   }
 
   // Game headings are counter-clockwise from east: a left turn increases the heading.
@@ -183,11 +181,17 @@ test.describe("Apex Rush", () => {
     test(`${via === "stick" ? "dragging" : "arrow keys"}: screen-left turns the heading left, screen-right right`, async ({ page, isMobile }) => {
       test.skip(via === "keys" && isMobile, "no keyboard on the phone profile");
       test.setTimeout(300_000); // three fresh races
-      const centred = await headingDelta(page, isMobile, via, 0);
-      const left = await headingDelta(page, isMobile, via, -1);
-      const right = await headingDelta(page, isMobile, via, 1);
-      expect(left - centred, `left (${left.toFixed(2)}) minus centred (${centred.toFixed(2)})`).toBeGreaterThan(0.1);
-      expect(right - centred, `right (${right.toFixed(2)}) minus centred (${centred.toFixed(2)})`).toBeLessThan(-0.1);
+
+      // No steering: the kart holds its heading down the start straight.
+      const centred = await steerFromStart(page, isMobile, via, 0);
+      await page.waitForTimeout(400);
+      expect(Math.abs(await centred()), "heading change with no steering").toBeLessThan(0.05);
+
+      const left = await steerFromStart(page, isMobile, via, -1);
+      await expect.poll(left, { timeout: 4_000, intervals: [50] }).toBeGreaterThan(0.3);
+
+      const right = await steerFromStart(page, isMobile, via, 1);
+      await expect.poll(right, { timeout: 4_000, intervals: [50] }).toBeLessThan(-0.3);
     });
   }
 

@@ -107,6 +107,11 @@ export function createRace(
       });
     }
   }
+  // Grid order is the starting order (the player is last), before any tick runs.
+  karts
+    .slice()
+    .sort((a, b) => b.progress - a.progress)
+    .forEach((k, i) => (k.place = i + 1));
   return {
     track,
     mode,
