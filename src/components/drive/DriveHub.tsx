@@ -332,17 +332,31 @@ export function DriveHub() {
         ) : null}
 
         <Link
-          href="/kart"
-          data-apex-kart-entry="1"
+          href="/kart2"
+          data-apex-kart2-entry="1"
           className="flex min-h-12 items-center justify-between gap-3 rounded-xl border border-orange-500/40 bg-orange-500/10 px-4 py-3 text-sm"
         >
           <span>
-            <span className="font-semibold text-orange-200">New: Apex Kart</span>
+            <span className="font-semibold text-orange-200">Apex Kart</span>
             <span className="block text-xs text-zinc-400">
-              Pixel kart drifting on Thunder Hills (beta)
+              Pixel 3D karts on real circuits — stick to steer, drift for boost, race your telemetry
             </span>
           </span>
           <span aria-hidden className="text-orange-300">→</span>
+        </Link>
+
+        <Link
+          href="/kart"
+          data-apex-kart-entry="1"
+          className="flex min-h-12 items-center justify-between gap-3 rounded-xl border border-zinc-800 bg-zinc-950/40 px-4 py-3 text-sm"
+        >
+          <span>
+            <span className="font-semibold text-zinc-200">Classic Apex Kart</span>
+            <span className="block text-xs text-zinc-500">
+              The original top-down beta
+            </span>
+          </span>
+          <span aria-hidden className="text-zinc-500">→</span>
         </Link>
 
         <p className="text-[11px] text-zinc-600">
