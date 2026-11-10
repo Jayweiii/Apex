@@ -142,4 +142,53 @@ test.describe("Apex Rush", () => {
     await fire("pointerup", x + 70, y);
     await expect.poll(() => num(page, "drift"), { timeout: 5_000 }).toBe(0);
   });
+
+  test("one-thumb stick: dragging screen-left turns the heading left", async ({ page, isMobile }) => {
+    await openMenu(page);
+    await activate(page, '[data-rush-track="buttonwillow-13cw"]', isMobile);
+    await activate(page, '[data-rush-mode="tt"]', isMobile);
+    await activate(page, "[data-rush-start]", isMobile);
+    await expect(canvas(page)).toHaveAttribute("data-rush-phase", "racing", { timeout: 60_000 });
+
+    const box = (await page.locator("[data-rush-surface]").boundingBox())!;
+    const x = box.x + box.width / 2;
+    const y = box.y + box.height * 0.8;
+    const surface = page.locator("[data-rush-surface]");
+    const fire = (type: string, px: number, py: number) =>
+      surface.dispatchEvent(type, { pointerId: 8, pointerType: "touch", isPrimary: true, clientX: px, clientY: py, bubbles: true });
+    await fire("pointerdown", x, y);
+    await expect.poll(() => num(page, "speed"), { timeout: 15_000 }).toBeGreaterThan(13);
+    const h0 = await num(page, "heading");
+    // Hold the stick to the left of centre (short of the drift edge).
+    await fire("pointermove", x - 30, y);
+    await page.waitForTimeout(1200);
+    const dh = Math.atan2(Math.sin((await num(page, "heading")) - h0), Math.cos((await num(page, "heading")) - h0));
+    await fire("pointerup", x - 30, y);
+    // Game headings are counter-clockwise from east, so a left turn increases heading.
+    expect(dh, "heading change after steering left").toBeGreaterThan(0.1);
+  });
+
+  test("restarting a race frees its WebGL context", async ({ page, isMobile }) => {
+    await page.addInitScript(() => {
+      const made: Array<WebGLRenderingContext | WebGL2RenderingContext> = [];
+      (window as unknown as { __rushGl: typeof made }).__rushGl = made;
+      const orig = HTMLCanvasElement.prototype.getContext;
+      HTMLCanvasElement.prototype.getContext = function (this: HTMLCanvasElement, type: string, ...rest: unknown[]) {
+        const ctx = (orig as (...a: unknown[]) => unknown).call(this, type, ...rest);
+        if (ctx && (type === "webgl" || type === "webgl2") && !made.includes(ctx as WebGLRenderingContext)) made.push(ctx as WebGLRenderingContext);
+        return ctx;
+      } as typeof orig;
+    });
+    await openMenu(page, "?auto=1");
+    await activate(page, "[data-rush-start]", isMobile);
+    await expect(canvas(page)).toHaveAttribute("data-rush-phase", /intro|countdown|racing/, { timeout: 60_000 });
+    for (let i = 0; i < 6; i += 1) {
+      await activate(page, "[data-rush-pause]", isMobile);
+      await activate(page, "[data-rush-restart]", isMobile);
+      await expect(page.locator("[data-rush-paused]")).toHaveCount(0);
+      await expect(canvas(page)).toHaveAttribute("data-rush-phase", /intro|countdown|racing/, { timeout: 30_000 });
+    }
+    const live = await page.evaluate(() => (window as unknown as { __rushGl: WebGLRenderingContext[] }).__rushGl.filter((gl) => !gl.isContextLost()).length);
+    expect(live, "live WebGL contexts after 6 restarts").toBeLessThanOrEqual(2);
+  });
 });

@@ -16,9 +16,25 @@ const pixel = Silkscreen({ weight: ["400", "700"], subsets: ["latin"], variable:
 const PREFS_KEY = "apex.rush.prefs";
 type Prefs = { levelId: string; mode: RushMode; autoGas: boolean; muted: boolean };
 
-function loadPrefs(): Partial<Prefs> {
+type StoredPrefs = Partial<Omit<Prefs, "autoGas">> & { autoGas?: boolean; autoGasCoarse?: boolean };
+
+function isCoarse(): boolean {
+  return window.matchMedia("(pointer: coarse)").matches;
+}
+
+function loadPrefs(): StoredPrefs {
   try {
-    return JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}") as Partial<Prefs>;
+    const v: unknown = JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}");
+    if (typeof v !== "object" || v === null || Array.isArray(v)) return {};
+    const p = v as Record<string, unknown>;
+    return {
+      levelId: typeof p.levelId === "string" ? p.levelId : undefined,
+      mode: p.mode === "tt" || p.mode === "gp" ? p.mode : undefined,
+      autoGas: typeof p.autoGas === "boolean" ? p.autoGas : undefined,
+      // Which device class the saved autoGas choice was made on.
+      autoGasCoarse: typeof p.autoGasCoarse === "boolean" ? p.autoGasCoarse : undefined,
+      muted: typeof p.muted === "boolean" ? p.muted : undefined,
+    };
   } catch {
     return {};
   }
@@ -32,14 +48,15 @@ export function RushGame() {
   const [mode, setMode] = useState<RushMode>(prefs.mode === "tt" ? "tt" : "gp");
   const [settings, setSettings] = useState<RushSettings>(() => ({
     // A thumb can't hold a gas button and steer; a keyboard can.
-    autoGas: typeof prefs.autoGas === "boolean" ? prefs.autoGas : window.matchMedia("(pointer: coarse)").matches,
+    // Only reuse a saved choice made on the same device class (a desktop "off" must not strand a phone at 0 km/h).
+    autoGas: typeof prefs.autoGas === "boolean" && prefs.autoGasCoarse === isCoarse() ? prefs.autoGas : isCoarse(),
     muted: prefs.muted === true,
   }));
   const [racing, setRacing] = useState(false);
 
   useEffect(() => {
     try {
-      localStorage.setItem(PREFS_KEY, JSON.stringify({ levelId, mode, autoGas: settings.autoGas, muted: settings.muted }));
+      localStorage.setItem(PREFS_KEY, JSON.stringify({ levelId, mode, autoGas: settings.autoGas, autoGasCoarse: isCoarse(), muted: settings.muted }));
     } catch {
       // Preferences just don't persist.
     }

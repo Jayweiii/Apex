@@ -171,14 +171,21 @@ export function ghostPose(ghost: Ghost, track: RushTrack, ms: number, hit: Track
 // ── Saved best laps (this browser) ──
 const key = (trackId: string) => `apex.rush.best.${trackId}`;
 
-export type SavedBest = { lapMs: number; rec: number[] };
+/** A lap is ~20 Hz x 3 values; this allows far longer than any real lap. */
+const MAX_REC = 3 * 20 * 600;
+
+export type SavedBest ={ lapMs: number; rec: number[] };
 
 export function loadBest(trackId: string): SavedBest | null {
   try {
     const raw = localStorage.getItem(key(trackId));
     if (!raw) return null;
-    const v = JSON.parse(raw) as SavedBest;
-    return typeof v.lapMs === "number" && Array.isArray(v.rec) ? v : null;
+    const v = JSON.parse(raw) as Partial<SavedBest> | null;
+    if (!v || typeof v !== "object") return null;
+    if (typeof v.lapMs !== "number" || !Number.isFinite(v.lapMs) || v.lapMs <= 0) return null;
+    if (!Array.isArray(v.rec) || v.rec.length > MAX_REC || v.rec.length % 3 !== 0) return null;
+    if (!v.rec.every((n) => typeof n === "number" && Number.isFinite(n))) return null;
+    return { lapMs: v.lapMs, rec: v.rec };
   } catch {
     return null;
   }

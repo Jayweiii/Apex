@@ -67,6 +67,10 @@ export function createKartPreview(canvas: HTMLCanvasElement, look: KartLook): Ka
       podGeo.dispose();
       podMat.dispose();
       renderer.dispose();
+      // Free the context once the canvas is gone (iOS caps live contexts); a StrictMode re-run keeps it.
+      setTimeout(() => {
+        if (!canvas.isConnected) renderer.forceContextLoss();
+      }, 0);
     },
   };
 }
