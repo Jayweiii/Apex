@@ -98,6 +98,7 @@ const LAT_GRIP = 21; // m/s² the tyres turn with
 const MIN_RADIUS = 4.2;
 const GRAVITY_PULL = 7.5;
 const OFFROAD_TOP = 0.5;
+const KART_HALF_WIDTH = 0.9;
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
@@ -244,7 +245,8 @@ export function stepKart(k: Kart, inp: KartInput, track: RushTrack): void {
   const hit = k.hit;
   const absD = Math.abs(hit.d);
   k.offroad = absD > track.halfWidth + 0.8;
-  const limit = track.halfWidth + track.runoff;
+  // The wall stops the kart's side, not its centre.
+  const limit = track.halfWidth + track.runoff - KART_HALF_WIDTH;
   if (absD > limit) {
     const j = hit.i;
     const sign = hit.d > 0 ? 1 : -1;
