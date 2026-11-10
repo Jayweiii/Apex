@@ -1,6 +1,7 @@
 "use client";
 
 import { PendingNavHint } from "@/components/PendingNavHint";
+import { PixelMark } from "@/components/pixel/PixelMark";
 import { SpeedUnitToggle } from "@/components/SpeedUnitToggle";
 import { isAnonymousUser } from "@/lib/guest-auth";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
@@ -83,16 +84,17 @@ export function AppHeader({ email }: { email?: string }) {
   return (
     <header
       data-apex-header="1"
-      className="sticky top-0 z-40 border-b border-zinc-900/90 bg-zinc-950/85 backdrop-blur"
+      className="sticky top-0 z-40 border-b-2 border-zinc-800 bg-zinc-950"
     >
       <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-2 px-4 py-2.5 sm:gap-3 sm:px-6 sm:py-3.5">
         <div className="flex min-w-0 items-center gap-3 sm:gap-6">
           <Link
             href="/"
             data-apex-nav="brand"
-            className="flex min-h-10 shrink-0 items-baseline gap-2"
+            className="flex min-h-10 shrink-0 items-center gap-2"
           >
-            <span className="text-lg font-semibold tracking-[0.28em] text-zinc-50">
+            <PixelMark size={26} />
+            <span className="px-title text-xl font-bold tracking-[0.12em] text-zinc-50">
               APEX
             </span>
           </Link>
@@ -110,7 +112,7 @@ export function AppHeader({ email }: { email?: string }) {
                   prefetch
                   data-apex-nav={item.apex}
                   aria-current={active ? "page" : undefined}
-                  className={`apex-nav-link inline-flex min-h-10 items-center rounded-lg px-2.5 text-xs uppercase tracking-[0.16em] ${
+                  className={`apex-nav-link inline-flex min-h-10 items-center px-2.5 text-xs uppercase tracking-[0.06em] ${
                     active ? "apex-nav-link--active" : ""
                   }`}
                 >
@@ -167,7 +169,7 @@ export function AppHeader({ email }: { email?: string }) {
         id={menuId}
         hidden={!menuOpen}
         data-apex-nav-drawer="1"
-        className="absolute inset-x-0 top-full z-50 border-b border-t border-zinc-900 bg-zinc-950 px-3 py-2 shadow-xl md:hidden"
+        className="absolute inset-x-0 top-full z-50 border-b-2 border-t-2 border-zinc-800 bg-zinc-950 px-3 py-2 shadow-[0_6px_0_#07080c] md:hidden"
       >
         <nav
           aria-label="Mobile"
@@ -183,7 +185,7 @@ export function AppHeader({ email }: { email?: string }) {
                 prefetch
                 data-apex-nav={item.apex}
                 aria-current={active ? "page" : undefined}
-                className={`apex-nav-link inline-flex min-h-10 items-center rounded-md px-3 text-xs uppercase tracking-[0.14em] ${
+                className={`apex-nav-link inline-flex min-h-11 items-center px-3 text-sm uppercase tracking-[0.06em] ${
                   active ? "apex-nav-link--active" : ""
                 }`}
               >
@@ -198,7 +200,7 @@ export function AppHeader({ email }: { email?: string }) {
           stopPropagation keeps the drawer open across unit writes.
         */}
         <div
-          className="mt-1 flex flex-wrap items-center gap-2 border-t border-zinc-900/80 pt-2"
+          className="mt-2 flex flex-wrap items-center gap-3 border-t-2 border-dashed border-zinc-800 pt-3"
           data-apex-nav-utils="1"
           onPointerDown={(event) => event.stopPropagation()}
           onClick={(event) => event.stopPropagation()}
