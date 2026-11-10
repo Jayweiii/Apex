@@ -79,7 +79,7 @@
     "qa:pov-route": "node scripts/qa-pov-route.mjs",
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck && npm run lint && npm test",
-    "test:kart": "tsx scripts/verify-kart-sim.ts"
+    "test:kart": "tsx scripts/verify-kart-sim.ts && tsx scripts/verify-kart2.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1146.0",

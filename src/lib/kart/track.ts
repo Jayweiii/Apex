@@ -18,6 +18,10 @@ export type KartLevelDef = {
   gateCount: number;
   /** Item boxes as fractions of the lap; each places a row of boxes. */
   itemRows: ReadonlyArray<number>;
+  /** Ground height (m above sea level) at each latLon point, if known. */
+  altM?: ReadonlyArray<number>;
+  /** Vertical exaggeration on top of `scale` (hills read better in a kart). */
+  vertExaggeration?: number;
 };
 
 export type KartTrack = {
@@ -38,6 +42,10 @@ export type KartTrack = {
   /** Item box world positions. */
   boxX: Float64Array;
   boxY: Float64Array;
+  /** Track height at each point (m, lowest point = 0). */
+  pz: Float64Array;
+  /** Slope along the track at each point (dz/ds, + = uphill forwards). */
+  grade: Float64Array;
 };
 
 /** Where the car is relative to the track (reused, never reallocated). */
@@ -62,18 +70,22 @@ export function buildTrack(def: KartLevelDef): KartTrack {
   const lon0 = def.latLon[0][1];
   const mPerDegLat = 111320;
   const mPerDegLon = 111320 * Math.cos((lat0 * Math.PI) / 180);
-  let pts: Array<[number, number]> = def.latLon.map(([lat, lon]) => [
+  const alt = def.altM && def.altM.length === def.latLon.length ? def.altM : null;
+  const altMin = alt ? Math.min(...alt) : 0;
+  const vScale = def.scale * (def.vertExaggeration ?? 1);
+  let pts: Array<[number, number, number]> = def.latLon.map(([lat, lon], i) => [
     (lon - lon0) * mPerDegLon * def.scale,
     (lat - lat0) * mPerDegLat * def.scale,
+    alt ? (alt[i] - altMin) * vScale : 0,
   ]);
   // 2. Chaikin smoothing (closed) for round, kart-friendly corners.
   for (let pass = 0; pass < 3; pass += 1) {
-    const next: Array<[number, number]> = [];
+    const next: Array<[number, number, number]> = [];
     for (let i = 0; i < pts.length; i += 1) {
-      const [ax, ay] = pts[i];
-      const [bx, by] = pts[(i + 1) % pts.length];
-      next.push([0.75 * ax + 0.25 * bx, 0.75 * ay + 0.25 * by]);
-      next.push([0.25 * ax + 0.75 * bx, 0.25 * ay + 0.75 * by]);
+      const [ax, ay, az] = pts[i];
+      const [bx, by, bz] = pts[(i + 1) % pts.length];
+      next.push([0.75 * ax + 0.25 * bx, 0.75 * ay + 0.25 * by, 0.75 * az + 0.25 * bz]);
+      next.push([0.25 * ax + 0.75 * bx, 0.25 * ay + 0.75 * by, 0.25 * az + 0.75 * bz]);
     }
     pts = next;
   }
@@ -88,15 +100,17 @@ export function buildTrack(def: KartLevelDef): KartTrack {
   const count = Math.max(16, Math.round(total / SPACING_M));
   const px = new Float64Array(count);
   const py = new Float64Array(count);
+  const pz = new Float64Array(count);
   let seg = 0;
   for (let k = 0; k < count; k += 1) {
     const target = (k / count) * total;
     while (cum[seg + 1] < target) seg += 1;
     const t = (target - cum[seg]) / (cum[seg + 1] - cum[seg] || 1);
-    const [ax, ay] = pts[seg];
-    const [bx, by] = pts[(seg + 1) % pts.length];
+    const [ax, ay, az] = pts[seg];
+    const [bx, by, bz] = pts[(seg + 1) % pts.length];
     px[k] = ax + (bx - ax) * t;
     py[k] = ay + (by - ay) * t;
+    pz[k] = az + (bz - az) * t;
   }
   const s = new Float64Array(count);
   const tx = new Float64Array(count);
@@ -112,6 +126,15 @@ export function buildTrack(def: KartLevelDef): KartTrack {
     ty[k] = dy / len;
     s[k] = length;
     length += Math.hypot(px[n] - px[k], py[n] - py[k]);
+  }
+  // Slope from a centred difference over ±3 points (~12 m), so GPS-height
+  // noise doesn't make bumps.
+  const grade = new Float64Array(count);
+  for (let k = 0; k < count; k += 1) {
+    const n = (k + 3) % count;
+    const p = (k - 3 + count) % count;
+    const run = Math.hypot(px[n] - px[p], py[n] - py[p]) || 1;
+    grade[k] = (pz[n] - pz[p]) / run;
   }
   const gates = new Float64Array(def.gateCount);
   for (let g = 0; g < def.gateCount; g += 1) gates[g] = (g / def.gateCount) * length;
@@ -136,6 +159,8 @@ export function buildTrack(def: KartLevelDef): KartTrack {
     count,
     length,
     halfWidth: def.halfWidth,
+    pz,
+    grade,
     gates,
     boxX: Float64Array.from(boxX),
     boxY: Float64Array.from(boxY),

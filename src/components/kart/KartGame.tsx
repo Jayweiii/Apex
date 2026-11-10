@@ -9,7 +9,15 @@
  * found in #43. Touch controls act on pointerdown (single tap, no click).
  */
 import { THUNDERHILL_LEVEL } from "@/lib/kart/levels/thunderhill";
-import { clampToRadius, STICK_RADIUS, stickOutput } from "@/lib/kart/joystick";
+import {
+  clampToRadius,
+  shouldRelatchCam,
+  STICK_RADIUS,
+  stickOutput,
+  stickThrottle,
+  wrapAngle,
+} from "@/lib/kart/joystick";
+import { poseAt } from "@/lib/kart/track";
 import { createLapClock, guardLapTime, resetLapClock } from "@/lib/kart/laptime";
 import {
   applyLaunch,
@@ -30,6 +38,7 @@ import {
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createRenderer, type KartRenderer } from "./renderer";
+import { createRenderer3D } from "./renderer3d";
 import { attachTouchDebug, guardPlaySurface, lockPageOverscroll } from "./touch-guard";
 
 type Phase = "ready" | "countdown" | "racing" | "paused";
@@ -38,7 +47,8 @@ const LEVEL = THUNDERHILL_LEVEL;
 /** 3-2-1 then GO. */
 const COUNTDOWN_S = 3;
 const BEST_KEY = `apex.kart.best.${LEVEL.id}`;
-const MAX_STEPS_PER_FRAME = 8;
+const MAX_FRAME_DT = 0.25; // s; software WebGL can run at only a few fps
+const MAX_STEPS_PER_FRAME = 32; // >= MAX_FRAME_DT * 120 Hz sim ticks
 
 /** Capture the pointer so up/cancel still arrive after a drag-off. */
 function capture(el: HTMLElement, pointerId: number) {
@@ -84,6 +94,10 @@ interface StickState {
   oy: number;
   dx: number;
   dy: number;
+  /** Camera rotation latched at thumb-down: one pull = one fixed world heading. */
+  camRot: number;
+  /** Screen angle of the stick when camRot was latched. */
+  latchAng: number | null;
   /** True after the first touch of a race: releasing the stick then brakes. */
   engaged: boolean;
 }
@@ -101,7 +115,7 @@ export function KartGame() {
     drift: false,
     item: false,
   });
-  const stick = useRef<StickState>({ pointerId: -1, ox: 0, oy: 0, dx: 0, dy: 0, engaged: false });
+  const stick = useRef<StickState>({ pointerId: -1, ox: 0, oy: 0, dx: 0, dy: 0, camRot: 0, latchAng: null, engaged: false });
   const stickBase = useRef<HTMLDivElement | null>(null);
   const stickKnob = useRef<HTMLDivElement | null>(null);
   const itemTapTimer = useRef(0);
@@ -151,8 +165,13 @@ export function KartGame() {
       cleanups.push(
         attachTouchDebug(panel, () => {
           const st = stick.current;
-          const out = st.pointerId >= 0 ? stickOutput(st.dx, st.dy) : null;
           const car = worldRef.current?.car;
+          const out =
+            st.pointerId >= 0 && car
+              ? stickOutput(st.dx, st.dy, car.heading, st.camRot, undefined, car.r, car.vx, car.vy)
+              : st.pointerId >= 0
+                ? stickOutput(st.dx, st.dy, 0, st.camRot)
+                : null;
           const speed = car ? Math.hypot(car.vx, car.vy).toFixed(1) : "—";
           return `${phaseRef.current} · stick ${st.pointerId >= 0 ? `#${st.pointerId} dx${Math.round(st.dx)} dy${Math.round(st.dy)} thr ${out?.throttle.toFixed(2)} str ${out?.steer.toFixed(2)}` : "up"} · ${speed} m/s`;
         }),
@@ -171,7 +190,17 @@ export function KartGame() {
     worldRef.current = world;
     resetLapClock(lapClock.current);
     phaseRef.current = "ready";
-    const renderer = createRenderer(canvas, world);
+    // 3D by default; 2D pixel renderer if WebGL is unavailable or ?2d=1.
+    let renderer: KartRenderer;
+    const force2d = new URLSearchParams(window.location.search).get("2d") === "1";
+    try {
+      if (force2d) throw new Error("2d requested");
+      renderer = createRenderer3D(canvas, world);
+      canvas.dataset.apexKartRenderer = "3d";
+    } catch {
+      renderer = createRenderer(canvas, world);
+      canvas.dataset.apexKartRenderer = "2d";
+    }
     rendererRef.current = renderer;
     bestRef.current = loadBest();
     renderer.draw(world, 0);
@@ -241,6 +270,14 @@ export function KartGame() {
       probe.dataset.gate = String(world.nextGate);
       probe.dataset.speed = (Math.hypot(world.car.vx, world.car.vy)).toFixed(2);
       probe.dataset.s = world.hit.s.toFixed(1);
+      probe.dataset.heading = world.car.heading.toFixed(3);
+      // Bearing (rad, + = left of the kart's heading) to a point ~14m ahead on
+      // the centerline: lets e2e tests aim the stick like a player would.
+      const ahead = poseAt(world.track, world.hit.s + 14);
+      probe.dataset.aim = wrapAngle(
+        Math.atan2(ahead.y - world.car.y, ahead.x - world.car.x) - world.car.heading,
+      ).toFixed(3);
+      probe.dataset.latch = stick.current.camRot.toFixed(3);
       probe.dataset.item = String(world.item);
       probe.dataset.surface = String(world.surface);
     }
@@ -263,7 +300,7 @@ export function KartGame() {
     let acc = 0;
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
-      const frameDt = Math.min(0.1, (now - last) / 1000);
+      const frameDt = Math.min(MAX_FRAME_DT, (now - last) / 1000);
       last = now;
       const h = held.current;
       if (phaseRef.current === "countdown") {
@@ -294,7 +331,13 @@ export function KartGame() {
       if (phaseRef.current !== "racing") return;
       acc += frameDt;
       const st = stick.current;
-      const so = st.pointerId >= 0 ? stickOutput(st.dx, st.dy) : null;
+      // Stick angle → world heading via the camera rotation latched at
+      // thumb-down. The camera follows the kart, so the live rotation would
+      // move the aim point every frame and the kart would circle.
+      const so =
+        st.pointerId >= 0
+          ? stickOutput(st.dx, st.dy, world.car.heading, st.camRot, undefined, world.car.r, world.car.vx, world.car.vy)
+          : null;
       const target = so ? so.steer : (h.right ? 1 : 0) - (h.left ? 1 : 0);
       // Ramp toward the target; snap back to centre faster. Gentler
       // steer-in at low speed so a tap doesn't overshoot.
@@ -419,6 +462,8 @@ export function KartGame() {
     st.oy = e.clientY - rect.top;
     st.dx = 0;
     st.dy = 0;
+    st.camRot = rendererRef.current?.cameraRotation() ?? 0;
+    st.latchAng = null;
     st.engaged = true;
     capture(e.currentTarget, e.pointerId);
     const base = stickBase.current;
@@ -434,6 +479,20 @@ export function KartGame() {
     const rect = e.currentTarget.getBoundingClientRect();
     st.dx = e.clientX - rect.left - st.ox;
     st.dy = e.clientY - rect.top - st.oy;
+    // Re-aiming (angle well away from the latched one) re-latches the camera
+    // so the new pull is relative to the current view; a steady hold or thumb
+    // jitter keeps the heading fixed.
+    if (stickThrottle(st.dx, st.dy) > 0) {
+      const ang = Math.atan2(-st.dx, -st.dy);
+      if (st.latchAng === null) {
+        // First aimed angle keeps the thumb-down latch (no re-latch on the
+        // initial pull away from "up").
+        st.latchAng = ang;
+      } else if (shouldRelatchCam(st.latchAng, ang)) {
+        st.camRot = rendererRef.current?.cameraRotation() ?? st.camRot;
+        st.latchAng = ang;
+      }
+    }
     const k = clampToRadius(st.dx, st.dy);
     if (stickKnob.current) stickKnob.current.style.transform = `translate(${k.x}px, ${k.y}px)`;
   };
@@ -587,9 +646,9 @@ export function KartGame() {
               {phase === "ready" ? (
                 <ul className="mt-3 space-y-1 text-left text-xs text-zinc-300">
                   <li>• Drive through every <span className="text-yellow-300">gold gate</span> in order.</li>
-                  <li>• Touch anywhere to place the stick: <b>left/right</b> swings the tail, pull <b>down</b> for throttle, let go to brake.</li>
+                  <li>• Touch anywhere to place the stick: the kart turns to face wherever you <b>point</b> it and always drives forward. Pull <b>further</b> for more throttle, let go to brake.</li>
                   <li>• Grass slows you down. Hit <span className="text-yellow-300">? boxes</span> for Turbo or Oil.</li>
-                  <li>• Pull down right as the countdown hits <b>GO</b> for a launch boost. Hold a hard sideways pull, release for a mini-turbo.</li>
+                  <li>• Hold the stick as the countdown hits <b>GO</b> for a launch boost. On keyboard, hold Space to drift and release for a mini-turbo.</li>
                   <li>• Tap <b>Item</b> (or tap with a second finger) to use an item.</li>
                   <li className="text-zinc-500">Keys: arrows/WASD · Space drift · E item · P pause</li>
                 </ul>

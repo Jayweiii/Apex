@@ -26,6 +26,8 @@ const SMOKE_MAX = 96;
 export type KartRenderer = {
   resize: () => void;
   draw: (world: KartWorld, frameDt: number) => void;
+  /** World angle (rad) that points to screen-up now (heading-up camera). */
+  cameraRotation: () => number;
   dispose: () => void;
 };
 
@@ -277,6 +279,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: KartWorld): Kar
   return {
     resize,
     draw,
+    cameraRotation: () => cam.rot,
     dispose() {
       lastRearL = { x: 0, y: 0, valid: false };
       lastRearR = { x: 0, y: 0, valid: false };
