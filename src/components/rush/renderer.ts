@@ -11,7 +11,7 @@ import type { GhostPose } from "@/lib/rush/ghost";
 import type { Kart } from "@/lib/rush/kart";
 import type { RushTheme } from "@/lib/rush/levels";
 import type { RaceWorld } from "@/lib/rush/race";
-import { gridHeight, rushRng, trackSeed, type RushTrack } from "@/lib/rush/track";
+import { boardPose, gridHeight, rushRng, trackSeed, type RushTrack } from "@/lib/rush/track";
 import {
   arrowTexture,
   asphaltTexture,
@@ -390,18 +390,26 @@ export function createRushRenderer(
     scene.add(stand);
 
     const words = ["DRIFT!", "APEX", "TURBO", "GO GO GO", "PIXEL GP"];
+    const backMat = keep(new THREE.MeshLambertMaterial({ color: "#343a40" }));
+    const boardGeo = keep(new THREE.PlaneGeometry(12, 2.1));
+    const postGeo = keep(new THREE.BoxGeometry(0.4, 3, 0.4));
+    const postMat = keep(new THREE.MeshLambertMaterial({ color: "#495057" }));
     for (let k = 0; k < 5; k += 1) {
       const i = Math.floor(((k + 0.5) / 5) * n);
-      const s = track.curv[i]! > 0 ? -1 : 1; // outside of the corner
-      const p = edge(i, s * (limit + 6), 0);
+      const pose = boardPose(track, i);
       const tex = keep(bannerTexture(words[k]!, k % 2 === 0 ? "#ffd60a" : "#4361ee", k % 2 === 0 ? "#16181d" : "#ffffff"));
-      const board = new THREE.Mesh(keep(new THREE.PlaneGeometry(12, 2.1)), keep(new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide })));
-      const ground = terrainAt(p[0]!, -p[2]!);
-      board.position.set(p[0]!, ground + 3.4, p[2]!);
-      board.rotation.y = Math.atan2(track.ty[i]!, track.tx[i]!) + (s > 0 ? Math.PI : 0);
+      // Printed on the front only (a double-sided plane reads mirrored from behind); plain back.
+      const board = new THREE.Mesh(boardGeo, keep(new THREE.MeshBasicMaterial({ map: tex })));
+      const ground = terrainAt(pose.x, pose.y);
+      board.position.set(pose.x, ground + 3.4, -pose.y);
+      board.rotation.y = pose.yaw;
       scene.add(board);
-      const post = new THREE.Mesh(keep(new THREE.BoxGeometry(0.4, 3, 0.4)), keep(new THREE.MeshLambertMaterial({ color: "#495057" })));
-      post.position.set(p[0]!, ground + 1.2, p[2]!);
+      const back = new THREE.Mesh(boardGeo, backMat);
+      back.position.copy(board.position);
+      back.rotation.y = pose.yaw + Math.PI;
+      scene.add(back);
+      const post = new THREE.Mesh(postGeo, postMat);
+      post.position.set(pose.x, ground + 1.2, -pose.y);
       scene.add(post);
     }
   }

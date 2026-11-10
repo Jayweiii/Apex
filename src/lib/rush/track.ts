@@ -367,3 +367,38 @@ export function gridHeight(track: RushTrack, x: number, y: number): number | nul
     at(ix, iy) * (1 - tx) * (1 - ty) + at(ix + 1, iy) * tx * (1 - ty) + at(ix, iy + 1) * (1 - tx) * ty + at(ix + 1, iy + 1) * tx * ty;
   return (h - track.zBase) * track.scale * track.vert;
 }
+
+export type BoardPose = {
+  /** Game position of the board's centre on the ground plane. */
+  x: number;
+  y: number;
+  /** Unit normal of the printed face (game x, y). */
+  nx: number;
+  ny: number;
+  /** Yaw for a three.js plane (printed face = +z) so that face points along the normal. */
+  yaw: number;
+};
+
+/**
+ * Where a trackside banner goes at sample `i`: on the outside of the corner,
+ * beyond the wall, with its printed face turned toward the oncoming driver
+ * (mostly back down the track, toed in toward the road) so the text reads
+ * the right way round on approach.
+ */
+export function boardPose(track: RushTrack, i: number): BoardPose {
+  const k = ((i % track.n) + track.n) % track.n;
+  const side = track.curv[k]! > 0 ? -1 : 1; // outside of the corner (+ = left)
+  const d = side * (track.halfWidth + track.runoff + 6);
+  const tx = track.tx[k]!;
+  const ty = track.ty[k]!;
+  // Left normal of the travel direction is (−ty, tx); "toward the road" is the opposite of the board's side.
+  const inX = ty * side;
+  const inY = -tx * side;
+  let nx = -tx * 0.8 + inX * 0.6;
+  let ny = -ty * 0.8 + inY * 0.6;
+  const len = Math.hypot(nx, ny) || 1;
+  nx /= len;
+  ny /= len;
+  // A plane's +z after rotation.y = yaw is three (sin yaw, 0, cos yaw) = game (sin yaw, −cos yaw).
+  return { x: track.px[k]! - ty * d, y: track.py[k]! + tx * d, nx, ny, yaw: Math.atan2(nx, -ny) };
+}
