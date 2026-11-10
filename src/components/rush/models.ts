@@ -317,39 +317,73 @@ export function boxTexture(): THREE.CanvasTexture {
 }
 
 export function crowdTexture(rand: () => number): THREE.CanvasTexture {
+  // One big texel per spectator: a head over a shirt, so a row of seats reads
+  // as a row of people at game resolution instead of as noise.
   return pixelTexture(
-    32,
-    8,
+    24,
+    2,
     (ctx) => {
-      // Four 8x8 seat blocks: a flat shirt colour, a couple of flat accent blobs and a tidy row of heads.
-      const shirts = ["#c1121f", "#d9a21b", "#2f8fb5", "#4f9d2d", "#8a6fd1", "#d9722b"];
-      const accents = ["#f8f9fa", "#2b2d42", "#ffd60a"];
-      ctx.fillStyle = "#3a3f4b";
-      ctx.fillRect(0, 0, 32, 8);
-      for (let b = 0; b < 4; b += 1) {
-        const x0 = b * 8;
-        ctx.fillStyle = shirts[Math.floor(rand() * shirts.length)]!;
-        ctx.fillRect(x0, 2, 8, 6);
-        ctx.fillStyle = accents[Math.floor(rand() * accents.length)]!;
-        for (let n = 0; n < 2; n += 1) ctx.fillRect(x0 + 1 + Math.floor(rand() * 4), 3 + Math.floor(rand() * 3), 2, 2);
-        ctx.fillStyle = "#e0b48f";
-        for (let x = 1; x < 8; x += 2) ctx.fillRect(x0 + x, 1, 1, 1);
+      const shirts = ["#c1121f", "#f6c343", "#2f8fb5", "#f8f9fa", "#4f9d2d", "#d9722b"];
+      const skins = ["#f1c9a5", "#c98f62", "#8d5a3b"];
+      for (let x = 0; x < 24; x += 1) {
+        const empty = rand() < 0.12;
+        ctx.fillStyle = empty ? "#3a3f4b" : skins[Math.floor(rand() * skins.length)]!;
+        ctx.fillRect(x, 0, 1, 1);
+        ctx.fillStyle = empty ? "#2b2f38" : shirts[Math.floor(rand() * shirts.length)]!;
+        ctx.fillRect(x, 1, 1, 1);
       }
     },
     true,
   );
 }
 
-/** Pixel-font banner text. */
+/** 3×5 pixel glyphs, rows top to bottom, 3 bits each. */
+const GLYPHS: Record<string, string> = {
+  A: "010101111101101",
+  B: "110101110101110",
+  C: "011100100100011",
+  D: "110101101101110",
+  E: "111100110100111",
+  F: "111100110100100",
+  G: "011100101101011",
+  H: "101101111101101",
+  I: "111010010010111",
+  J: "001001001101010",
+  K: "101101110101101",
+  L: "100100100100111",
+  M: "101111111101101",
+  N: "110101101101101",
+  O: "010101101101010",
+  P: "110101110100100",
+  Q: "010101101110011",
+  R: "110101110101101",
+  S: "011100010001110",
+  T: "111010010010010",
+  U: "101101101101111",
+  V: "101101101101010",
+  W: "101101111111101",
+  X: "101101010101101",
+  Y: "101101010010010",
+  Z: "111001010100111",
+  "!": "010010010000010",
+};
+
+/** Banner text in a 3×5 pixel font (up to 9 characters), crisp at any distance. */
 export function bannerTexture(text: string, bg: string, fg: string): THREE.CanvasTexture {
-  return pixelTexture(96, 16, (ctx) => {
+  return pixelTexture(40, 7, (ctx) => {
     ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, 96, 16);
+    ctx.fillRect(0, 0, 40, 7);
     ctx.fillStyle = fg;
-    ctx.font = "bold 11px monospace";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(text, 48, 9);
+    const chars = text.toUpperCase().slice(0, 9).split("");
+    const width = chars.length * 4 - 1;
+    let x = Math.floor((40 - width) / 2);
+    for (const ch of chars) {
+      const g = GLYPHS[ch];
+      if (g) {
+        for (let i = 0; i < 15; i += 1) if (g[i] === "1") ctx.fillRect(x + (i % 3), 1 + Math.floor(i / 3), 1, 1);
+      }
+      x += 4;
+    }
   });
 }
 

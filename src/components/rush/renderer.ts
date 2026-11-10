@@ -358,9 +358,9 @@ export function createRushRenderer(
     const gg = keep(gb.build());
     gantry.add(new THREE.Mesh(gg, keep(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }))));
     const bannerTex = keep(bannerTexture("APEX RUSH", "#16181d", "#ffd60a"));
-    // Keep the texture's 6:1 shape and a width a narrow portrait view can frame.
-    const bannerW = Math.min(limit * 1.7, 9);
-    const bannerGeo = keep(new THREE.PlaneGeometry(bannerW, bannerW / 6));
+    // Keep the texture's 40:7 shape and a width a narrow portrait view can frame.
+    const bannerW = Math.min(limit * 1.7, 11);
+    const bannerGeo = keep(new THREE.PlaneGeometry(bannerW, (bannerW * 7) / 40));
     const bannerMat = keep(new THREE.MeshBasicMaterial({ map: bannerTex, side: THREE.DoubleSide }));
     const banner = new THREE.Mesh(bannerGeo, bannerMat);
     banner.position.set(0, 6.1, 0);
@@ -370,8 +370,7 @@ export function createRushRenderer(
 
     // Grandstand on the left of the start straight.
     const crowd = keep(crowdTexture(rand));
-    // 34 wide x 1.4 tall faces: 6 repeats of the 32x8 texture gives square pixels.
-    crowd.repeat.set(6, 1);
+    // 34 wide x 1.4 tall faces, one 24x2 texture across: each spectator is about 1.4 m x 0.7 m.
     const standMat = keep(new THREE.MeshLambertMaterial({ map: crowd }));
     const stand = new THREE.Group();
     const side = 1;
@@ -396,7 +395,7 @@ export function createRushRenderer(
       const s = track.curv[i]! > 0 ? -1 : 1; // outside of the corner
       const p = edge(i, s * (limit + 6), 0);
       const tex = keep(bannerTexture(words[k]!, k % 2 === 0 ? "#ffd60a" : "#4361ee", k % 2 === 0 ? "#16181d" : "#ffffff"));
-      const board = new THREE.Mesh(keep(new THREE.PlaneGeometry(12, 2.4)), keep(new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide })));
+      const board = new THREE.Mesh(keep(new THREE.PlaneGeometry(12, 2.1)), keep(new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide })));
       const ground = terrainAt(p[0]!, -p[2]!);
       board.position.set(p[0]!, ground + 3.4, p[2]!);
       board.rotation.y = Math.atan2(track.ty[i]!, track.tx[i]!) + (s > 0 ? Math.PI : 0);

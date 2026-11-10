@@ -179,7 +179,7 @@ assert(tracks.get("buttonwillow-13cw")!.relief < tracks.get("thunderhill-west")!
     stepKart(k, inp, t);
     maxD = Math.max(maxD, Math.abs(k.hit.d));
   }
-  assert(maxD <= t.halfWidth + t.runoff + 0.01, `the wall holds the kart (${maxD.toFixed(2)} m from centre)`);
+  assert(maxD <= t.halfWidth + t.runoff - 0.85, `the wall stops the kart's side, not its centre (${maxD.toFixed(2)} m from centre)`);
   assert(Number.isFinite(k.x) && Number.isFinite(k.v), "kart state stays finite after a wall hit");
 }
 
@@ -198,6 +198,9 @@ for (const [id, t] of tracks) {
   const a = run();
   const b = run();
   assert(a.karts.length === 6, `${id}: grid of six`);
+  const grid = createRace(t, "gp", { ...BASE_STATS });
+  assert(grid.karts[0]!.place === 6, `${id}: the player starts sixth, before the first tick`);
+  assert(grid.karts.map((k) => k.place).sort().join() === "1,2,3,4,5,6", `${id}: grid places are 1 to 6`);
   assert(a.karts.every((k) => k.finished), `${id}: every kart finishes the race`);
   assert(a.karts.every((k, i) => k.finishMs === b.karts[i]!.finishMs), `${id}: the race is deterministic`);
   const places = a.karts.map((k) => k.place).sort();
