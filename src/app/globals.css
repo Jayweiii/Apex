@@ -1176,6 +1176,18 @@ video {
     border-width: 2px;
   }
 
+  /* Form fields: square, 2px edge, hard focus edge instead of a soft ring. */
+  .apex-field {
+    border-radius: 0;
+    border: 2px solid var(--px-edge);
+    background: var(--px-ink);
+  }
+
+  .apex-field:focus {
+    border-color: var(--px-orange);
+    box-shadow: 3px 3px 0 rgb(249 115 22 / 0.35);
+  }
+
   /* Pixel panel: the house card. */
   .px-panel {
     border: 2px solid var(--px-edge);
