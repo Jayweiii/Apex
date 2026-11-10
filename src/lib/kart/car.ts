@@ -196,10 +196,17 @@ export function stepCar(car: KartCar, input: CarInput, dt: number): void {
 
   // Steering: slew toward the target, less lock at speed (arcade-friendly).
   const speed = Math.hypot(car.vx, car.vy);
-  // Softer lock at crawling speed so a short tap doesn't whip the nose round.
-  const lowSpeed = 0.7 + 0.3 * clamp(speed / 9, 0, 1);
-  const lockScale = lowSpeed / (1 + speed * 0.075);
-  const target = -clamp(input.steer, -1, 1) * p.maxSteer * lockScale;
+  const steerIn = clamp(input.steer, -1, 1);
+  const steerAbs = Math.abs(steerIn);
+  // Soft lock for light taps so a short nudge doesn't whip the nose round.
+  // Full-stick aims (direction joystick) need near-full lock at crawl/mid
+  // speed: v·tanδ/L is the turn authority, and cutting δ to ~0.42 rad from
+  // rest left the mean |r| ~0.5 while the stick commanded ~2.4 rad/s — the
+  // nose hadn't squared up before the wall.
+  const soft = (0.7 + 0.3 * clamp(speed / 9, 0, 1)) / (1 + speed * 0.075);
+  const hard = 1 / (1 + speed * 0.04);
+  const lockScale = soft * (1 - steerAbs) + hard * steerAbs;
+  const target = -steerIn * p.maxSteer * lockScale;
   const maxDelta = p.steerRate * dt;
   car.steer += clamp(target - car.steer, -maxDelta, maxDelta);
 
@@ -294,13 +301,23 @@ export function stepCar(car: KartCar, input: CarInput, dt: number): void {
   car.ax = axBody;
   car.ay = ayBody;
 
-  // Low speed: blend toward the kinematic bicycle so the car doesn't
-  // jitter or spin in place when (almost) stopped.
-  const blend = clamp((3 - speed) / 3, 0, 1);
-  if (blend > 0) {
+  // Low/mid speed: blend yaw toward an arcade target. Pure kinematic
+  // (v·tanδ/L) starves turn rate while crawling — a 90° stick aim from rest
+  // needs the nose to swing before the kart has speed. Steer input commands
+  // yaw up to ARCADE_YAW_PER_STEER (3.4 rad/s) at full stick, fading to the
+  // bicycle by ~18 m/s. Matched open-loop in stickOutput. Still damp vy at
+  // crawl so the car doesn't jitter or spin in place when (almost) stopped.
+  const crawl = clamp((3 - speed) / 3, 0, 1);
+  const arcade = clamp((18 - speed) / 18, 0, 1);
+  if (crawl > 0 || arcade > 0) {
     const rKin = (car.vx * Math.tan(car.steer)) / p.wheelbaseM;
-    car.r += (rKin - car.r) * blend * Math.min(1, dt * 20);
-    car.vy -= car.vy * blend * Math.min(1, dt * 10);
+    // steerIn + = right = CW = negative yaw (matches stick left-positive r).
+    const rFloor = -steerIn * 3.4 * arcade;
+    const sign = Math.sign(rFloor || rKin) || 1;
+    const rTarget = sign * Math.max(Math.abs(rKin), Math.abs(rFloor));
+    const mix = Math.max(crawl, arcade * 0.9);
+    car.r += (rTarget - car.r) * mix * Math.min(1, dt * 20);
+    if (crawl > 0) car.vy -= car.vy * crawl * Math.min(1, dt * 10);
   }
   // No creeping when idle.
   if (input.throttle === 0 && input.brake === 0 && speed < 0.25) {
