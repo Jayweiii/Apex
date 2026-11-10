@@ -9,7 +9,14 @@
  * found in #43. Touch controls act on pointerdown (single tap, no click).
  */
 import { THUNDERHILL_LEVEL } from "@/lib/kart/levels/thunderhill";
-import { clampToRadius, STICK_RADIUS, stickOutput, stickThrottle, wrapAngle } from "@/lib/kart/joystick";
+import {
+  clampToRadius,
+  shouldRelatchCam,
+  STICK_RADIUS,
+  stickOutput,
+  stickThrottle,
+  wrapAngle,
+} from "@/lib/kart/joystick";
 import { poseAt } from "@/lib/kart/track";
 import { createLapClock, guardLapTime, resetLapClock } from "@/lib/kart/laptime";
 import {
@@ -156,8 +163,13 @@ export function KartGame() {
       cleanups.push(
         attachTouchDebug(panel, () => {
           const st = stick.current;
-          const out = st.pointerId >= 0 ? stickOutput(st.dx, st.dy) : null;
           const car = worldRef.current?.car;
+          const out =
+            st.pointerId >= 0 && car
+              ? stickOutput(st.dx, st.dy, car.heading, st.camRot, undefined, car.r, car.vx, car.vy)
+              : st.pointerId >= 0
+                ? stickOutput(st.dx, st.dy, 0, st.camRot)
+                : null;
           const speed = car ? Math.hypot(car.vx, car.vy).toFixed(1) : "—";
           return `${phaseRef.current} · stick ${st.pointerId >= 0 ? `#${st.pointerId} dx${Math.round(st.dx)} dy${Math.round(st.dy)} thr ${out?.throttle.toFixed(2)} str ${out?.steer.toFixed(2)}` : "up"} · ${speed} m/s`;
         }),
@@ -464,7 +476,7 @@ export function KartGame() {
         // First aimed angle keeps the thumb-down latch (no re-latch on the
         // initial pull away from "up").
         st.latchAng = ang;
-      } else if (Math.abs(wrapAngle(ang - st.latchAng)) > 0.15) {
+      } else if (shouldRelatchCam(st.latchAng, ang)) {
         st.camRot = rendererRef.current?.cameraRotation() ?? st.camRot;
         st.latchAng = ang;
       }

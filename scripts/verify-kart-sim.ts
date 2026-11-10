@@ -21,7 +21,12 @@ import {
 } from "../src/lib/kart/sim";
 import { DEFAULT_TIRE, lateralForce, magicFormula, peakForce } from "../src/lib/kart/tire";
 import { botInput, DEFAULT_BOT } from "../src/lib/kart/bot";
-import { STICK_RADIUS, stickOutput } from "../src/lib/kart/joystick";
+import {
+  RELATCH_ANGLE,
+  shouldRelatchCam,
+  STICK_RADIUS,
+  stickOutput,
+} from "../src/lib/kart/joystick";
 import { createLapClock, guardLapTime, resetLapClock } from "../src/lib/kart/laptime";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -417,18 +422,29 @@ assert(run(9) === run(9), "same seed and inputs replay identically");
   assert(live.turn > held.turn * 3, "live-camera mapping keeps turning (the bug the latch fixes)");
 }
 
+// ── Re-latch threshold: thumb wobble keeps the cam; a deliberate re-aim refreshes ──
+{
+  assert(RELATCH_ANGLE > 0.15, `re-latch threshold raised above thumb-wobble 0.15 (got ${RELATCH_ANGLE})`);
+  assert(!shouldRelatchCam(0, 0.2), "0.2 rad thumb wobble must not re-latch the chase cam");
+  assert(!shouldRelatchCam(1.0, 1.0 + 0.4), "sub-threshold re-aim keeps the latched cam");
+  assert(shouldRelatchCam(0, 0.5), "0.5 rad re-aim re-latches the chase cam");
+  assert(shouldRelatchCam(-1, 1), "large wrap-around re-aim re-latches");
+}
+
 // ── Full-stick holds FROM REST (the phone gate): settle on target, no circling ──
 {
   const R = STICK_RADIUS;
   const DT = 1 / TICK_HZ;
   const angDiff = (a: number, b: number) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
-  const cases: Array<[string, number, number, number]> = [
-    ["left", -R, 0, Math.PI / 2],
-    ["right", R, 0, Math.PI / 2],
-    ["down", 0, R, Math.PI],
-    ["up-right", R * Math.SQRT1_2, -R * Math.SQRT1_2, Math.PI / 4],
+  const cases: Array<[string, number, number, number, boolean]> = [
+    ["left", -R, 0, Math.PI / 2, false],
+    ["right", R, 0, Math.PI / 2, false],
+    ["down", 0, R, Math.PI, true], // 180° from rest
+    ["up-right", R * Math.SQRT1_2, -R * Math.SQRT1_2, Math.PI / 4, false],
+    ["down-right-135", R * Math.SQRT1_2, R * Math.SQRT1_2, (3 * Math.PI) / 4, true],
+    ["down-left-135", -R * Math.SQRT1_2, R * Math.SQRT1_2, (3 * Math.PI) / 4, true],
   ];
-  for (const [name, dx, dy, turn] of cases) {
+  for (const [name, dx, dy, turn, fastAim] of cases) {
     const c = createCar();
     c.heading = 0;
     const target = stickOutput(dx, dy, 0, 0).target!;
@@ -437,6 +453,11 @@ assert(run(9) === run(9), "same seed and inputs replay identically");
     let cum = 0;
     let late = 0;
     let prev = 0;
+    let err15 = Number.POSITIVE_INFINITY;
+    let errBelow03At: number | null = null;
+    let convergedAt: number | null = null;
+    let lateYawAfter = 0;
+    const dHist: number[] = [];
     for (let i = 0; i < 8 * TICK_HZ; i++) {
       const so = stickOutput(dx, dy, c.heading, 0, undefined, c.r, c.vx, c.vy);
       const speed = Math.hypot(c.vx, c.vy);
@@ -448,12 +469,34 @@ assert(run(9) === run(9), "same seed and inputs replay identically");
       if (i >= 6.5 * TICK_HZ) late += d;
       prev = c.heading;
       minVx = Math.min(minVx, c.vx);
+      dHist.push(d);
+      const err = angDiff(c.heading, target);
+      const t = (i + 1) * DT;
+      if (Math.abs(t - 1.5) < DT / 2) err15 = err;
+      if (errBelow03At === null && err < 0.3) errBelow03At = t;
+      if (dHist.length >= TICK_HZ) {
+        const yaw = dHist.slice(-TICK_HZ).reduce((a, b) => a + b, 0);
+        if (convergedAt === null && err < 0.3 && yaw < 0.2) convergedAt = t;
+        if (convergedAt !== null && t > convergedAt && t <= convergedAt + 1) lateYawAfter += d;
+      }
     }
     const err = angDiff(c.heading, target);
     assert(err < 0.3, `from-rest full ${name} hold is on target at 8 s (err ${err.toFixed(3)} rad)`);
     assert(late / 1.5 < 0.15, `from-rest full ${name} hold has settled (late rate ${(late / 1.5).toFixed(3)} rad/s)`);
     assert(cum < turn + 0.6, `from-rest full ${name} hold does not circle (total turn ${cum.toFixed(2)} rad)`);
     assert(minVx >= -1e-3, `from-rest full ${name} hold never reverses (vx ${minVx})`);
+    if (fastAim) {
+      assert(err15 < 0.3, `from-rest ${name} err at 1.5 s < 0.3 (got ${err15.toFixed(3)})`);
+      assert(
+        errBelow03At !== null && errBelow03At <= 1.5,
+        `from-rest ${name} reaches err<0.3 within 1.5 s (got ${errBelow03At})`,
+      );
+    }
+    assert(convergedAt !== null, `from-rest ${name} eventually settles (err+yaw)`);
+    assert(
+      lateYawAfter < 0.2,
+      `from-rest ${name} late yaw after convergence < 0.2 rad/s (got ${lateYawAfter.toFixed(3)})`,
+    );
   }
 }
 
@@ -465,13 +508,16 @@ assert(run(9) === run(9), "same seed and inputs replay identically");
   const R = STICK_RADIUS;
   const DT = 1 / TICK_HZ;
   const angDiff = (a: number, b: number) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
-  const cases: Array<[string, number, number]> = [
-    ["left", -R, 0],
-    ["right", R, 0],
-    ["up-right", R * Math.SQRT1_2, -R * Math.SQRT1_2],
+  const cases: Array<[string, number, number, boolean]> = [
+    ["left", -R, 0, false],
+    ["right", R, 0, false],
+    ["up-right", R * Math.SQRT1_2, -R * Math.SQRT1_2, false],
+    ["down-right-135", R * Math.SQRT1_2, R * Math.SQRT1_2, true],
+    ["down-left-135", -R * Math.SQRT1_2, R * Math.SQRT1_2, true],
+    ["down-180", 0, R, true],
   ];
   const WIN = TICK_HZ; // trailing 1 s window for the settled-yaw check
-  for (const [name, dx, dy] of cases) {
+  for (const [name, dx, dy, fastAim] of cases) {
     const w = createWorld(THUNDERHILL_LEVEL, 3);
     const camRot = w.car.heading; // camera has caught up with the kart at touch
     const target = stickOutput(dx, dy, w.car.heading, camRot).target!;
@@ -481,6 +527,8 @@ assert(run(9) === run(9), "same seed and inputs replay identically");
     let minVx = 0;
     let prev = w.car.heading;
     let converged = false;
+    let err15 = Number.POSITIVE_INFINITY;
+    let errBelow03At: number | null = null;
     let stopT = 8;
     let stopWhy = "8 s elapsed";
     const startReset = w.lastResetTick;
@@ -502,16 +550,29 @@ assert(run(9) === run(9), "same seed and inputs replay identically");
       dHist.push(angDiff(w.car.heading, prev));
       prev = w.car.heading;
       minVx = Math.min(minVx, w.car.vx);
+      const err = angDiff(w.car.heading, target);
+      const t = (i + 1) * DT;
+      if (Math.abs(t - 1.5) < DT / 2) err15 = err;
+      if (errBelow03At === null && err < 0.3) errBelow03At = t;
       if (dHist.length >= WIN) {
         const yaw = dHist.slice(-WIN).reduce((a, b) => a + b, 0) / (WIN * DT);
-        if (angDiff(w.car.heading, target) < 0.3 && yaw < 0.2) {
+        if (err < 0.3 && yaw < 0.2) {
           converged = true;
-          break;
+          if (!fastAim) break;
+          // Fast aims still run long enough to sample err@1.5s.
+          if (t >= 1.5) break;
         }
       }
     }
     assert(minVx >= -1e-3, `stepWorld from-rest ${name} hold never reverses (vx ${minVx})`);
     assert(converged, `stepWorld from-rest ${name} hold converges before the ${stopWhy} at ${stopT.toFixed(2)} s`);
+    if (fastAim) {
+      assert(err15 < 0.3, `stepWorld from-rest ${name} err at 1.5 s < 0.3 (got ${err15.toFixed(3)})`);
+      assert(
+        errBelow03At !== null && errBelow03At <= 1.5,
+        `stepWorld from-rest ${name} reaches err<0.3 within 1.5 s (got ${errBelow03At})`,
+      );
+    }
   }
 }
 
