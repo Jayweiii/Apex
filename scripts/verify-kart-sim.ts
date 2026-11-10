@@ -302,6 +302,40 @@ assert(run(9) === run(9), "same seed and inputs replay identically");
   assert(!stickOutput(R * 0.2, 0, 0, 0).handbrake, "sharp turn at tiny throttle does not drift");
 }
 
+// ── Screen/camera-space sign: stick left/right must match what the chase cam shows ──
+// Production had left/right inverted relative to the phone screen. The heading-up
+// camera draws world CCW toward screen-left (`rotate(π/2 − camRot)` after a Y flip
+// in renderer.ts), so a screen-left pull must increase heading (CCW) and a
+// screen-right pull must decrease it — asserted here in camera space, not only
+// as a world-frame target angle.
+{
+  const R = STICK_RADIUS;
+  const DT = 1 / TICK_HZ;
+  const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
+  for (const cam of [0, 0.9, -2.0]) {
+    for (const [name, dx, screenSign] of [
+      ["left", -R, 1],
+      ["right", R, -1],
+    ] as const) {
+      const c = createCar();
+      c.heading = cam; // kart already facing screen-up
+      c.vx = 6;
+      let steerV = 0;
+      for (let i = 0; i < Math.round(0.6 * TICK_HZ); i++) {
+        const so = stickOutput(dx, 0, c.heading, cam, undefined, c.r, c.vx, c.vy);
+        steerV += Math.max(-4.5 * DT, Math.min(4.5 * DT, so.steer - steerV));
+        stepCar(c, { steer: steerV, throttle: so.throttle, brake: 0, handbrake: false, allowReverse: false }, DT);
+      }
+      // Heading relative to the latched camera: + = toward screen-left.
+      const screenYaw = wrap(c.heading - cam);
+      assert(
+        screenYaw * screenSign > 0.25,
+        `screen-${name} stick turns the nose toward screen-${name} in camera space (cam ${cam}: screenYaw ${screenYaw.toFixed(3)})`,
+      );
+    }
+  }
+}
+
 // ── Direction-based stick: heading converges to the stick angle, forward only ──
 {
   const R = STICK_RADIUS;

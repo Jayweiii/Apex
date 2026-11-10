@@ -45,6 +45,15 @@ export const TRACTION_FLOOR = 0.3;
 export const TRACTION_FF_LO = 4;
 /** Speed (m/s) at/above which it uses the full commanded yaw rate. */
 export const TRACTION_FF_HI = 8;
+/**
+ * Arcade yaw (rad/s) the car applies at full stick-steer while crawling.
+ * Must match `stepCar`'s low-speed yaw floor so open-loop steer→yaw is 1:1:
+ * steer = −rDes / ARCADE_YAW_PER_STEER reaches rDes without the PD equilibrium
+ * that only delivered ~half the commanded rate from rest.
+ */
+export const ARCADE_YAW_PER_STEER = 3.4;
+/** Speed (m/s) where arcade open-loop steer finishes fading to the tyre PD. */
+export const ARCADE_STEER_FADE = 18;
 
 export interface StickOutput {
   /** −1 (left) … +1 (right): rear-end steer toward the target heading. */
@@ -109,9 +118,14 @@ export function stickOutput(
   const speed = Math.hypot(vx, vy);
   const rMax = (LATERAL_G * 9.81) / Math.max(speed, CAP_MIN_SPEED);
   const rDes = Math.max(-rMax, Math.min(rMax, err * YAW_RATE_GAIN));
-  // PD on yaw rate (steer + = right): backs off as the nose swings in, so the
-  // kart stops on the target instead of spinning past it.
-  const steer = Math.max(-1, Math.min(1, -(rDes - yawRate) * YAW_DAMP));
+  // At crawl, map rDes → steer open-loop so full stick commands the arcade
+  // yaw floor 1:1 (the legacy PD only reached ~½ rDes in equilibrium with
+  // that plant, and a from-rest 90° aim hit the wall still turning). Fade
+  // to the yaw-rate PD as tyres take over at speed.
+  const arcade = Math.max(0, Math.min(1, (ARCADE_STEER_FADE - speed) / ARCADE_STEER_FADE));
+  const steerOpen = -rDes / ARCADE_YAW_PER_STEER;
+  const steerPd = -(rDes - yawRate) * YAW_DAMP;
+  const steer = Math.max(-1, Math.min(1, steerOpen * arcade + steerPd * (1 - arcade)));
   // Friction circle: the rears can't both drive and corner at the limit. Full
   // throttle through a big turn spends the rear grip on drive force and the
   // tail steps out into a sustained spin (the full-radius right hold circled
