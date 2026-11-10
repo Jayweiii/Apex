@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, Pixelify_Sans, Silkscreen } from "next/font/google";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -10,6 +10,21 @@ const geistSans = Geist({
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
+});
+
+/** Pixel display face for headings (mixed case). */
+const pixelDisplay = Pixelify_Sans({
+  variable: "--font-pixel-display",
+  subsets: ["latin"],
+  display: "swap",
+});
+
+/** Pixel label face for buttons, nav and small caps labels. */
+const pixelLabel = Silkscreen({
+  variable: "--font-pixel-label",
+  weight: ["400", "700"],
+  subsets: ["latin"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
@@ -32,7 +47,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${pixelDisplay.variable} ${pixelLabel.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col text-foreground">
         <a href="#main-content" className="apex-skip-link">
