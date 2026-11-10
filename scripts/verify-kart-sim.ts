@@ -457,6 +457,7 @@ assert(run(9) === run(9), "same seed and inputs replay identically");
     let errBelow03At: number | null = null;
     let convergedAt: number | null = null;
     let lateYawAfter = 0;
+    let lateYawDt = 0;
     const dHist: number[] = [];
     for (let i = 0; i < 8 * TICK_HZ; i++) {
       const so = stickOutput(dx, dy, c.heading, 0, undefined, c.r, c.vx, c.vy);
@@ -475,9 +476,13 @@ assert(run(9) === run(9), "same seed and inputs replay identically");
       if (Math.abs(t - 1.5) < DT / 2) err15 = err;
       if (errBelow03At === null && err < 0.3) errBelow03At = t;
       if (dHist.length >= TICK_HZ) {
+        // Trailing 1 s sum of |Δheading| ≈ mean yaw rate (rad/s) at DT=1/TICK_HZ.
         const yaw = dHist.slice(-TICK_HZ).reduce((a, b) => a + b, 0);
         if (convergedAt === null && err < 0.3 && yaw < 0.2) convergedAt = t;
-        if (convergedAt !== null && t > convergedAt && t <= convergedAt + 1) lateYawAfter += d;
+        if (convergedAt !== null && t > convergedAt && t <= convergedAt + 1) {
+          lateYawAfter += d;
+          lateYawDt += DT;
+        }
       }
     }
     const err = angDiff(c.heading, target);
@@ -493,9 +498,16 @@ assert(run(9) === run(9), "same seed and inputs replay identically");
       );
     }
     assert(convergedAt !== null, `from-rest ${name} eventually settles (err+yaw)`);
+    // Chief (#62): don't treat a short post-convergence sample as rad/s —
+    // require a full 1 s window, then normalise.
     assert(
-      lateYawAfter < 0.2,
-      `from-rest ${name} late yaw after convergence < 0.2 rad/s (got ${lateYawAfter.toFixed(3)})`,
+      lateYawDt >= 1 - DT / 2,
+      `from-rest ${name} has a full 1 s late-yaw window (got ${lateYawDt.toFixed(3)} s)`,
+    );
+    const lateYawRate = lateYawAfter / lateYawDt;
+    assert(
+      lateYawRate < 0.2,
+      `from-rest ${name} late yaw after convergence < 0.2 rad/s (got ${lateYawRate.toFixed(3)})`,
     );
   }
 }
