@@ -174,7 +174,7 @@ const key = (trackId: string) => `apex.rush.best.${trackId}`;
 /** A lap is ~20 Hz x 3 values; this allows far longer than any real lap. */
 const MAX_REC = 3 * 20 * 600;
 
-export type SavedBest ={ lapMs: number; rec: number[] };
+export type SavedBest = { lapMs: number; rec: number[] };
 
 export function loadBest(trackId: string): SavedBest | null {
   try {

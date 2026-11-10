@@ -48,8 +48,12 @@ export function RushGame() {
   const [mode, setMode] = useState<RushMode>(prefs.mode === "tt" ? "tt" : "gp");
   const [settings, setSettings] = useState<RushSettings>(() => ({
     // A thumb can't hold a gas button and steer; a keyboard can.
-    // Only reuse a saved choice made on the same device class (a desktop "off" must not strand a phone at 0 km/h).
-    autoGas: typeof prefs.autoGas === "boolean" && prefs.autoGasCoarse === isCoarse() ? prefs.autoGas : isCoarse(),
+    // Reuse a saved choice unless it was made on a different device class (a desktop "off" must not
+    // strand a phone at 0 km/h). Prefs saved before autoGasCoarse existed carry no class and are kept.
+    autoGas:
+      typeof prefs.autoGas === "boolean" && (prefs.autoGasCoarse === undefined || prefs.autoGasCoarse === isCoarse())
+        ? prefs.autoGas
+        : isCoarse(),
     muted: prefs.muted === true,
   }));
   const [racing, setRacing] = useState(false);

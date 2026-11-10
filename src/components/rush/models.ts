@@ -321,17 +321,19 @@ export function crowdTexture(rand: () => number): THREE.CanvasTexture {
     32,
     8,
     (ctx) => {
-      const shirts = ["#ef233c", "#f6c343", "#4cc9f0", "#70e000", "#f8f9fa", "#b388ff", "#ff8c42"];
+      // Four 8x8 seat blocks: a flat shirt colour, a couple of flat accent blobs and a tidy row of heads.
+      const shirts = ["#c1121f", "#d9a21b", "#2f8fb5", "#4f9d2d", "#8a6fd1", "#d9722b"];
+      const accents = ["#f8f9fa", "#2b2d42", "#ffd60a"];
       ctx.fillStyle = "#3a3f4b";
       ctx.fillRect(0, 0, 32, 8);
-      for (let y = 0; y < 8; y += 2) {
-        for (let x = (y / 2) % 2; x < 32; x += 2) {
-          if (rand() < 0.14) continue;
-          ctx.fillStyle = shirts[Math.floor(rand() * shirts.length)]!;
-          ctx.fillRect(x, y + 1, 1, 1);
-          ctx.fillStyle = rand() < 0.5 ? "#f1c9a5" : "#a9744f";
-          ctx.fillRect(x, y, 1, 1);
-        }
+      for (let b = 0; b < 4; b += 1) {
+        const x0 = b * 8;
+        ctx.fillStyle = shirts[Math.floor(rand() * shirts.length)]!;
+        ctx.fillRect(x0, 2, 8, 6);
+        ctx.fillStyle = accents[Math.floor(rand() * accents.length)]!;
+        for (let n = 0; n < 2; n += 1) ctx.fillRect(x0 + 1 + Math.floor(rand() * 4), 3 + Math.floor(rand() * 3), 2, 2);
+        ctx.fillStyle = "#e0b48f";
+        for (let x = 1; x < 8; x += 2) ctx.fillRect(x0 + x, 1, 1, 1);
       }
     },
     true,
