@@ -11,32 +11,23 @@
 export const STICK_RADIUS = 56;
 /** Fraction of the radius ignored around the centre. */
 export const STICK_DEAD = 0.12;
-/** Minimum throttle for the drift-hold to engage. */
-export const DRIFT_THROTTLE = 0.3;
-/** Heading error (rad) at/above which a sharp turn holds the drift. */
-export const DRIFT_HEADING_ERR = 1;
-/** At/above this error (rad) the drift hold lets go so a near-U-turn can finish. */
-export const DRIFT_HEADING_MAX = 2.5;
-/**
- * Steer gain: full steer lock at a heading error of 1 / this (rad). Kept low:
- * with the steer slew + tyre lag, 2.5 put the loop into a limit cycle that
- * never settled on a 90° aim.
- */
-export const HEADING_GAIN = 0.8;
 /** Steer backed off per rad/s of yaw rate (damps overshoot / spin-out). */
 export const YAW_DAMP = 0.4;
 /**
- * Yaw-rate controller: the commanded yaw rate is YAW_RATE_GAIN·err (the same PD
- * as before: steer = -err·HEADING_GAIN + r·YAW_DAMP), but capped at what the
- * tyres can bend the path at this speed (LATERAL_G·g / v). Turning the nose
- * faster than the path can follow is what swung it >90° past the travel
- * direction (body vx < 0); capping the rate keeps slip small at any aim.
+ * Yaw-rate controller: commanded rate is YAW_RATE_GAIN·err, capped at what the
+ * tyres can bend the path at this speed (LATERAL_G·g / v). Higher than the
+ * legacy gain of 2 so from-rest 135°/180° aims reach err<0.3 within 1.5 s;
+ * the rate cap still prevents body vx < 0.
  */
-export const YAW_RATE_GAIN = HEADING_GAIN / YAW_DAMP;
+export const YAW_RATE_GAIN = 3.2;
 /** Lateral acceleration (in g) the yaw-rate cap assumes the tyres can hold. */
 export const LATERAL_G = 1.6;
-/** Speed floor (m/s) in the cap so crawling speeds don't demand huge yaw rates. */
-export const CAP_MIN_SPEED = 6;
+/**
+ * Speed floor (m/s) in the yaw-rate cap. Lower than mid-corner tyre speed so a
+ * standing-start U-turn can command near-full arcade yaw instead of stalling
+ * at ~2.6 rad/s (the old floor of 6 m/s left 180° aims at err≈0.7 after 1.5 s).
+ */
+export const CAP_MIN_SPEED = 3.5;
 /** Lateral grip (g) the friction-circle throttle limit budgets for. */
 export const GRIP_G = 1.0;
 /** Lowest fraction of the pulled throttle kept while cornering at the limit. */
@@ -51,9 +42,20 @@ export const TRACTION_FF_HI = 8;
  * steer = −rDes / ARCADE_YAW_PER_STEER reaches rDes without the PD equilibrium
  * that only delivered ~half the commanded rate from rest.
  */
-export const ARCADE_YAW_PER_STEER = 3.4;
+export const ARCADE_YAW_PER_STEER = 4.2;
 /** Speed (m/s) where arcade open-loop steer finishes fading to the tyre PD. */
 export const ARCADE_STEER_FADE = 18;
+/**
+ * Stick-angle change (rad) that re-latches the chase camera during a hold.
+ * ~0.15 (~9°) let thumb wobble pick up the live camera and restart circling;
+ * ~25° still catches a deliberate re-aim.
+ */
+export const RELATCH_ANGLE = 0.45;
+
+/** True when the stick has been re-aimed far enough to refresh the cam latch. */
+export function shouldRelatchCam(prevAng: number, ang: number, threshold = RELATCH_ANGLE): boolean {
+  return Math.abs(wrapAngle(ang - prevAng)) > threshold;
+}
 
 export interface StickOutput {
   /** −1 (left) … +1 (right): rear-end steer toward the target heading. */

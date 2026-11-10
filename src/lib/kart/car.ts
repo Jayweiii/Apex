@@ -5,6 +5,7 @@
  *
  * Hot path: `stepCar` allocates nothing — all state lives on `KartCar`.
  */
+import { ARCADE_YAW_PER_STEER } from "./joystick";
 import {
   clampLongitudinal,
   DEFAULT_TIRE,
@@ -304,15 +305,15 @@ export function stepCar(car: KartCar, input: CarInput, dt: number): void {
   // Low/mid speed: blend yaw toward an arcade target. Pure kinematic
   // (v·tanδ/L) starves turn rate while crawling — a 90° stick aim from rest
   // needs the nose to swing before the kart has speed. Steer input commands
-  // yaw up to ARCADE_YAW_PER_STEER (3.4 rad/s) at full stick, fading to the
-  // bicycle by ~18 m/s. Matched open-loop in stickOutput. Still damp vy at
-  // crawl so the car doesn't jitter or spin in place when (almost) stopped.
+  // yaw up to ARCADE_YAW_PER_STEER at full stick, fading to the bicycle by
+  // ~18 m/s. Matched open-loop in stickOutput. Still damp vy at crawl so the
+  // car doesn't jitter or spin in place when (almost) stopped.
   const crawl = clamp((3 - speed) / 3, 0, 1);
   const arcade = clamp((18 - speed) / 18, 0, 1);
   if (crawl > 0 || arcade > 0) {
     const rKin = (car.vx * Math.tan(car.steer)) / p.wheelbaseM;
     // steerIn + = right = CW = negative yaw (matches stick left-positive r).
-    const rFloor = -steerIn * 3.4 * arcade;
+    const rFloor = -steerIn * ARCADE_YAW_PER_STEER * arcade;
     const sign = Math.sign(rFloor || rKin) || 1;
     const rTarget = sign * Math.max(Math.abs(rKin), Math.abs(rFloor));
     const mix = Math.max(crawl, arcade * 0.9);
