@@ -266,6 +266,18 @@ export function stepWorld(world: KartWorld, input: KartInput): void {
   // Items in effect.
   if (world.turboTicks > 0) world.turboTicks -= 1;
   car.boostForce = world.turboTicks > 0 ? R.turboForceN : 0;
+  // Hills: gravity along the slope, projected onto the kart's heading.
+  {
+    const k = world.hit.index;
+    const along = Math.cos(car.heading) * track.tx[k] + Math.sin(car.heading) * track.ty[k];
+    const sinSlope = track.grade[k] / Math.sqrt(1 + track.grade[k] * track.grade[k]);
+    car.gradeForce = -car.params.massKg * 9.81 * sinSlope * along;
+    // Parked: a released stick (no reverse allowed, no throttle) holds the
+    // kart on a slope like a handbrake — gravity only acts once it moves.
+    if (!scratchInput.allowReverse && scratchInput.throttle === 0 && car.vx < 0.5) {
+      car.gradeForce = 0;
+    }
+  }
   if (world.miniTicks > 0) world.miniTicks -= 1;
   car.topBonus = world.turboTicks > 0 ? R.turboTopBonus : world.miniTicks > 0 ? R.miniTopBonus : 0;
   // Boosts add acceleration directly so they still push when the rear
@@ -306,6 +318,7 @@ export function stepWorld(world: KartWorld, input: KartInput): void {
   world.prevUseItem = input.useItem;
 
   stepCar(car, scratchInput, DT);
+  if (!scratchInput.allowReverse && scratchInput.throttle === 0 && car.vx < 0) car.vx = 0;
   projectOnTrack(track, car.x, car.y, world.hit);
 
   // Wall: keep the car within reach of the track.

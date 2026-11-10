@@ -38,6 +38,7 @@ import {
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createRenderer, type KartRenderer } from "./renderer";
+import { createRenderer3D } from "./renderer3d";
 import { attachTouchDebug, guardPlaySurface, lockPageOverscroll } from "./touch-guard";
 
 type Phase = "ready" | "countdown" | "racing" | "paused";
@@ -46,7 +47,8 @@ const LEVEL = THUNDERHILL_LEVEL;
 /** 3-2-1 then GO. */
 const COUNTDOWN_S = 3;
 const BEST_KEY = `apex.kart.best.${LEVEL.id}`;
-const MAX_STEPS_PER_FRAME = 8;
+const MAX_FRAME_DT = 0.25; // s; software WebGL can run at only a few fps
+const MAX_STEPS_PER_FRAME = 32; // >= MAX_FRAME_DT * 120 Hz sim ticks
 
 /** Capture the pointer so up/cancel still arrive after a drag-off. */
 function capture(el: HTMLElement, pointerId: number) {
@@ -188,7 +190,17 @@ export function KartGame() {
     worldRef.current = world;
     resetLapClock(lapClock.current);
     phaseRef.current = "ready";
-    const renderer = createRenderer(canvas, world);
+    // 3D by default; 2D pixel renderer if WebGL is unavailable or ?2d=1.
+    let renderer: KartRenderer;
+    const force2d = new URLSearchParams(window.location.search).get("2d") === "1";
+    try {
+      if (force2d) throw new Error("2d requested");
+      renderer = createRenderer3D(canvas, world);
+      canvas.dataset.apexKartRenderer = "3d";
+    } catch {
+      renderer = createRenderer(canvas, world);
+      canvas.dataset.apexKartRenderer = "2d";
+    }
     rendererRef.current = renderer;
     bestRef.current = loadBest();
     renderer.draw(world, 0);
@@ -288,7 +300,7 @@ export function KartGame() {
     let acc = 0;
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
-      const frameDt = Math.min(0.1, (now - last) / 1000);
+      const frameDt = Math.min(MAX_FRAME_DT, (now - last) / 1000);
       last = now;
       const h = held.current;
       if (phaseRef.current === "countdown") {

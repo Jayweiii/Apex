@@ -457,6 +457,7 @@ assert(run(9) === run(9), "same seed and inputs replay identically");
     let errBelow03At: number | null = null;
     let convergedAt: number | null = null;
     let lateYawAfter = 0;
+    let lateYawDt = 0;
     const dHist: number[] = [];
     for (let i = 0; i < 8 * TICK_HZ; i++) {
       const so = stickOutput(dx, dy, c.heading, 0, undefined, c.r, c.vx, c.vy);
@@ -475,9 +476,13 @@ assert(run(9) === run(9), "same seed and inputs replay identically");
       if (Math.abs(t - 1.5) < DT / 2) err15 = err;
       if (errBelow03At === null && err < 0.3) errBelow03At = t;
       if (dHist.length >= TICK_HZ) {
+        // Trailing 1 s sum of |Δheading| ≈ mean yaw rate (rad/s) at DT=1/TICK_HZ.
         const yaw = dHist.slice(-TICK_HZ).reduce((a, b) => a + b, 0);
         if (convergedAt === null && err < 0.3 && yaw < 0.2) convergedAt = t;
-        if (convergedAt !== null && t > convergedAt && t <= convergedAt + 1) lateYawAfter += d;
+        if (convergedAt !== null && t > convergedAt && t <= convergedAt + 1) {
+          lateYawAfter += d;
+          lateYawDt += DT;
+        }
       }
     }
     const err = angDiff(c.heading, target);
@@ -493,9 +498,16 @@ assert(run(9) === run(9), "same seed and inputs replay identically");
       );
     }
     assert(convergedAt !== null, `from-rest ${name} eventually settles (err+yaw)`);
+    // Chief (#62): don't treat a short post-convergence sample as rad/s —
+    // require a full 1 s window, then normalise.
     assert(
-      lateYawAfter < 0.2,
-      `from-rest ${name} late yaw after convergence < 0.2 rad/s (got ${lateYawAfter.toFixed(3)})`,
+      lateYawDt >= 1 - DT / 2,
+      `from-rest ${name} has a full 1 s late-yaw window (got ${lateYawDt.toFixed(3)} s)`,
+    );
+    const lateYawRate = lateYawAfter / lateYawDt;
+    assert(
+      lateYawRate < 0.2,
+      `from-rest ${name} late yaw after convergence < 0.2 rad/s (got ${lateYawRate.toFixed(3)})`,
     );
   }
 }
@@ -714,6 +726,60 @@ assert(run(9) === run(9), "same seed and inputs replay identically");
     for (let i = 0; i < 3 * TICK_HZ; i++) stepWorld(w, back);
     assert(w.car.vx < -0.5, `explicit brake still reverses (${w.car.vx})`);
   }
+}
+
+// ── Altitude: real USGS relief, and gravity along the slope ──
+{
+  const t = createWorld(THUNDERHILL_LEVEL, 1).track;
+  const top = Math.max(...t.pz);
+  assert(top > 10 && top < 30, `track climbs a real hill (${top.toFixed(1)} m)`);
+  let up = 0;
+  let down = 0;
+  for (let k = 0; k < t.count; k += 1) {
+    if (t.grade[k] > t.grade[up]) up = k;
+    if (t.grade[k] < t.grade[down]) down = k;
+  }
+  assert(t.grade[up] > 0.04 && t.grade[down] < -0.04, "has real climbs and descents");
+  function coastAt(k: number) {
+    const w = createWorld(THUNDERHILL_LEVEL, 1);
+    w.car.x = t.px[k];
+    w.car.y = t.py[k];
+    w.car.heading = Math.atan2(t.ty[k], t.tx[k]);
+    w.car.vx = 15;
+    w.hit.index = k;
+    const coast: KartInput = { steer: 0, throttle: 0, brake: 0, handbrake: false, useItem: false };
+    for (let i = 0; i < TICK_HZ * 0.8; i += 1) stepWorld(w, coast);
+    return Math.hypot(w.car.vx, w.car.vy);
+  }
+  // Released stick on the steepest climb: the kart holds, never rolls back.
+  {
+    const w = createWorld(THUNDERHILL_LEVEL, 1);
+    w.car.x = t.px[up];
+    w.car.y = t.py[up];
+    w.car.heading = Math.atan2(t.ty[up], t.tx[up]);
+    w.car.vx = 0;
+    w.hit.index = up;
+    const release: KartInput = { steer: 0, throttle: 0, brake: 1, handbrake: false, useItem: false, allowReverse: false };
+    let minVx = 0;
+    for (let i = 0; i < TICK_HZ * 4; i += 1) {
+      stepWorld(w, release);
+      minVx = Math.min(minVx, w.car.vx);
+    }
+    assert(minVx >= 0, `released stick on the steepest climb (${(t.grade[up] * 100).toFixed(1)}%) never rolls back (min vx ${minVx.toFixed(3)})`);
+    assert(Math.hypot(w.car.vx, w.car.vy) < 0.2, "released stick on the climb holds the kart still");
+    // Same with no brake pressed (stick off the glass, allowReverse false).
+    const w2 = createWorld(THUNDERHILL_LEVEL, 1);
+    w2.car.x = t.px[up];
+    w2.car.y = t.py[up];
+    w2.car.heading = Math.atan2(t.ty[up], t.tx[up]);
+    w2.hit.index = up;
+    const idle: KartInput = { steer: 0, throttle: 0, brake: 0, handbrake: false, useItem: false, allowReverse: false };
+    for (let i = 0; i < TICK_HZ * 4; i += 1) stepWorld(w2, idle);
+    assert(w2.car.vx >= 0, "idle on the climb with reverse disallowed does not roll back");
+  }
+  const uphill = coastAt(up);
+  const downhill = coastAt(down);
+  assert(downhill > uphill + 0.5, `gravity: coasting downhill keeps more speed than uphill (${downhill.toFixed(2)} vs ${uphill.toFixed(2)} m/s)`);
 }
 
 console.log(JSON.stringify({

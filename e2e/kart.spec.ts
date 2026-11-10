@@ -58,6 +58,18 @@ test.describe("Apex Kart", () => {
     // forward) and the kart drives straight ahead; distance = throttle.
     await area.dispatchEvent("pointermove", ptr(7, ox, oy - 56));
     await page.waitForTimeout(2500);
+    // Diagnostics for CI: which renderer was picked and how the sim is
+    // keeping up (ticks should reach ~120/s of real time, speed > 0).
+    const canvasEl = page.locator("[data-apex-kart-canvas]");
+    const diag = {
+      renderer: await canvasEl.getAttribute("data-apex-kart-renderer"),
+      drawCalls: await canvasEl.getAttribute("data-apex-kart-draw-calls"),
+      tick: await probe.getAttribute("data-tick"),
+      speed: await probe.getAttribute("data-speed"),
+      gate: await probe.getAttribute("data-gate"),
+    };
+    console.log("[kart-diag]", JSON.stringify(diag));
+    test.info().annotations.push({ type: "kart-diag", description: JSON.stringify(diag) });
     // Keep the stick pulled, re-aiming it at the track ahead like a player
     // would, until the next gate registers.
     const num = async (k: string) => Number(await probe.getAttribute(k));
@@ -177,5 +189,24 @@ test.describe("Apex Kart", () => {
     await expect(panel).toBeVisible();
     await expect(panel).toContainText("debug on");
     await expect(panel).toContainText(/countdown|racing/);
+  });
+
+  test("3D view loads (falls back to 2D without WebGL) with no page errors", async ({ page, isMobile }) => {
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    await page.goto("/kart");
+    const start = page.locator("[data-apex-kart-start]");
+    await expect(start).toBeVisible({ timeout: 90_000 });
+    const canvas = page.locator("[data-apex-kart-canvas]");
+    await expect(canvas).toHaveAttribute("data-apex-kart-renderer", /^(3d|2d)$/);
+    if (isMobile) await start.tap();
+    else await start.click();
+    await page.waitForTimeout(1500);
+    expect(errors).toEqual([]);
+    // ?2d=1 forces the pixel renderer.
+    await page.goto("/kart?2d=1");
+    await expect(page.locator("[data-apex-kart-canvas]")).toHaveAttribute("data-apex-kart-renderer", "2d", {
+      timeout: 90_000,
+    });
   });
 });
