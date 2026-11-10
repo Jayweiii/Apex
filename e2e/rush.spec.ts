@@ -142,4 +142,76 @@ test.describe("Apex Rush", () => {
     await fire("pointerup", x + 70, y);
     await expect.poll(() => num(page, "drift"), { timeout: 5_000 }).toBe(0);
   });
+
+  /**
+   * Heading change over a short window on a fresh Buttonwillow 13CW start. The
+   * track bends right off the line (and walls turn the kart along it), so the
+   * road alone moves the heading; callers compare against a centred baseline.
+   */
+  async function headingDelta(page: Page, isMobile: boolean, via: "stick" | "keys", dir: -1 | 0 | 1) {
+    await openMenu(page);
+    await activate(page, '[data-rush-track="buttonwillow-13cw"]', isMobile);
+    await activate(page, '[data-rush-mode="tt"]', isMobile);
+    await activate(page, "[data-rush-start]", isMobile);
+    await expect(canvas(page)).toHaveAttribute("data-rush-phase", "racing", { timeout: 60_000 });
+    const surface = page.locator("[data-rush-surface]");
+    const box = (await surface.boundingBox())!;
+    const x = box.x + box.width / 2;
+    const y = box.y + box.height * 0.8;
+    const fire = (type: string, px: number) =>
+      surface.dispatchEvent(type, { pointerId: 8, pointerType: isMobile ? "touch" : "mouse", isPrimary: true, clientX: px, clientY: y, bubbles: true });
+    // 44 px is ~0.76 of the stick radius: a firm turn, short of the drift edge.
+    const off = dir * 44;
+    if (via === "stick") await fire("pointerdown", x);
+    else await page.keyboard.down("ArrowUp");
+    await expect.poll(() => num(page, "speed"), { timeout: 15_000 }).toBeGreaterThan(13);
+    const h0 = await num(page, "heading");
+    if (via === "stick") await fire("pointermove", x + off);
+    else if (dir !== 0) await page.keyboard.down(dir < 0 ? "ArrowLeft" : "ArrowRight");
+    await page.waitForTimeout(700);
+    const h1 = await num(page, "heading");
+    if (via === "stick") await fire("pointerup", x + off);
+    else {
+      await page.keyboard.up("ArrowUp");
+      if (dir !== 0) await page.keyboard.up(dir < 0 ? "ArrowLeft" : "ArrowRight");
+    }
+    return Math.atan2(Math.sin(h1 - h0), Math.cos(h1 - h0));
+  }
+
+  // Game headings are counter-clockwise from east: a left turn increases the heading.
+  for (const via of ["stick", "keys"] as const) {
+    test(`${via === "stick" ? "dragging" : "arrow keys"}: screen-left turns the heading left, screen-right right`, async ({ page, isMobile }) => {
+      test.skip(via === "keys" && isMobile, "no keyboard on the phone profile");
+      test.setTimeout(300_000); // three fresh races
+      const centred = await headingDelta(page, isMobile, via, 0);
+      const left = await headingDelta(page, isMobile, via, -1);
+      const right = await headingDelta(page, isMobile, via, 1);
+      expect(left - centred, `left (${left.toFixed(2)}) minus centred (${centred.toFixed(2)})`).toBeGreaterThan(0.1);
+      expect(right - centred, `right (${right.toFixed(2)}) minus centred (${centred.toFixed(2)})`).toBeLessThan(-0.1);
+    });
+  }
+
+  test("restarting a race frees its WebGL context", async ({ page, isMobile }) => {
+    await page.addInitScript(() => {
+      const made: Array<WebGLRenderingContext | WebGL2RenderingContext> = [];
+      (window as unknown as { __rushGl: typeof made }).__rushGl = made;
+      const orig = HTMLCanvasElement.prototype.getContext;
+      HTMLCanvasElement.prototype.getContext = function (this: HTMLCanvasElement, type: string, ...rest: unknown[]) {
+        const ctx = (orig as (...a: unknown[]) => unknown).call(this, type, ...rest);
+        if (ctx && (type === "webgl" || type === "webgl2") && !made.includes(ctx as WebGLRenderingContext)) made.push(ctx as WebGLRenderingContext);
+        return ctx;
+      } as typeof orig;
+    });
+    await openMenu(page, "?auto=1");
+    await activate(page, "[data-rush-start]", isMobile);
+    await expect(canvas(page)).toHaveAttribute("data-rush-phase", /intro|countdown|racing/, { timeout: 60_000 });
+    for (let i = 0; i < 6; i += 1) {
+      await activate(page, "[data-rush-pause]", isMobile);
+      await activate(page, "[data-rush-restart]", isMobile);
+      await expect(page.locator("[data-rush-paused]")).toHaveCount(0);
+      await expect(canvas(page)).toHaveAttribute("data-rush-phase", /intro|countdown|racing/, { timeout: 30_000 });
+    }
+    const live = await page.evaluate(() => (window as unknown as { __rushGl: WebGLRenderingContext[] }).__rushGl.filter((gl) => !gl.isContextLost()).length);
+    expect(live, "live WebGL contexts after 6 restarts").toBeLessThanOrEqual(2);
+  });
 });

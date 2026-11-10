@@ -358,7 +358,9 @@ export function createRushRenderer(
     const gg = keep(gb.build());
     gantry.add(new THREE.Mesh(gg, keep(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }))));
     const bannerTex = keep(bannerTexture("APEX RUSH", "#16181d", "#ffd60a"));
-    const bannerGeo = keep(new THREE.PlaneGeometry(limit * 1.7, 1.9));
+    // Keep the texture's 6:1 shape and a width a narrow portrait view can frame.
+    const bannerW = Math.min(limit * 1.7, 9);
+    const bannerGeo = keep(new THREE.PlaneGeometry(bannerW, bannerW / 6));
     const bannerMat = keep(new THREE.MeshBasicMaterial({ map: bannerTex, side: THREE.DoubleSide }));
     const banner = new THREE.Mesh(bannerGeo, bannerMat);
     banner.position.set(0, 6.1, 0);
@@ -368,7 +370,8 @@ export function createRushRenderer(
 
     // Grandstand on the left of the start straight.
     const crowd = keep(crowdTexture(rand));
-    crowd.repeat.set(3, 1);
+    // 34 wide x 1.4 tall faces: 6 repeats of the 32x8 texture gives square pixels.
+    crowd.repeat.set(6, 1);
     const standMat = keep(new THREE.MeshLambertMaterial({ map: crowd }));
     const stand = new THREE.Group();
     const side = 1;
@@ -777,6 +780,11 @@ export function createRushRenderer(
       for (const m of ghostModels) m.dispose();
       for (const d of disposables) d.dispose();
       renderer.dispose();
+      // iOS caps live WebGL contexts; free this one instead of waiting for GC. Deferred
+      // until the canvas has left the DOM so a StrictMode re-run can reuse a live one.
+      setTimeout(() => {
+        if (!canvas.isConnected) renderer.forceContextLoss();
+      }, 0);
     },
   };
 }

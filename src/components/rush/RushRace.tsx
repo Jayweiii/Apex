@@ -59,12 +59,13 @@ function trackFor(level: RushLevel): RushTrack {
 }
 
 /** The site's best real lap for this track (uploaded telemetry), if any. */
-async function fetchRealLap(trackId: string): Promise<RealLap | null> {
+async function fetchRealLap(trackId: string, signal: AbortSignal): Promise<RealLap | null> {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 6000);
+  const onAbort = () => ctl.abort();
+  signal.addEventListener("abort", onAbort);
   try {
-    const ctl = new AbortController();
-    const timer = setTimeout(() => ctl.abort(), 6000);
     const res = await fetch(`/api/tracks/${encodeURIComponent(trackId)}/drive`, { signal: ctl.signal });
-    clearTimeout(timer);
     if (!res.ok) return null;
     const payload = (await res.json()) as DriveTrackPayload;
     const g = payload.realGhost;
@@ -72,6 +73,9 @@ async function fetchRealLap(trackId: string): Promise<RealLap | null> {
     return { label: g.label, timeMs: g.timeMs, origin: payload.origin, samples: g.samples.map((s) => [s.x, s.y, s.t ?? 0]) };
   } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener("abort", onAbort);
   }
 }
 
@@ -196,6 +200,7 @@ export function RushRace({
     }
 
     let cancelled = false;
+    const lapFetch = new AbortController();
     let savedBestMs = 0;
     if (mode === "tt") {
       const saved = loadBest(level.id);
@@ -205,7 +210,7 @@ export function RushRace({
       }
       const bundled = bundledRealLap(level.id);
       if (bundled) ghosts[0] = ghostFromRealLap(track, bundled);
-      void fetchRealLap(level.id).then((lap) => {
+      void fetchRealLap(level.id, lapFetch.signal).then((lap) => {
         if (cancelled || !lap) return;
         const g = ghostFromRealLap(track, lap);
         if (g) ghosts[0] = g;
@@ -502,6 +507,7 @@ export function RushRace({
       canvas.dataset.rushSpeed = Math.abs(player.v).toFixed(2);
       canvas.dataset.rushLap = String(player.lap);
       canvas.dataset.rushDrift = String(player.drifting);
+      canvas.dataset.rushHeading = player.heading.toFixed(3);
 
       audio?.update(Math.abs(player.v) / 27, player.drifting !== 0, player.boostT > 0, player.offroad, phaseRef.current !== "finished" || finishedT < 3);
       drawMap();
@@ -528,6 +534,7 @@ export function RushRace({
 
     return () => {
       cancelled = true;
+      lapFetch.abort();
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", onResize);
       ro.disconnect();
@@ -646,7 +653,7 @@ export function RushRace({
 
   return (
     <div className="rush fixed left-0 top-0 z-50 h-dvh w-screen select-none overflow-hidden bg-[#14151a]" data-rush-race={mode}>
-      <canvas ref={canvasRef} data-rush-canvas="1" className="rush-canvas absolute inset-0 h-full w-full" />
+      <canvas key={raceKey} ref={canvasRef} data-rush-canvas="1" className="rush-canvas absolute inset-0 h-full w-full" />
       <div ref={linesEl} aria-hidden className="rush-speedlines pointer-events-none absolute inset-0" />
 
       {/* Play surface: one thumb steers, drifts and brakes. */}
@@ -782,7 +789,7 @@ export function RushRace({
               <button type="button" className="rush-btn rush-btn--go" data-rush-resume="1" onClick={resume}>
                 Resume
               </button>
-              <button type="button" className="rush-btn" onClick={() => setRaceKey((k) => k + 1)}>
+              <button type="button" className="rush-btn" data-rush-restart="1" onClick={() => setRaceKey((k) => k + 1)}>
                 Restart
               </button>
               <div className="flex items-center justify-between gap-2 text-xs">
