@@ -4,6 +4,40 @@ import { wrapAngle } from "./math";
 export const STICK_RADIUS = 72;
 /** Fraction of the radius ignored around the centre. */
 export const STICK_DEAD = 0.14;
+/**
+ * How far the stick's screen angle must swing before the camera reference
+ * is taken again. Deliberately large (~60°). The 0.15 rad gate on the
+ * classic kart re-latches on ordinary thumb noise, and because the chase
+ * camera has already turned with the kart, that turns a held direction
+ * back into a spin. A real re-aim (left to straight, or left to right)
+ * still picks up the view you're looking at now.
+ */
+export const STICK_RELATCH = 1.05;
+
+/** Camera yaw frozen for the current pull. `angle` is the stick's screen angle. */
+export type AimLatch = {
+  cam: number;
+  /** null until the stick leaves the dead zone on this pull. */
+  angle: number | null;
+  /** True from engage (thumb-down / key / pad) until release. */
+  engaged: boolean;
+};
+
+export function emptyAimLatch(cam = 0): AimLatch {
+  return { cam, angle: null, engaged: false };
+}
+
+/** Latch the camera at the moment a pull starts. The first aim keeps this yaw. */
+export function engageAim(latch: AimLatch, liveCam: number) {
+  latch.cam = liveCam;
+  latch.angle = null;
+  latch.engaged = true;
+}
+
+export function releaseAim(latch: AimLatch) {
+  latch.angle = null;
+  latch.engaged = false;
+}
 
 export type StickCmd = {
   /** False when the stick is released or inside the dead zone (that brakes). */
@@ -21,45 +55,94 @@ export type StickCmd = {
   heading: number;
 };
 
+const scratchCmd: StickCmd = { active: false, x: 0, y: 0, throttle: 0, heading: 0 };
+const scratchClamp = { x: 0, y: 0 };
+
 export function clampStick(
   dx: number,
   dy: number,
   r = STICK_RADIUS,
+  out: { x: number; y: number } = scratchClamp,
 ): { x: number; y: number } {
   const len = Math.hypot(dx, dy);
-  if (len <= r || len === 0) return { x: dx, y: dy };
+  if (len <= r || len === 0) {
+    out.x = dx;
+    out.y = dy;
+    return out;
+  }
   const k = r / len;
-  return { x: dx * k, y: dy * k };
+  out.x = dx * k;
+  out.y = dy * k;
+  return out;
 }
 
 /**
- * The stick directly commands heading in camera space.
- * `dx`/`dy` are pixels from where the thumb landed (+x right, +y down).
- * Pushing the stick left faces the kart screen-left; how far it is pushed
- * is the throttle. The centre (and a released stick) is not active.
+ * Write the stick command into `out` (no allocation). `camYaw` must be the
+ * latched camera, not the live chase yaw, while a pull is held.
  */
 export function stickCommand(
   dx: number,
   dy: number,
   camYaw: number,
   r = STICK_RADIUS,
+  out: StickCmd = scratchCmd,
 ): StickCmd {
-  const c = clampStick(dx, dy, r);
+  const c = clampStick(dx, dy, r, scratchClamp);
   const nx = c.x / r;
   const ny = c.y / r;
   const mag = Math.hypot(nx, ny);
   if (mag <= STICK_DEAD) {
-    return { active: false, x: 0, y: 0, throttle: 0, heading: camYaw };
+    out.active = false;
+    out.x = 0;
+    out.y = 0;
+    out.throttle = 0;
+    out.heading = camYaw;
+    return out;
   }
-  const throttle = Math.min(1, (mag - STICK_DEAD) / (1 - STICK_DEAD));
+  out.active = true;
+  out.x = nx;
+  out.y = ny;
+  out.throttle = Math.min(1, (mag - STICK_DEAD) / (1 - STICK_DEAD));
   // atan2(right, up): up is 0, screen-right is +π/2, screen-left is −π/2.
-  const heading = wrapAngle(camYaw + Math.atan2(nx, -ny));
-  return { active: true, x: nx, y: ny, throttle, heading };
+  out.heading = wrapAngle(camYaw + Math.atan2(nx, -ny));
+  return out;
 }
 
 /**
- * Chase camera yaw. It follows the kart and leans a little into a slide,
- * so "stick left" stays "turn left" as the view swings around.
+ * Update the latch for one sample. While the pull is engaged but still in
+ * the dead zone, the thumb-down camera is kept. The first aimed angle does
+ * not move that camera. Only a swing larger than `STICK_RELATCH` re-latches
+ * onto `liveCam`.
+ */
+export function stepAimLatch(
+  latch: AimLatch,
+  liveCam: number,
+  dx: number,
+  dy: number,
+  r = STICK_RADIUS,
+) {
+  if (!latch.engaged) {
+    latch.angle = null;
+    return;
+  }
+  const c = clampStick(dx, dy, r, scratchClamp);
+  const nx = c.x / r;
+  const ny = c.y / r;
+  if (Math.hypot(nx, ny) <= STICK_DEAD) return;
+  const ang = Math.atan2(nx, -ny);
+  if (latch.angle === null) {
+    latch.angle = ang;
+    return;
+  }
+  if (Math.abs(wrapAngle(ang - latch.angle)) > STICK_RELATCH) {
+    latch.cam = liveCam;
+    latch.angle = ang;
+  }
+}
+
+/**
+ * Chase camera yaw. It follows the kart and leans a little into a slide.
+ * The stick does not read this live value while a pull is held.
  */
 export function chaseCamYaw(
   cam: number,

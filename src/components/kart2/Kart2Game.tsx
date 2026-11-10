@@ -26,7 +26,7 @@ import {
 } from "@/lib/kart2/livery";
 import { wrapAngle } from "@/lib/kart2/math";
 import { createKart, stepKart, DT, type Kart2Input, type Kart2State } from "@/lib/kart2/physics";
-import { chaseCamYaw, clampStick, STICK_RADIUS, stickCommand } from "@/lib/kart2/stick";
+import { chaseCamYaw, clampStick, emptyAimLatch, engageAim, releaseAim, STICK_RADIUS, stepAimLatch, stickCommand, type StickCmd } from "@/lib/kart2/stick";
 import { buildTrack, type Kart2Track } from "@/lib/kart2/track";
 import { kmhToDisplay, readSpeedUnit, SPEED_UNIT_EVENT, type SpeedUnit } from "@/lib/speed-units";
 import Link from "next/link";
@@ -70,7 +70,7 @@ function saveBest(id: string, seconds: number) {
 }
 
 type Keys = { up: boolean; down: boolean; left: boolean; right: boolean; drift: boolean };
-type Stick = { pointerId: number; dx: number; dy: number };
+type Stick = { pointerId: number; dx: number; dy: number; ox: number; oy: number };
 
 function capture(el: HTMLElement, pointerId: number) {
   try {
@@ -132,8 +132,10 @@ export function Kart2Game() {
   const camRef = useRef(0);
   const audioRef = useRef<KartAudio | null>(null);
   const keys = useRef<Keys>({ up: false, down: false, left: false, right: false, drift: false });
-  const stick = useRef<Stick>({ pointerId: -1, dx: 0, dy: 0 });
+  const stick = useRef<Stick>({ pointerId: -1, dx: 0, dy: 0, ox: 0, oy: 0 });
   const stickAngle = useRef({ active: false, angle: 0 });
+  const aimLatch = useRef(emptyAimLatch());
+  const yawSample = useRef({ heading: 0, at: 0, yaw: 0 });
   const unitRef = useRef<SpeedUnit>("mph");
   const bestRef = useRef(0);
   const tickRef = useRef(0);
@@ -221,14 +223,20 @@ export function Kart2Game() {
       );
     }
 
+    const cmdBuf: StickCmd = { active: false, x: 0, y: 0, throttle: 0, heading: 0 };
+
     function readInput(cam: number): Kart2Input {
       let dx = 0;
       let dy = 0;
       let drift = keys.current.drift;
       const pad = navigator.getGamepads?.()[0];
+      let padOn = false;
       if (pad) {
-        const pressed = pad.buttons.map((button) => button.pressed);
-        if (pressed[9] && !padButtons.current[9]) {
+        const buttons = pad.buttons;
+        const held = padButtons.current;
+        const n = buttons.length;
+        while (held.length < n) held.push(false);
+        if (n > 9 && buttons[9]!.pressed && !held[9]) {
           if (phaseRef.current === "racing") {
             phaseRef.current = "paused";
             setPhase("paused");
@@ -237,32 +245,42 @@ export function Kart2Game() {
             setPhase("racing");
           }
         }
-        padButtons.current = pressed;
-        drift = drift || Boolean(pressed[1] || pressed[5]);
-      }
-      if (stick.current.pointerId >= 0) {
-        dx = stick.current.dx;
-        dy = stick.current.dy;
-      } else if (pad && (Math.hypot(pad.axes[0] ?? 0, pad.axes[1] ?? 0) > 0.18 || (pad.buttons[7]?.value ?? 0) > 0.12)) {
+        for (let i = 0; i < n; i += 1) held[i] = buttons[i]!.pressed;
+        drift = drift || Boolean(held[1] || held[5]);
         const ax = pad.axes[0] ?? 0;
         const ay = pad.axes[1] ?? 0;
-        if (Math.hypot(ax, ay) > 0.18) {
-          dx = ax * STICK_RADIUS;
-          dy = ay * STICK_RADIUS;
-        } else {
-          dy = -(pad.buttons[7]?.value ?? 0) * STICK_RADIUS;
+        padOn = Math.hypot(ax, ay) > 0.18 || (buttons[7]?.value ?? 0) > 0.12;
+        if (padOn) {
+          if (Math.hypot(ax, ay) > 0.18) {
+            dx = ax * STICK_RADIUS;
+            dy = ay * STICK_RADIUS;
+          } else {
+            dy = -(buttons[7]?.value ?? 0) * STICK_RADIUS;
+          }
         }
-      } else {
+      }
+      const pointer = stick.current.pointerId >= 0;
+      if (pointer) {
+        dx = stick.current.dx;
+        dy = stick.current.dy;
+      } else if (!padOn) {
         const k = keys.current;
         dx = (Number(k.right) - Number(k.left)) * STICK_RADIUS;
         dy = (Number(k.down) - Number(k.up)) * STICK_RADIUS;
       }
-      const cmd = stickCommand(dx, dy, cam);
+      const keyOn = keys.current.up || keys.current.down || keys.current.left || keys.current.right;
+      const engaged = pointer || padOn || keyOn;
+      const latch = aimLatch.current;
+      if (engaged && !latch.engaged) engageAim(latch, cam);
+      if (!engaged) releaseAim(latch);
+      else stepAimLatch(latch, cam, dx, dy);
+      const cmd = stickCommand(dx, dy, latch.cam, STICK_RADIUS, cmdBuf);
       let omega = 0;
       if (cmd.active) {
         const angle = Math.atan2(cmd.x, -cmd.y);
         if (stickAngle.current.active) omega = wrapAngle(angle - stickAngle.current.angle) / DT;
-        stickAngle.current = { active: true, angle };
+        stickAngle.current.active = true;
+        stickAngle.current.angle = angle;
       } else {
         stickAngle.current.active = false;
       }
@@ -310,6 +328,19 @@ export function Kart2Game() {
         probe.dataset.y = kart.y.toFixed(2);
         probe.dataset.heading = String(kart.heading);
         probe.dataset.cam = String(camRef.current);
+        probe.dataset.latch = aimLatch.current.cam.toFixed(4);
+        const nowS = now / 1000;
+        const sampleDt = nowS - yawSample.current.at;
+        if (sampleDt > 0.02) {
+          yawSample.current.yaw = wrapAngle(kart.heading - yawSample.current.heading) / sampleDt;
+          yawSample.current.heading = kart.heading;
+          yawSample.current.at = nowS;
+        }
+        probe.dataset.yaw = yawSample.current.yaw.toFixed(4);
+        const along =
+          Math.sin(kart.heading) * track.tx[kart.hit.index]! +
+          Math.cos(kart.heading) * track.ty[kart.hit.index]!;
+        probe.dataset.along = along.toFixed(3);
         probe.dataset.speed = kart.speed.toFixed(3);
         probe.dataset.s = kart.s.toFixed(2);
         probe.dataset.drift = kart.drifting ? "1" : "0";
@@ -329,36 +360,39 @@ export function Kart2Game() {
       let minY = Infinity;
       let maxY = -Infinity;
       for (let i = 0; i < track.count; i += 3) {
-        minX = Math.min(minX, track.px[i]!);
-        maxX = Math.max(maxX, track.px[i]!);
-        minY = Math.min(minY, track.py[i]!);
-        maxY = Math.max(maxY, track.py[i]!);
+        const px = track.px[i]!;
+        const py = track.py[i]!;
+        if (px < minX) minX = px;
+        if (px > maxX) maxX = px;
+        if (py < minY) minY = py;
+        if (py > maxY) maxY = py;
       }
       const span = Math.max(maxX - minX, maxY - minY) || 1;
-      const map = (x: number, y: number) => ({
-        x: ((x - minX) / span) * (w - 10) + 5,
-        y: h - (((y - minY) / span) * (h - 10) + 5),
-      });
+      const sx = (w - 10) / span;
+      const sy = (h - 10) / span;
       ctx.fillStyle = "#142018";
       ctx.fillRect(0, 0, w, h);
       ctx.strokeStyle = "#d7d3c8";
       ctx.lineWidth = 2;
       ctx.beginPath();
       for (let i = 0; i < track.count; i += 2) {
-        const p = map(track.px[i]!, track.py[i]!);
-        if (i === 0) ctx.moveTo(p.x, p.y);
-        else ctx.lineTo(p.x, p.y);
+        const x = ((track.px[i]! - minX) * sx) + 5;
+        const y = h - (((track.py[i]! - minY) * sy) + 5);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
       }
       ctx.closePath();
       ctx.stroke();
       if (ghost.active) {
-        const g = map(ghost.x, ghost.y);
+        const gx = ((ghost.x - minX) * sx) + 5;
+        const gy = h - (((ghost.y - minY) * sy) + 5);
         ctx.fillStyle = "#9fd7ff";
-        ctx.fillRect(g.x - 2, g.y - 2, 4, 4);
+        ctx.fillRect(gx - 2, gy - 2, 4, 4);
       }
-      const c = map(kart.x, kart.y);
+      const cx = ((kart.x - minX) * sx) + 5;
+      const cy = h - (((kart.y - minY) * sy) + 5);
       ctx.fillStyle = "#ff5a1f";
-      ctx.fillRect(c.x - 2, c.y - 2, 5, 5);
+      ctx.fillRect(cx - 2, cy - 2, 5, 5);
     }
     let raf = 0;
     let last = performance.now();
@@ -509,8 +543,15 @@ export function Kart2Game() {
       return;
     }
     if (phaseRef.current !== "ready") return;
-    keys.current = { up: false, down: false, left: false, right: false, drift: false };
-    stick.current = { pointerId: -1, dx: 0, dy: 0 };
+    keys.current.up = false;
+    keys.current.down = false;
+    keys.current.left = false;
+    keys.current.right = false;
+    keys.current.drift = false;
+    stick.current.pointerId = -1;
+    stick.current.dx = 0;
+    stick.current.dy = 0;
+    releaseAim(aimLatch.current);
     const kart = createKart(track, liveryStats(liveryRef.current));
     kartRef.current = kart;
     camRef.current = kart.heading;
@@ -569,12 +610,12 @@ export function Kart2Game() {
   function moveStick(event: React.PointerEvent<HTMLDivElement>) {
     if (stick.current.pointerId !== event.pointerId) return;
     const area = stickArea.current;
-    const base = stickBase.current;
-    if (!area || !base) return;
+    if (!area) return;
     const rect = area.getBoundingClientRect();
-    const ox = base.offsetLeft + STICK_RADIUS;
-    const oy = base.offsetTop + STICK_RADIUS;
-    const clamped = clampStick(event.clientX - rect.left - ox, event.clientY - rect.top - oy);
+    const clamped = clampStick(
+      event.clientX - rect.left - stick.current.ox,
+      event.clientY - rect.top - stick.current.oy,
+    );
     stick.current.dx = clamped.x;
     stick.current.dy = clamped.y;
     if (stickKnob.current) {
@@ -584,9 +625,27 @@ export function Kart2Game() {
 
   function endStick(event: React.PointerEvent<HTMLDivElement>) {
     if (stick.current.pointerId !== event.pointerId && stick.current.pointerId !== -1) return;
-    stick.current = { pointerId: -1, dx: 0, dy: 0 };
+    stick.current.pointerId = -1;
+    stick.current.dx = 0;
+    stick.current.dy = 0;
+    releaseAim(aimLatch.current);
     if (stickBase.current) stickBase.current.style.opacity = "0";
     if (stickKnob.current) stickKnob.current.style.transform = "translate(0px, 0px)";
+  }
+
+  /** Draw the ring in the lower third, below the thumb, so it misses the kart. */
+  function placeStickRing(thumbX: number, thumbY: number) {
+    const area = stickArea.current;
+    const base = stickBase.current;
+    if (!area || !base) return;
+    const rect = area.getBoundingClientRect();
+    const localX = thumbX - rect.left;
+    const localY = thumbY - rect.top;
+    const lower = rect.height * (2 / 3);
+    const centerY = Math.min(rect.height - STICK_RADIUS - 8, Math.max(lower, localY + STICK_RADIUS));
+    base.style.left = `${localX - STICK_RADIUS}px`;
+    base.style.top = `${centerY - STICK_RADIUS}px`;
+    base.style.opacity = "1";
   }
 
   const level = getKart2Level(trackId);
@@ -701,12 +760,13 @@ export function Kart2Game() {
             stick.current.dx = 0;
             stick.current.dy = 0;
             const area = stickArea.current;
-            const base = stickBase.current;
-            if (!area || !base) return;
+            if (!area) return;
             const rect = area.getBoundingClientRect();
-            base.style.left = `${event.clientX - rect.left - STICK_RADIUS}px`;
-            base.style.top = `${event.clientY - rect.top - STICK_RADIUS}px`;
-            base.style.opacity = "1";
+            stick.current.ox = event.clientX - rect.left;
+            stick.current.oy = event.clientY - rect.top;
+            // Thumb-down camera. The first aim keeps this yaw (#58).
+            engageAim(aimLatch.current, camRef.current);
+            placeStickRing(event.clientX, event.clientY);
             if (stickKnob.current) stickKnob.current.style.transform = "translate(0px, 0px)";
             capture(event.currentTarget, event.pointerId);
           }}

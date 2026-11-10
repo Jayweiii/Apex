@@ -46,7 +46,11 @@ function toonMap(): THREE.DataTexture {
 }
 
 function toon(color: THREE.ColorRepresentation, gradient: THREE.DataTexture, map?: THREE.Texture) {
-  return new THREE.MeshToonMaterial({ color, gradientMap: gradient, map });
+  return new THREE.MeshToonMaterial({
+    color,
+    gradientMap: gradient,
+    ...(map ? { map } : {}),
+  });
 }
 
 function liveryTexture(livery: Livery): THREE.CanvasTexture {
@@ -407,7 +411,7 @@ export function createKart2View(
   );
   {
     const i = 4;
-    const [tx, ty, tz] = enu(track.px[i]!, track.py[i]!, track.pz[i]! + 3.1);
+    const [tx, ty, tz] = enu(track.px[i]!, track.py[i]!, track.pz[i]! + 4.8);
     banner.position.set(tx, ty, tz);
     banner.rotation.y = -Math.atan2(track.tx[i]!, track.ty[i]!);
     scene.add(banner);
@@ -415,16 +419,21 @@ export function createKart2View(
       const post = new THREE.Mesh(new THREE.BoxGeometry(0.18, 3.2, 0.18), toon("#f4f1ea", gradient));
       const x = track.px[i]! + -track.ty[i]! * side * track.halfWidth;
       const y = track.py[i]! + track.tx[i]! * side * track.halfWidth;
-      const [px, py, pz] = enu(x, y, track.pz[i]! + 1.6);
+      const [px, py, pz] = enu(x, y, track.pz[i]! + 2.4);
       post.position.set(px, py, pz);
       scene.add(post);
     }
   }
 
+  // Distant clouds sit on the horizon and face the camera. Box meshes up
+  // in the sky read as flat grey slabs.
+  const cloudGeo = new THREE.PlaneGeometry(22, 7);
+  const cloudMat = toon("#e7f3fb", gradient);
   const clouds: THREE.Mesh[] = [];
   for (let i = 0; i < 6; i += 1) {
-    const cloud = new THREE.Mesh(new THREE.BoxGeometry(14, 3, 6), toon("#f7fbff", gradient));
-    cloud.position.set(-80 + i * 36, 28 + (i % 3) * 4, -40 + (i % 2) * 50);
+    const cloud = new THREE.Mesh(cloudGeo, cloudMat);
+    const ang = (i / 6) * Math.PI * 2;
+    cloud.position.set(Math.cos(ang) * 170, 3.2 + (i % 3) * 1.4, Math.sin(ang) * 170);
     scene.add(cloud);
     clouds.push(cloud);
   }
@@ -524,8 +533,8 @@ export function createKart2View(
     const rx = Math.cos(camYaw);
     const rz = Math.sin(camYaw);
     const [kx, ky, kz] = enu(kart.x, kart.y, kart.z);
-    const dist = orbit ? 16 : 8.6;
-    const height = orbit ? 7.2 : 3.55 + Math.min(1.2, kart.speed * 0.03);
+    const dist = orbit ? 14 : 9.2;
+    const height = orbit ? 6.4 : 3.8 + Math.min(0.8, kart.speed * 0.02);
     const desiredX = kx - fx * dist + rx * kart.slip * 1.1;
     const desiredY = ky + height;
     const desiredZ = kz - fz * dist + rz * kart.slip * 1.1;
@@ -533,9 +542,13 @@ export function createKart2View(
     camPos.x += (desiredX - camPos.x) * blend;
     camPos.y += (desiredY - camPos.y) * blend;
     camPos.z += (desiredZ - camPos.z) * blend;
-    look.set(kx + fx * 6.5, ky + 0.8, kz + fz * 6.5);
+    // Aim just below the kart so it sits in the upper-middle. The stick ring
+    // is drawn in the lower third, so the two don't overlap. A harder pitch
+    // put the start gantry across the lens.
+    look.set(kx + fx * 5.4, ky + 0.05, kz + fz * 5.4);
     camera.position.copy(camPos);
     camera.lookAt(look);
+    camera.rotateX(-0.07);
     camera.fov = 60 + Math.min(8, kart.speed * 0.12) + (kart.boost > 0 ? 6 : 0);
     camera.updateProjectionMatrix();
 
@@ -584,21 +597,31 @@ export function createKart2View(
     (pGeo.attributes.color as THREE.BufferAttribute).needsUpdate = true;
 
     for (let i = 0; i < clouds.length; i += 1) {
-      clouds[i]!.position.x += dt * (1.5 + i * 0.2);
-      if (clouds[i]!.position.x > 140) clouds[i]!.position.x = -140;
+      const cloud = clouds[i]!;
+      cloud.lookAt(camera.position.x, cloud.position.y, camera.position.z);
     }
     renderer.render(scene, camera);
   }
 
   function dispose() {
     renderer.dispose();
+    const mats = new Set<THREE.Material>();
+    const geos = new Set<THREE.BufferGeometry>();
+    const maps = new Set<THREE.Texture>();
     scene.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
-      mesh.geometry?.dispose();
+      if (mesh.geometry) geos.add(mesh.geometry);
       const material = mesh.material as THREE.Material | THREE.Material[] | undefined;
       const list = Array.isArray(material) ? material : material ? [material] : [];
-      for (const m of list) m.dispose();
+      for (const m of list) mats.add(m);
     });
+    for (const m of mats) {
+      const mapped = m as THREE.MeshToonMaterial;
+      if (mapped.map) maps.add(mapped.map);
+      m.dispose();
+    }
+    for (const map of maps) map.dispose();
+    for (const geo of geos) geo.dispose();
     gradient.dispose();
   }
 

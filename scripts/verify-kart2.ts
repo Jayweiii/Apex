@@ -12,7 +12,7 @@ import {
   serializeLivery,
   type Livery,
 } from "../src/lib/kart2/livery";
-import { leftTurn } from "../src/lib/kart2/math";
+import { leftTurn, wrapAngle } from "../src/lib/kart2/math";
 import {
   createKart,
   neutralInput,
@@ -21,7 +21,7 @@ import {
   type Kart2Input,
   type Kart2State,
 } from "../src/lib/kart2/physics";
-import { chaseCamYaw, STICK_RADIUS, stickCommand } from "../src/lib/kart2/stick";
+import { chaseCamYaw, emptyAimLatch, engageAim, STICK_RADIUS, stepAimLatch, stickCommand } from "../src/lib/kart2/stick";
 import { buildTrack, type Kart2Track } from "../src/lib/kart2/track";
 import { THUNDERHILL_WEST_ALT_M } from "../src/lib/kart2/levels/thunderhill-west";
 
@@ -47,32 +47,59 @@ const stats = liveryStats(parseLivery(null));
   assert(!dead.active && dead.throttle === 0, "dead zone releases the stick");
 }
 
-// ── Holding screen-left turns the kart left and it always drives forward ──
+// ── Held screen-left under a following camera settles; it does not spin ──
+// Latch the camera at engage, the way a thumb-down does. One held direction
+// is one world heading. Total yaw stays near 90°, and along-track progress
+// does not keep falling (the kart is not driving back down the circuit).
 {
   const kart = createKart(west, stats);
+  kart.vx = Math.sin(kart.heading) * 16;
+  kart.vy = Math.cos(kart.heading) * 16;
   let cam = kart.heading;
+  const latch = emptyAimLatch(cam);
+  engageAim(latch, cam);
   const h0 = kart.heading;
-  let minFwd = Infinity;
-  for (let i = 0; i < 90; i += 1) {
-    const cmd = stickCommand(-STICK_RADIUS, 0, cam);
-    const prevAngle = i === 0 ? cmd.heading : stickCommand(-STICK_RADIUS, 0, cam).heading;
-    const input: Kart2Input = {
-      active: true,
-      heading: cmd.heading,
-      throttle: cmd.throttle,
-      stickOmega: 0,
-      drift: false,
-    };
-    void prevAngle;
-    stepKart(kart, input, west, DT);
+  let prevH = h0;
+  let totalYaw = 0;
+  let lateYaw = 0;
+  let prevS = kart.s;
+  let alongS = 0;
+  let minAlong = 1;
+  const seconds = 6;
+  for (let i = 0; i < seconds * 60; i += 1) {
+    stepAimLatch(latch, cam, -STICK_RADIUS, 0);
+    const cmd = stickCommand(-STICK_RADIUS, 0, latch.cam);
+    stepKart(
+      kart,
+      { active: cmd.active, heading: cmd.heading, throttle: cmd.throttle, stickOmega: 0, drift: false },
+      west,
+      DT,
+    );
     cam = chaseCamYaw(cam, kart.heading, kart.slip, DT);
-    const fx = Math.sin(kart.heading);
-    const fy = Math.cos(kart.heading);
-    minFwd = Math.min(minFwd, kart.vx * fx + kart.vy * fy);
+    const yawStep = Math.abs(wrapAngle(kart.heading - prevH));
+    if (i >= (seconds - 1) * 60) lateYaw = Math.max(lateYaw, yawStep / DT);
+    totalYaw += yawStep;
+    prevH = kart.heading;
+    let ds = kart.s - prevS;
+    const len = west.length;
+    if (ds > len * 0.5) ds -= len;
+    if (ds < -len * 0.5) ds += len;
+    alongS += ds;
+    prevS = kart.s;
+    const nose =
+      Math.sin(kart.heading) * west.tx[kart.hit.index]! +
+      Math.cos(kart.heading) * west.ty[kart.hit.index]!;
+    if (i > 15) minAlong = Math.min(minAlong, nose);
   }
+  const goal = wrapAngle(latch.cam - Math.PI / 2);
+  const err = Math.abs(wrapAngle(kart.heading - goal));
+  assert(latch.angle !== null, "a held stick keeps the engage latch");
   assert(kart.turnedLeft > 0.7, `screen-left turns left (${kart.turnedLeft.toFixed(2)} rad)`);
-  assert(kart.speed > 6, `stick moves the kart (${kart.speed.toFixed(1)} m/s)`);
-  assert(minFwd > -0.2, "the kart does not drive in reverse");
+  assert(totalYaw < 2.2, `held direction does not keep yawing (total ${totalYaw.toFixed(2)} rad)`);
+  assert(err < 0.3, `settles within 90° ± 0.3 of the latch (err ${err.toFixed(3)} rad)`);
+  assert(lateYaw < 0.2, `late yaw stays below 0.2 rad/s (${lateYaw.toFixed(3)})`);
+  assert(alongS > -8, `track progress does not keep falling (${alongS.toFixed(1)} m)`);
+  assert(minAlong > -0.35, `not facing back down the track (min along ${minAlong.toFixed(3)})`);
 }
 
 // ── Releasing the stick brakes to a stop ──

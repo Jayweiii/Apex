@@ -31,7 +31,7 @@ test.describe("Apex Kart rebuild", () => {
     const area = page.locator("[data-apex-kart2-stick-area]");
     const ab = (await area.boundingBox())!;
     const ox = ab.x + ab.width / 2;
-    const oy = ab.y + ab.height * 0.55;
+    const oy = ab.y + ab.height * 0.78;
     const pointerType = isMobile ? "touch" : "mouse";
     const ptr = (x: number, y: number) => ({
       pointerId: 7,
@@ -54,16 +54,21 @@ test.describe("Apex Kart rebuild", () => {
       .toBeGreaterThan(8);
     await area.dispatchEvent("pointerup", ptr(ox, oy - 70));
 
-    const before = await read();
-    const beforeLeft = Number(await probe.getAttribute("data-left"));
+    // Held screen-left must settle on one heading. A live chase-camera
+    // mapping keeps turning and ends up driving back down the track.
+    const holdFrom = await read();
     await area.dispatchEvent("pointerdown", ptr(ox, oy));
     await area.dispatchEvent("pointermove", ptr(ox - 80, oy));
-    await expect
-      .poll(async () => Number(await probe.getAttribute("data-left")) - beforeLeft, { timeout: 8_000 })
-      .toBeGreaterThan(0.35);
-    const after = await read();
-    expect(after.speed).toBeGreaterThan(1);
-    expect(after.tick).toBeGreaterThan(before.tick);
+    await page.waitForTimeout(2200);
+    const ang = (a: number, b: number) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
+    const settled = await read();
+    const latch = Number(await probe.getAttribute("data-latch"));
+    const along = Number(await probe.getAttribute("data-along"));
+    const yaw = Number(await probe.getAttribute("data-yaw"));
+    expect(ang(settled.heading, latch - Math.PI / 2)).toBeLessThan(0.35);
+    expect(Math.abs(yaw)).toBeLessThan(0.2);
+    expect(along).toBeGreaterThan(-0.35);
+    expect(ang(settled.heading, holdFrom.heading)).toBeGreaterThan(0.4);
     await area.dispatchEvent("pointerup", ptr(ox - 80, oy));
 
     for (const selector of ["[data-apex-kart2-back]", "[data-apex-kart2-pause]", "[data-apex-kart2-mute]"]) {
