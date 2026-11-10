@@ -332,12 +332,26 @@ export function DriveHub() {
         ) : null}
 
         <Link
+          href="/rush"
+          data-apex-rush-entry="1"
+          className="flex min-h-12 items-center justify-between gap-3 rounded-xl border border-yellow-400/50 bg-yellow-400/10 px-4 py-3 text-sm"
+        >
+          <span>
+            <span className="font-semibold text-yellow-200">New: Apex Rush</span>
+            <span className="block text-xs text-zinc-400">
+              3D pixel kart racing on four real circuits, with ghosts of real laps
+            </span>
+          </span>
+          <span aria-hidden className="text-yellow-300">→</span>
+        </Link>
+
+        <Link
           href="/kart"
           data-apex-kart-entry="1"
           className="flex min-h-12 items-center justify-between gap-3 rounded-xl border border-orange-500/40 bg-orange-500/10 px-4 py-3 text-sm"
         >
           <span>
-            <span className="font-semibold text-orange-200">New: Apex Kart</span>
+            <span className="font-semibold text-orange-200">Apex Kart</span>
             <span className="block text-xs text-zinc-400">
               Pixel kart drifting on Thunder Hills (beta)
             </span>

@@ -1,0 +1,170 @@
+/* Apex Rush: chunky pixel UI. Hover styles only under (hover: hover). */
+.rush {
+  --rush-ink: #14151a;
+  --rush-gold: #ffd60a;
+  --rush-hot: #ff5400;
+  font-family: var(--font-rush), ui-monospace, monospace;
+  letter-spacing: 0.02em;
+}
+.rush-canvas {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+.rush-panel {
+  border: 3px solid #f8f9fa;
+  background: #1b1d26;
+  box-shadow: 6px 6px 0 rgb(0 0 0 / 0.55);
+}
+.rush-btn {
+  display: inline-flex;
+  min-height: 48px;
+  min-width: 48px;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: 3px solid var(--rush-ink);
+  background: #f8f9fa;
+  color: var(--rush-ink);
+  padding: 0.5rem 1rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  box-shadow: 4px 4px 0 var(--rush-ink);
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+.rush-btn--go {
+  background: var(--rush-gold);
+}
+.rush-btn--hot {
+  background: var(--rush-hot);
+  color: #fff;
+}
+.rush-btn--ghost {
+  background: #2a2d3a;
+  color: #f8f9fa;
+  border-color: #f8f9fa;
+  box-shadow: 4px 4px 0 rgb(0 0 0 / 0.6);
+}
+.rush-btn:active {
+  transform: translate(3px, 3px);
+  box-shadow: 1px 1px 0 var(--rush-ink);
+}
+.rush-btn:focus-visible,
+.rush-card:focus-visible,
+.rush-swatch:focus-visible,
+.rush-seg button:focus-visible {
+  outline: 3px solid #4cc9f0;
+  outline-offset: 2px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .rush-btn:hover {
+    filter: brightness(1.08);
+  }
+  .rush-card:hover {
+    border-color: #adb5bd;
+  }
+}
+.rush-seg {
+  display: inline-flex;
+  border: 3px solid #f8f9fa;
+  background: #14151a;
+}
+.rush-seg button {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0.35rem 0.8rem;
+  color: #adb5bd;
+  font-weight: 700;
+  text-transform: uppercase;
+  touch-action: manipulation;
+}
+.rush-seg button[aria-pressed="true"] {
+  background: var(--rush-gold);
+  color: var(--rush-ink);
+}
+.rush-seg button:active {
+  filter: brightness(0.85);
+}
+.rush-card {
+  display: block;
+  width: 100%;
+  border: 3px solid #495057;
+  background: #1b1d26;
+  padding: 0.6rem;
+  text-align: left;
+  color: #f8f9fa;
+  touch-action: manipulation;
+}
+.rush-card[aria-checked="true"] {
+  border-color: var(--rush-gold);
+  background: #262a38;
+  box-shadow: 4px 4px 0 rgb(0 0 0 / 0.55);
+}
+.rush-card:active {
+  transform: translate(2px, 2px);
+}
+.rush-swatch {
+  height: 44px;
+  width: 44px;
+  border: 3px solid #14151a;
+  touch-action: manipulation;
+}
+.rush-swatch[aria-checked="true"] {
+  border-color: #f8f9fa;
+  box-shadow: 0 0 0 3px var(--rush-gold);
+}
+.rush-swatch:active {
+  transform: scale(0.92);
+}
+.rush-hud {
+  color: #fff;
+  text-shadow:
+    2px 2px 0 #14151a,
+    -1px -1px 0 #14151a,
+    1px -1px 0 #14151a,
+    -1px 1px 0 #14151a;
+}
+.rush-flash {
+  font-size: clamp(3rem, 16vw, 7rem);
+  font-weight: 700;
+  color: var(--rush-gold);
+  text-shadow:
+    5px 5px 0 #14151a,
+    -2px -2px 0 #14151a,
+    2px -2px 0 #14151a,
+    -2px 2px 0 #14151a;
+}
+.rush-speedlines {
+  background: repeating-conic-gradient(from 0deg at 50% 46%, transparent 0deg 5deg, rgb(255 255 255 / 0.16) 5deg 6deg);
+  -webkit-mask-image: radial-gradient(circle at 50% 46%, transparent 34%, #000 78%);
+  mask-image: radial-gradient(circle at 50% 46%, transparent 34%, #000 78%);
+  opacity: 0;
+  transition: opacity 120ms linear;
+}
+.rush-stick {
+  border: 3px solid rgb(255 255 255 / 0.75);
+  background: rgb(20 21 26 / 0.35);
+  border-radius: 9999px;
+  border-left-color: #4cc9f0;
+  border-right-color: #4cc9f0;
+}
+.rush-knob {
+  border: 3px solid #14151a;
+  background: #f8f9fa;
+  border-radius: 9999px;
+}
+.rush-bar {
+  height: 10px;
+  border: 2px solid #14151a;
+  background: #2a2d3a;
+}
+.rush-title {
+  font-size: clamp(2.2rem, 10vw, 4.5rem);
+  font-weight: 700;
+  line-height: 0.95;
+  color: var(--rush-gold);
+  text-shadow:
+    4px 4px 0 #ff5400,
+    8px 8px 0 #14151a;
+}
