@@ -1,6 +1,6 @@
 "use client";
 
-import { guardPlaySurface, lockPageOverscroll } from "@/components/kart/touch-guard";
+import { attachTouchDebug, guardPlaySurface, lockPageOverscroll } from "@/components/kart/touch-guard";
 import type { DriveTrackPayload } from "@/lib/drive/types";
 import type { RushAudio } from "@/lib/rush/audio";
 import { statsFor, type KartLook } from "@/lib/rush/garage";
@@ -37,6 +37,8 @@ type Results = {
   ghostMs: number;
 };
 
+/** Stick ids from the touch fallback, kept apart from pointer ids. */
+const TOUCH_ID_BASE = 1_000_000;
 const ORDINAL = ["1ST", "2ND", "3RD", "4TH", "5TH", "6TH", "7TH", "8TH"];
 const INTRO_S = 3.2;
 const COUNTDOWN_S = 3;
@@ -123,6 +125,8 @@ export function RushRace({
   const nitroEl = useRef<HTMLDivElement | null>(null);
   const stickBase = useRef<HTMLDivElement | null>(null);
   const stickKnob = useRef<HTMLDivElement | null>(null);
+  const debugPanel = useRef<HTMLPreElement | null>(null);
+  const placeStickRef = useRef<() => void>(() => {});
 
   const keys = useRef({ left: false, right: false, up: false, down: false, drift: false, item: false });
   const stick = useRef({ id: -1, ox: 0, oy: 0, dx: 0, dy: 0 });
@@ -167,7 +171,74 @@ export function RushRace({
         html.style.overflow = prevOverflow;
       },
     ];
-    if (surfaceRef.current) cleanups.push(guardPlaySurface(surfaceRef.current));
+    const surface = surfaceRef.current;
+    if (surface) {
+      cleanups.push(guardPlaySurface(surface));
+      // Touch fallback. iOS normally sends pointer events, but if it doesn't
+      // (seen after a long scroll in the garage), drive the stick from the
+      // touches themselves. Pointer events win when both arrive.
+      const local = (t: Touch) => {
+        const rect = surface.getBoundingClientRect();
+        return { x: t.clientX - rect.left, y: t.clientY - rect.top };
+      };
+      const onTouchStart = (e: TouchEvent) => {
+        const st = stick.current;
+        if (st.id >= 0) return;
+        const t = e.changedTouches[0];
+        if (!t || (e.target instanceof Element && e.target.closest("button"))) return;
+        const p = local(t);
+        st.id = TOUCH_ID_BASE + t.identifier;
+        st.ox = p.x;
+        st.oy = p.y;
+        st.dx = 0;
+        st.dy = 0;
+        audioRef.current?.unlock();
+        placeStickRef.current();
+      };
+      const onTouchMove = (e: TouchEvent) => {
+        const st = stick.current;
+        for (const t of Array.from(e.changedTouches)) {
+          if (st.id !== TOUCH_ID_BASE + t.identifier) continue;
+          const p = local(t);
+          st.dx = p.x - st.ox;
+          st.dy = p.y - st.oy;
+          placeStickRef.current();
+        }
+      };
+      const onTouchEnd = (e: TouchEvent) => {
+        const st = stick.current;
+        for (const t of Array.from(e.changedTouches)) {
+          if (st.id !== TOUCH_ID_BASE + t.identifier) continue;
+          st.id = -1;
+          st.dx = 0;
+          st.dy = 0;
+          placeStickRef.current();
+        }
+      };
+      surface.addEventListener("touchstart", onTouchStart);
+      surface.addEventListener("touchmove", onTouchMove);
+      surface.addEventListener("touchend", onTouchEnd);
+      surface.addEventListener("touchcancel", onTouchEnd);
+      cleanups.push(() => {
+        surface.removeEventListener("touchstart", onTouchStart);
+        surface.removeEventListener("touchmove", onTouchMove);
+        surface.removeEventListener("touchend", onTouchEnd);
+        surface.removeEventListener("touchcancel", onTouchEnd);
+      });
+    }
+    // ?debug=1: on-screen touch log to screenshot on a phone.
+    const panel = debugPanel.current;
+    if (panel && new URLSearchParams(window.location.search).get("debug") === "1") {
+      panel.hidden = false;
+      cleanups.push(
+        attachTouchDebug(panel, () => {
+          const st = stick.current;
+          const c = canvasRef.current;
+          const kind = st.id < 0 ? "up" : st.id >= TOUCH_ID_BASE ? "touch" : "pointer";
+          return `${phaseRef.current} · stick ${kind} dx${Math.round(st.dx)} dy${Math.round(st.dy)} · ${c?.dataset.rushSpeed ?? "?"} m/s · scroll ${Math.round(window.scrollY)}`;
+        }),
+      );
+    }
     return () => {
       for (const fn of cleanups) fn();
     };
@@ -614,6 +685,9 @@ export function RushRace({
     const k = len > STICK_RADIUS ? STICK_RADIUS / len : 1;
     knob.style.transform = `translate(${st.dx * k}px, ${st.dy * k}px)`;
   };
+  useEffect(() => {
+    placeStickRef.current = placeStick;
+  });
   const onStickDown = (e: React.PointerEvent<HTMLDivElement>) => {
     audioRef.current?.unlock();
     const st = stick.current;
@@ -676,6 +750,13 @@ export function RushRace({
           <div ref={stickKnob} className="rush-knob absolute" style={{ left: STICK_RADIUS - 22, top: STICK_RADIUS - 22, width: 38, height: 38 }} />
         </div>
       </div>
+
+      <pre
+        ref={debugPanel}
+        hidden
+        data-rush-debug="1"
+        className="pointer-events-none absolute bottom-28 left-2 z-[60] max-w-[95%] whitespace-pre-wrap bg-black/75 p-1.5 font-mono text-[10px] leading-tight text-lime-300"
+      />
 
       {/* Always mounted (the race loop writes into it); hidden until there is something to show. */}
       <div

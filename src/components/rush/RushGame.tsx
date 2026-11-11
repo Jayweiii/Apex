@@ -70,11 +70,21 @@ export function RushGame() {
   const audio = useRef<RushAudio | null>(null);
   const [audioReady, setAudioReady] = useState<RushAudio | null>(null);
   useEffect(() => () => audio.current?.dispose(), []);
+  // The menu and garage are long on a phone. Start the race from the top of
+  // the page: iOS can mis-route touches to a full-screen fixed layer while
+  // the document underneath is scrolled. Put the menu back where it was after.
+  const menuScroll = useRef(0);
   const start = useCallback(() => {
     if (!audio.current) audio.current = createRushAudio();
     audio.current.unlock();
     setAudioReady(audio.current);
+    menuScroll.current = window.scrollY;
+    window.scrollTo(0, 0);
     setRacing(true);
+  }, []);
+  const exitRace = useCallback(() => {
+    setRacing(false);
+    requestAnimationFrame(() => window.scrollTo(0, menuScroll.current));
   }, []);
 
   const changeLook = useCallback((next: KartLook) => {
@@ -87,7 +97,7 @@ export function RushGame() {
   return (
     <div className={`${pixel.variable} flex min-h-full flex-1 flex-col bg-[#14151a]`}>
       {racing ? (
-        <RushRace level={level} mode={mode} look={look} settings={settings} onSettings={setSettings} onExit={() => setRacing(false)} audio={audioReady} />
+        <RushRace level={level} mode={mode} look={look} settings={settings} onSettings={setSettings} onExit={exitRace} audio={audioReady} />
       ) : (
         <>
           <AppHeader />

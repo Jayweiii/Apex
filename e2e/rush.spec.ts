@@ -195,6 +195,71 @@ test.describe("Apex Rush", () => {
     });
   }
 
+  test("after garage changes and a long scroll, the stick appears and drives", async ({ page, isMobile }) => {
+    await openMenu(page);
+    await activate(page, '[data-rush-tab="garage"]', isMobile);
+    await activate(page, '[data-rush-body="bubble"]', isMobile);
+    await activate(page, '[data-rush-wheels="chunky"]', isMobile);
+    await activate(page, ".rush-swatch >> nth=27", isMobile);
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    await activate(page, '[data-rush-tab="race"]', isMobile);
+    await page.locator("[data-rush-start]").scrollIntoViewIfNeeded();
+    await activate(page, "[data-rush-start]", isMobile);
+    await expect(canvas(page)).toHaveAttribute("data-rush-phase", "racing", { timeout: 60_000 });
+    // The race starts from the top of the page.
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    const surface = page.locator("[data-rush-surface]");
+    const box = (await surface.boundingBox())!;
+    const x = box.x + box.width / 2;
+    const y = box.y + box.height * 0.8;
+    // The touch lands on the play surface, not on something above it.
+    expect(await page.evaluate(([px, py]) => document.elementFromPoint(px!, py!)?.closest("[data-rush-surface]") !== null, [x, y])).toBe(true);
+    await surface.dispatchEvent("pointerdown", { pointerId: 11, pointerType: isMobile ? "touch" : "mouse", isPrimary: true, clientX: x, clientY: y, bubbles: true });
+    await expect(page.locator(".rush-stick")).toHaveCSS("opacity", "1");
+    await expect.poll(() => num(page, "speed"), { timeout: 15_000 }).toBeGreaterThan(10);
+    await surface.dispatchEvent("pointerup", { pointerId: 11, pointerType: isMobile ? "touch" : "mouse", isPrimary: true, clientX: x, clientY: y, bubbles: true });
+    await expect(page.locator(".rush-stick")).toHaveCSS("opacity", "0");
+  });
+
+  test("touch events alone drive the stick (fallback when no pointer events arrive)", async ({ page, isMobile }) => {
+    test.skip(!isMobile, "needs touch support");
+    await openMenu(page);
+    await activate(page, "[data-rush-start]", isMobile);
+    await expect(canvas(page)).toHaveAttribute("data-rush-phase", "racing", { timeout: 60_000 });
+    const touch = (type: string, dx: number) =>
+      page.evaluate(
+        ([kind, off]) => {
+          const el = document.querySelector("[data-rush-surface]") as HTMLElement;
+          const r = el.getBoundingClientRect();
+          const t = new Touch({ identifier: 3, target: el, clientX: r.left + r.width / 2 + (off as number), clientY: r.top + r.height * 0.8 });
+          const ended = kind === "touchend";
+          el.dispatchEvent(new TouchEvent(kind as string, { touches: ended ? [] : [t], changedTouches: [t], bubbles: true, cancelable: true }));
+        },
+        [type, dx],
+      );
+    await touch("touchstart", 0);
+    await expect(page.locator(".rush-stick")).toHaveCSS("opacity", "1");
+    await expect.poll(() => num(page, "speed"), { timeout: 15_000 }).toBeGreaterThan(10);
+    const h0 = await num(page, "heading");
+    await touch("touchmove", -45);
+    await expect.poll(async () => (await num(page, "heading")) - h0, { timeout: 4_000 }).toBeGreaterThan(0.2);
+    await touch("touchend", -45);
+    await expect(page.locator(".rush-stick")).toHaveCSS("opacity", "0");
+  });
+
+  test("?debug=1 shows the touch log; hidden by default", async ({ page, isMobile }) => {
+    await openMenu(page, "?debug=1");
+    await activate(page, "[data-rush-start]", isMobile);
+    await expect(canvas(page)).toHaveAttribute("data-rush-phase", /intro|countdown|racing/, { timeout: 60_000 });
+    await expect(page.locator("[data-rush-debug]")).toBeVisible();
+    await expect(page.locator("[data-rush-debug]")).toContainText("stick");
+    await page.goto("/rush");
+    await expect(page.locator("[data-rush-menu]")).toBeVisible({ timeout: 90_000 });
+    await activate(page, "[data-rush-start]", isMobile);
+    await expect(canvas(page)).toBeVisible({ timeout: 60_000 });
+    await expect(page.locator("[data-rush-debug]")).toBeHidden();
+  });
+
   test("restarting a race frees its WebGL context", async ({ page, isMobile }) => {
     await page.addInitScript(() => {
       const made: Array<WebGLRenderingContext | WebGL2RenderingContext> = [];
