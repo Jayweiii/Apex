@@ -1,0 +1,86 @@
+import { expect, test, type Page } from "@playwright/test";
+
+/**
+ * Apex Sim: an ND Miata on Thunderhill West at full scale. At iPhone size
+ * (touch) and desktop: the menu's choices respond to one tap and persist, the
+ * car drives from the pedals, and crossing the line starts the lap with the
+ * real-lap ghost and a live gap to it.
+ */
+const root = (page: Page) => page.locator(".sim");
+const num = async (page: Page, name: string) => Number((await root(page).getAttribute(`data-sim-${name}`)) ?? 0);
+
+async function open(page: Page, query = "") {
+  await page.goto(`/sim${query}`);
+  await expect(page.locator('[data-sim-ready="1"]')).toBeVisible({ timeout: 90_000 });
+  await expect(page.locator("[data-sim-start]")).toBeEnabled();
+}
+
+async function activate(page: Page, selector: string, isMobile: boolean) {
+  const el = page.locator(selector);
+  if (isMobile) await el.tap();
+  else await el.click();
+}
+
+test.describe("Apex Sim", () => {
+  test("menu: real lap shown, choices respond to one tap and are saved", async ({ page, isMobile }) => {
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    await open(page);
+    await expect(page.locator("[data-sim-reallap]")).toHaveText("1:34.801");
+
+    const tc = '[data-sim-toggle="tc"]';
+    await expect(page.locator(tc)).toHaveAttribute("aria-pressed", "true");
+    await activate(page, tc, isMobile);
+    await expect(page.locator(tc)).toHaveAttribute("aria-pressed", "false");
+    await activate(page, '[data-sim-toggle="ghost-best"]', isMobile);
+    await expect(page.locator('[data-sim-toggle="ghost-best"]')).toHaveAttribute("aria-pressed", "false");
+
+    // Every tap target is at least 44 px.
+    for (const sel of [".sim-toggle", ".sim-swatch", "[data-sim-start]", "[data-sim-exit]"]) {
+      const boxes = await page.locator(sel).evaluateAll((els) => els.map((el) => el.getBoundingClientRect()).map((r) => [r.width, r.height]));
+      for (const [w, h] of boxes) expect(Math.min(w!, h!), `${sel} is a 44 px target`).toBeGreaterThanOrEqual(44);
+    }
+
+    await page.reload();
+    await expect(page.locator('[data-sim-ready="1"]')).toBeVisible({ timeout: 90_000 });
+    await expect(page.locator(tc)).toHaveAttribute("aria-pressed", "false");
+    expect(errors).toEqual([]);
+  });
+
+  test("driving: the pedals move the car, pause stops it", async ({ page, isMobile }) => {
+    await open(page, "?simSpeed=16");
+    await activate(page, "[data-sim-start]", isMobile);
+    await expect(root(page)).toHaveAttribute("data-sim-phase", "drive");
+    await expect(page.locator("[data-sim-menu]")).toHaveCount(0);
+
+    if (isMobile) {
+      await expect(page.locator("[data-sim-steerpad]")).toBeVisible();
+      await page.locator("[data-sim-gas]").dispatchEvent("pointerdown", { pointerId: 7, bubbles: true });
+    } else await page.keyboard.down("ArrowUp");
+    await expect.poll(() => num(page, "speed"), { timeout: 60_000 }).toBeGreaterThan(20);
+    expect(await num(page, "off")).toBe(0);
+    if (isMobile) await page.locator("[data-sim-gas]").dispatchEvent("pointerup", { pointerId: 7, bubbles: true });
+    else await page.keyboard.up("ArrowUp");
+
+    // Pause freezes the car; resume carries on.
+    await activate(page, "[data-sim-pause]", isMobile);
+    await expect(root(page)).toHaveAttribute("data-sim-phase", "paused");
+    await page.waitForTimeout(1500);
+    const s0 = await num(page, "s");
+    await page.waitForTimeout(1500);
+    expect(await num(page, "s")).toBe(s0);
+    await activate(page, "[data-sim-start]", isMobile);
+    await expect(root(page)).toHaveAttribute("data-sim-phase", "drive");
+  });
+
+  test("lap: crossing the line starts the clock, the real-lap ghost and the gap", async ({ page, isMobile }) => {
+    await open(page, "?autopilot=1&simSpeed=32");
+    await activate(page, "[data-sim-start]", isMobile);
+    await expect.poll(() => num(page, "lap"), { timeout: 90_000 }).toBeGreaterThanOrEqual(1);
+    await expect.poll(() => num(page, "lap-ms"), { timeout: 30_000 }).toBeGreaterThan(1500);
+    await expect(root(page)).toHaveAttribute("data-sim-ghosts", /real/);
+    await expect(page.locator("[data-sim-delta]")).toHaveText(/[+−]\d+\.\d\d s vs real lap/);
+    await expect(page.locator("[data-sim-laptime]")).toHaveText(/^0:\d\d\.\d{3}$/);
+    expect(await num(page, "valid")).toBe(1);
+  });
+});
