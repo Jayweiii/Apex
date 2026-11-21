@@ -37,7 +37,7 @@ async function checkSheet(page: Page, itemSel: string, isMobile: boolean, route:
 
   const ctx = await sheet.locator("[data-bug-report-context]").innerText();
   expect(ctx).toContain(`Route: ${route}`);
-  expect(ctx).toContain("Build: dev");
+  expect(ctx).toMatch(/Build: (dev|[0-9a-f]{7})/);
   expect(ctx).toMatch(/Viewport: \d+x\d+/);
   expect(ctx).toContain("Pixel ratio:");
   expect(ctx).toContain("User agent:");
