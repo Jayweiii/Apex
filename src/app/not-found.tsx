@@ -1,4 +1,5 @@
 import { AppHeader } from "@/components/AppHeader";
+import { SiteFooter } from "@/components/SiteFooter";
 import { PixelMark } from "@/components/pixel/PixelMark";
 import Link from "next/link";
 
@@ -25,6 +26,7 @@ export default function NotFound() {
           </Link>
         </div>
       </main>
+      <SiteFooter />
     </>
   );
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { BugReportButton } from "@/components/BugReport";
 import { pathLength, toLocalMeters } from "@/lib/drive/coords";
 import {
   createDriveAudio,
@@ -1144,6 +1145,11 @@ export function DriveGame({ trackId, carId: carIdProp }: Props) {
                 Restart
               </button>
             </div>
+            <BugReportButton
+              className="apex-btn apex-btn--ghost min-h-11"
+              controls={`${tiltSteer ? "tilt" : coarsePointer ? "touch" : "keyboard"}, camera ${camera}`}
+              dataAttr="drive"
+            />
           </div>
         ) : null}
 
