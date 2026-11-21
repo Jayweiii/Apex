@@ -2,6 +2,7 @@
 
 import { ND_MIATA, SURFACE_GRASS, type CarInput } from "@/lib/sim/car";
 import { createSimAudio, type SimAudio } from "@/lib/sim/audio";
+import { enableFastTap } from "@/lib/fast-tap";
 import { createControlState, DEFAULT_ASSISTS, readGamepad, shapeControls, type Assists, type RawControls } from "@/lib/sim/controls";
 import { bundledRealLap, ghostDelta, ghostFromRealLap, ghostFromRecording, ghostPose, loadBest, saveBest, type Ghost, type GhostPose } from "@/lib/sim/ghost";
 import { blankInput, createPilot, createSession, FRAME_HZ, pilotInput, resetToTrack, stepSession, type Session } from "@/lib/sim/session";
@@ -425,6 +426,8 @@ export function SimGame() {
   }, [cycleCamera, resetCar]);
 
   useEffect(() => () => audio.current?.dispose(), []);
+  // iOS can need two taps per button while the 3D view is busy: press on the first.
+  useEffect(() => (rootRef.current ? enableFastTap(rootRef.current) : undefined), []);
 
   // ── Touch: a steering pad on the left, pedals on the right ──
   const steerStart = useRef({ id: -1, x: 0 });

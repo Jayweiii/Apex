@@ -247,6 +247,82 @@ test.describe("Apex Rush", () => {
     await expect(page.locator(".rush-stick")).toHaveCSS("opacity", "0");
   });
 
+  test("a press whose finger-up never arrived does not block the next press", async ({ page, isMobile }) => {
+    await openMenu(page);
+    await activate(page, "[data-rush-start]", isMobile);
+    await expect(canvas(page)).toHaveAttribute("data-rush-phase", /intro|countdown|racing/, { timeout: 60_000 });
+    const surface = page.locator("[data-rush-surface]");
+    const box = (await surface.boundingBox())!;
+    const type = isMobile ? "touch" : "mouse";
+    const at = (id: number, fx: number) => ({ pointerId: id, pointerType: type, isPrimary: true, clientX: box.x + box.width * fx, clientY: box.y + box.height * 0.75, bubbles: true });
+    // A press, then its end is lost (iOS can swallow it).
+    await surface.dispatchEvent("pointerdown", at(21, 0.3));
+    await expect(page.locator(".rush-stick")).toHaveCSS("opacity", "1");
+    const leftA = await page.locator(".rush-stick").evaluate((el) => (el as HTMLElement).style.left);
+    await page.waitForTimeout(300);
+    // The next press, the only finger down, takes the stick where it lands.
+    await surface.dispatchEvent("pointerdown", at(22, 0.7));
+    await expect.poll(() => page.locator(".rush-stick").evaluate((el) => (el as HTMLElement).style.left)).not.toBe(leftA);
+    await expect(page.locator(".rush-stick")).toHaveCSS("opacity", "1");
+    // An up that lands somewhere other than the play surface still lets go.
+    await page.locator("body").dispatchEvent("pointerup", at(22, 0.7));
+    await expect(page.locator(".rush-stick")).toHaveCSS("opacity", "0");
+  });
+
+  test("holding still: a cancelled pointer keeps the stick while the finger is down", async ({ page, isMobile }) => {
+    test.skip(!isMobile, "needs touch support");
+    await openMenu(page);
+    await activate(page, "[data-rush-start]", isMobile);
+    await expect(canvas(page)).toHaveAttribute("data-rush-phase", "racing", { timeout: 60_000 });
+    // The same finger as both a pointer and a touch, as iOS sends it.
+    const send = (kind: string, dx: number) =>
+      page.evaluate(
+        ([k, off]) => {
+          const el = document.querySelector("[data-rush-surface]") as HTMLElement;
+          const r = el.getBoundingClientRect();
+          const x = r.left + r.width / 2 + (off as number);
+          const y = r.top + r.height * 0.8;
+          if ((k as string).startsWith("pointer")) {
+            el.dispatchEvent(new PointerEvent(k as string, { pointerId: 31, pointerType: "touch", isPrimary: true, clientX: x, clientY: y, bubbles: true }));
+            return;
+          }
+          const t = new Touch({ identifier: 4, target: el, clientX: x, clientY: y });
+          const ended = k === "touchend";
+          el.dispatchEvent(new TouchEvent(k as string, { touches: ended ? [] : [t], changedTouches: [t], bubbles: true, cancelable: true }));
+        },
+        [kind, dx],
+      );
+    await send("pointerdown", 0);
+    await send("touchstart", 0);
+    await expect(page.locator(".rush-stick")).toHaveCSS("opacity", "1");
+    await expect.poll(() => num(page, "speed"), { timeout: 15_000 }).toBeGreaterThan(10);
+    // iOS's long-press gesture cancels the pointer; the thumb has not lifted.
+    await send("pointercancel", 0);
+    await page.waitForTimeout(300);
+    await expect(page.locator(".rush-stick")).toHaveCSS("opacity", "1");
+    // The stick keeps following the finger, now through its touches.
+    const h0 = await num(page, "heading");
+    await send("touchmove", -45);
+    await expect.poll(async () => (await num(page, "heading")) - h0, { timeout: 4_000 }).toBeGreaterThan(0.2);
+    // Lifting the finger lets go.
+    await send("touchend", -45);
+    await expect(page.locator(".rush-stick")).toHaveCSS("opacity", "0");
+  });
+
+  test("buttons press on the first tap even when the browser drops the click", async ({ page, isMobile }) => {
+    test.skip(!isMobile, "touch only");
+    await openMenu(page);
+    const mode = page.locator('[data-rush-mode="tt"]');
+    await expect(mode).toHaveAttribute("aria-pressed", "false");
+    // A touch down and up with no click event afterwards (what iOS does when it
+    // takes the first tap as a hover).
+    const box = (await mode.boundingBox())!;
+    const at = { pointerId: 51, pointerType: "touch", isPrimary: true, clientX: box.x + box.width / 2, clientY: box.y + box.height / 2, bubbles: true };
+    await mode.dispatchEvent("pointerdown", at);
+    await mode.dispatchEvent("pointerup", at);
+    await expect(mode).toHaveAttribute("aria-pressed", "true");
+  });
+
   test("?debug=1 shows the touch log; hidden by default", async ({ page, isMobile }) => {
     await openMenu(page, "?debug=1");
     await activate(page, "[data-rush-start]", isMobile);

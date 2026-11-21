@@ -47,6 +47,30 @@ test.describe("Apex Sim", () => {
     expect(errors).toEqual([]);
   });
 
+  test("a tap presses once: first tap works, the browser's own click does not press it again", async ({ page, isMobile }) => {
+    test.skip(!isMobile, "touch only");
+    await open(page);
+    const tc = page.locator('[data-sim-toggle="tc"]');
+    const before = await tc.getAttribute("aria-pressed");
+    await tc.scrollIntoViewIfNeeded();
+    const box = (await tc.boundingBox())!;
+    const cx = box.x + box.width / 2;
+    const cy = box.y + box.height / 2;
+    const at = { pointerId: 61, pointerType: "touch", isPrimary: true, clientX: cx, clientY: cy, bubbles: true };
+    // Down and up with no click of its own (iOS taking the tap as a hover): it still toggles.
+    await tc.dispatchEvent("pointerdown", at);
+    await tc.dispatchEvent("pointerup", at);
+    // The browser's click for that same tap, right behind it: ignored, no double toggle.
+    await page.mouse.click(cx, cy);
+    const after = before === "true" ? "false" : "true";
+    await page.waitForTimeout(300);
+    await expect(tc).toHaveAttribute("aria-pressed", after);
+    // A real later tap still works.
+    await page.waitForTimeout(800);
+    await tc.tap();
+    await expect(tc).toHaveAttribute("aria-pressed", before!);
+  });
+
   test("driving: the pedals move the car, pause stops it", async ({ page, isMobile }) => {
     await open(page, "?simSpeed=16");
     await activate(page, "[data-sim-start]", isMobile);
