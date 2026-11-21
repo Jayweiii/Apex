@@ -1,0 +1,356 @@
+/* Apex Sim: quiet instrument-style HUD in the site's pixel type. Hover only under (hover: hover). */
+.sim {
+  font-family: var(--font-sans), system-ui, sans-serif;
+  color: #f4f4f5;
+  touch-action: none;
+}
+.sim-label {
+  font-family: var(--font-label), var(--font-mono), monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #a1a1aa;
+}
+.sim-title {
+  font-family: var(--font-pixel), var(--font-sans), sans-serif;
+  font-size: 1.5rem;
+  line-height: 1.15;
+}
+.sim-time {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+.sim-time[data-valid="0"] {
+  color: #fca5a5;
+}
+.sim-card {
+  border: 2px solid rgb(244 244 245 / 0.22);
+  background: rgb(13 14 17 / 0.72);
+  backdrop-filter: blur(6px);
+}
+.sim-panel {
+  border: 2px solid #f4f4f5;
+  background: rgb(17 18 22 / 0.94);
+  box-shadow: 6px 6px 0 rgb(0 0 0 / 0.55);
+}
+.sim-stat {
+  border: 1px solid rgb(244 244 245 / 0.2);
+  padding: 0.4rem 0.25rem;
+}
+.sim-stat dd {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.9rem;
+}
+.sim-hud {
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.sim-hud[data-on="1"] {
+  opacity: 1;
+}
+.sim-hud[data-on="0"] * {
+  pointer-events: none !important;
+}
+.sim-btn,
+.sim-icon,
+.sim-toggle,
+.sim-swatch,
+.sim-pedalbtn {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+.sim-btn {
+  display: inline-flex;
+  min-height: 48px;
+  min-width: 96px;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #f4f4f5;
+  background: #26272d;
+  padding: 0.5rem 1.1rem;
+  font-family: var(--font-label), var(--font-mono), monospace;
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #f4f4f5;
+  box-shadow: 4px 4px 0 rgb(0 0 0 / 0.6);
+}
+.sim-btn--go {
+  background: #facc15;
+  border-color: #0d0e11;
+  color: #0d0e11;
+  font-weight: 700;
+  min-width: 140px;
+}
+.sim-btn--quiet {
+  min-width: 64px;
+  box-shadow: none;
+  background: transparent;
+  border-color: rgb(244 244 245 / 0.4);
+}
+.sim-btn:disabled {
+  opacity: 0.55;
+}
+.sim-btn:active:not(:disabled),
+.sim-icon:active {
+  transform: translate(2px, 2px);
+  box-shadow: none;
+}
+.sim-icon {
+  display: inline-flex;
+  min-height: 44px;
+  min-width: 44px;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid rgb(244 244 245 / 0.35);
+  background: rgb(13 14 17 / 0.72);
+  padding: 0 0.6rem;
+  font-family: var(--font-label), var(--font-mono), monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #f4f4f5;
+}
+.sim-toggle {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  gap: 0.7rem;
+  border: 2px solid rgb(244 244 245 / 0.25);
+  background: #1b1c21;
+  padding: 0.45rem 0.7rem;
+  text-align: left;
+  font-size: 0.875rem;
+  color: #f4f4f5;
+}
+.sim-toggle__box {
+  display: block;
+  height: 18px;
+  width: 18px;
+  flex: none;
+  border: 2px solid #a1a1aa;
+}
+.sim-toggle[aria-pressed="true"] {
+  border-color: #facc15;
+}
+.sim-toggle[aria-pressed="true"] .sim-toggle__box {
+  border-color: #facc15;
+  background: #facc15;
+  box-shadow: inset 0 0 0 3px #1b1c21;
+}
+.sim-toggle:active {
+  background: #26272d;
+}
+.sim-swatch {
+  height: 44px;
+  width: 44px;
+  border: 2px solid rgb(244 244 245 / 0.3);
+}
+.sim-swatch[aria-checked="true"] {
+  outline: 3px solid #facc15;
+  outline-offset: 2px;
+}
+.sim-btn:focus-visible,
+.sim-icon:focus-visible,
+.sim-toggle:focus-visible,
+.sim-swatch:focus-visible {
+  outline: 3px solid #7dd3fc;
+  outline-offset: 2px;
+}
+@media (hover: hover) {
+  .sim-btn:hover:not(:disabled) {
+    filter: brightness(1.12);
+  }
+  .sim-icon:hover,
+  .sim-toggle:hover {
+    border-color: #f4f4f5;
+  }
+}
+.sim-speed {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 2.6rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.sim-gear {
+  display: inline-grid;
+  height: 2.6rem;
+  width: 2.2rem;
+  place-items: center;
+  border: 2px solid rgb(244 244 245 / 0.4);
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 1.7rem;
+  font-weight: 700;
+  line-height: 1;
+}
+.sim-rpm {
+  height: 10px;
+  overflow: hidden;
+  border: 1px solid rgb(244 244 245 / 0.35);
+  background: rgb(255 255 255 / 0.06);
+}
+.sim-rpm__fill {
+  height: 100%;
+  transform-origin: left;
+  transform: scaleX(0);
+  background: #e4e4e7;
+}
+.sim-rpm__fill[data-zone="amber"] {
+  background: #facc15;
+}
+.sim-rpm__fill[data-zone="red"] {
+  background: #ef4444;
+}
+.sim-pedal {
+  display: flex;
+  height: 64px;
+  width: 12px;
+  align-items: flex-end;
+  border: 1px solid rgb(244 244 245 / 0.35);
+  background: rgb(255 255 255 / 0.06);
+}
+.sim-pedal__fill {
+  height: 100%;
+  width: 100%;
+  transform-origin: bottom;
+  transform: scaleY(0);
+}
+.sim-pedal__fill--gas {
+  background: #4ade80;
+}
+.sim-pedal__fill--brake {
+  background: #ef4444;
+}
+.sim-steer {
+  position: relative;
+  height: 8px;
+  width: 104px;
+  border: 1px solid rgb(244 244 245 / 0.35);
+}
+.sim-steer__dot {
+  position: absolute;
+  left: calc(50% - 4px);
+  top: -1px;
+  height: 8px;
+  width: 8px;
+  background: #f4f4f5;
+}
+.sim-lamp {
+  border: 1px solid rgb(244 244 245 / 0.25);
+  padding: 0 0.3rem;
+  font-family: var(--font-label), var(--font-mono), monospace;
+  font-size: 0.6rem;
+  letter-spacing: 0.06em;
+  color: #71717a;
+}
+.sim-lamp[data-on="1"] {
+  border-color: #facc15;
+  background: #facc15;
+  color: #0d0e11;
+}
+.sim-delta,
+.sim-notice {
+  display: none;
+  border: 2px solid rgb(244 244 245 / 0.3);
+  background: rgb(13 14 17 / 0.78);
+  padding: 0.25rem 0.7rem;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.95rem;
+}
+.sim-delta[data-on="1"],
+.sim-notice[data-on="1"] {
+  display: block;
+}
+.sim-delta[data-sign="fast"] {
+  border-color: #4ade80;
+  color: #86efac;
+}
+.sim-delta[data-sign="slow"] {
+  border-color: #f87171;
+  color: #fca5a5;
+}
+.sim-notice {
+  max-width: min(92vw, 30rem);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.875rem;
+  text-align: center;
+}
+.sim-notice[data-tone="good"] {
+  border-color: #4ade80;
+}
+.sim-notice[data-tone="bad"] {
+  border-color: #f87171;
+}
+.sim-steerpad {
+  touch-action: none;
+}
+.sim-steerpad__track {
+  position: absolute;
+  bottom: 20px;
+  left: 16px;
+  height: 56px;
+  width: 168px;
+  border: 2px solid rgb(244 244 245 / 0.3);
+  background: rgb(13 14 17 / 0.45);
+}
+.sim-steerpad__knob {
+  position: absolute;
+  left: calc(50% - 26px);
+  top: 2px;
+  height: 48px;
+  width: 52px;
+  background: rgb(244 244 245 / 0.75);
+}
+.sim-pedalbtn {
+  display: grid;
+  width: 84px;
+  place-items: center;
+  border: 2px solid rgb(244 244 245 / 0.45);
+  background: rgb(13 14 17 / 0.55);
+  font-family: var(--font-label), var(--font-mono), monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #f4f4f5;
+  touch-action: none;
+}
+.sim-pedalbtn--gas {
+  height: 132px;
+  border-color: #4ade80;
+}
+.sim-pedalbtn--brake {
+  height: 104px;
+  border-color: #f87171;
+}
+.sim-pedalbtn:active {
+  background: rgb(244 244 245 / 0.28);
+}
+
+/* Layout: gauges bottom-centre; on a phone held upright they sit above the thumb controls. */
+.sim-gauges {
+  bottom: 12px;
+}
+.sim-banners {
+  top: 12px;
+}
+@media (max-width: 639px) {
+  .sim-banners {
+    top: 178px;
+  }
+}
+@media (orientation: portrait) {
+  .sim[data-touch="1"] .sim-gauges {
+    bottom: 158px;
+  }
+}
+@media (orientation: landscape) and (max-height: 480px) {
+  .sim-pedalbtn--gas {
+    height: 112px;
+  }
+  .sim-pedalbtn--brake {
+    height: 92px;
+  }
+}

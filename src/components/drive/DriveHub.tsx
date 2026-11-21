@@ -332,6 +332,20 @@ export function DriveHub() {
         ) : null}
 
         <Link
+          href="/sim"
+          data-apex-sim-entry="1"
+          className="flex min-h-12 items-center justify-between gap-3 rounded-xl border border-sky-400/50 bg-sky-400/10 px-4 py-3 text-sm"
+        >
+          <span>
+            <span className="font-semibold text-sky-200">New: Apex Sim</span>
+            <span className="block text-xs text-zinc-400">
+              ND Miata on Thunderhill West at full scale, with realistic physics and a ghost of a real lap
+            </span>
+          </span>
+          <span aria-hidden className="text-sky-300">→</span>
+        </Link>
+
+        <Link
           href="/rush"
           data-apex-rush-entry="1"
           className="flex min-h-12 items-center justify-between gap-3 rounded-xl border border-yellow-400/50 bg-yellow-400/10 px-4 py-3 text-sm"
