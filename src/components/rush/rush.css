@@ -1,5 +1,9 @@
 /* Apex Rush: chunky pixel UI. Hover styles only under (hover: hover). */
 .rush {
+  /* No long-press callout or text selection under a held thumb (iOS). */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
   --rush-ink: #14151a;
   --rush-gold: #ffd60a;
   --rush-hot: #ff5400;
