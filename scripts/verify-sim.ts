@@ -289,4 +289,22 @@ assert(ghost && ghost.kind === "real" && ghost.lapMs === 94801, "the real ghost 
   }
 }
 
+// ── Gearbox: auto holds each gear to just under the 7500 rpm redline ──
+{
+  const gb = createCar();
+  placeCar(gb, flat, 10, 0, 0);
+  const gi: CarInput = { ...blankInput(), throttle: 1, autoShift: true };
+  let firstUpshiftRpm = 0;
+  let peak = 0;
+  for (let i = 0; i < 240 * 8; i += 1) {
+    const before = gb.gear;
+    const rpmBefore = gb.rpm;
+    stepCar(gb, gi, flat, 1 / 240);
+    peak = Math.max(peak, gb.rpm);
+    if (before === 1 && gb.gear === 2 && !firstUpshiftRpm) firstUpshiftRpm = rpmBefore;
+  }
+  assert(firstUpshiftRpm > 7000 && firstUpshiftRpm <= ND_MIATA.redlineRpm, `first upshift is near redline (${firstUpshiftRpm.toFixed(0)} rpm)`);
+  assert(peak <= ND_MIATA.redlineRpm + 400, `revs stay under the limiter (${peak.toFixed(0)} rpm)`);
+}
+
 console.log(`verify-sim: ok (lap ${lapS.toFixed(2)} s vs real 94.80 s)`);
