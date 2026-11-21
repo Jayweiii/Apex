@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Pixelify_Sans, Silkscreen } from "next/font/google";
+import { BugReportBoot } from "@/components/BugReport";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -53,6 +54,7 @@ export default function RootLayout({
         <a href="#main-content" className="apex-skip-link">
           Skip to content
         </a>
+        <BugReportBoot />
         {children}
       </body>
     </html>

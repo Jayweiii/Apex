@@ -720,6 +720,7 @@ export function createSimScene(canvas: HTMLCanvasElement, track: SimTrack, spec:
       ghostModels.forEach((m) => m.dispose());
       for (const o of owned) o.dispose();
       renderer.dispose();
+      renderer.forceContextLoss();
     },
     stats: () => ({ w: renderer.domElement.width, h: renderer.domElement.height, calls: renderer.info.render.calls, tris: renderer.info.render.triangles }),
   };

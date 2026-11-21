@@ -1,5 +1,6 @@
 "use client";
 
+import { BugReportButton } from "@/components/BugReport";
 import { PendingNavHint } from "@/components/PendingNavHint";
 import { PixelMark } from "@/components/pixel/PixelMark";
 import { SpeedUnitToggle } from "@/components/SpeedUnitToggle";
@@ -206,6 +207,7 @@ export function AppHeader({ email }: { email?: string }) {
           onClick={(event) => event.stopPropagation()}
         >
           <SpeedUnitToggle />
+          <BugReportButton className="apex-btn apex-btn--ghost" dataAttr="menu" />
           {signedIn ? (
             <>
               <Link href="/account" className="apex-btn apex-btn--ghost">

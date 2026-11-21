@@ -133,13 +133,34 @@ export function ghostDelta(ghost: Ghost, trackIndex: number, lapMs: number): num
 const KEY = "apex-sim-best-v1";
 export type SavedBest = { lapMs: number; rec: number[] };
 
+/** Longest recording we accept: a 5 min lap at 60 Hz with headroom. */
+const MAX_REC = 60_000;
+
 export function loadBest(trackId: string, carName: string): SavedBest | null {
+  const key = `${KEY}:${trackId}:${carName}`;
   try {
-    const raw = localStorage.getItem(`${KEY}:${trackId}:${carName}`);
+    const raw = localStorage.getItem(key);
     if (!raw) return null;
-    const v = JSON.parse(raw) as SavedBest;
-    if (typeof v.lapMs !== "number" || !Array.isArray(v.rec) || v.rec.length < 24) return null;
-    return v;
+    const v = JSON.parse(raw) as Partial<SavedBest> | null;
+    const ok =
+      !!v &&
+      typeof v.lapMs === "number" &&
+      Number.isFinite(v.lapMs) &&
+      v.lapMs > 0 &&
+      Array.isArray(v.rec) &&
+      v.rec.length >= 24 &&
+      v.rec.length <= MAX_REC &&
+      v.rec.every((x) => typeof x === "number" && Number.isFinite(x));
+    if (!ok) {
+      // Corrupt or tampered: drop it so it cannot produce a NaN ghost.
+      try {
+        localStorage.removeItem(key);
+      } catch {
+        // Storage blocked: nothing to clean up.
+      }
+      return null;
+    }
+    return v as SavedBest;
   } catch {
     return null;
   }

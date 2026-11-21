@@ -4,6 +4,8 @@
  * Apex Kart rebuild. React paints the garage and the phase overlays only.
  * The race loop writes the HUD through refs so a phone never re-renders at 60 Hz.
  */
+import { BugReportButton } from "@/components/BugReport";
+import { pointerControls } from "@/lib/bug-report";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { attachTouchDebug, guardPlaySurface, lockPageOverscroll } from "@/components/kart/touch-guard";
 import { emptyGhostPose, ghostFromSamples, referenceGhost, sampleGhost, type GeoSample, type GhostLap, type GhostPose } from "@/lib/kart2/ghost";
@@ -908,6 +910,13 @@ export function Kart2Game() {
               >
                 {phase === "paused" ? "Resume" : "Start"}
               </button>
+              {phase === "paused" ? (
+                <BugReportButton
+                  className="apex-btn apex-btn--ghost mt-2 min-h-11 w-full"
+                  controls={pointerControls()}
+                  dataAttr="kart2"
+                />
+              ) : null}
             </div>
           </div>
         ) : null}

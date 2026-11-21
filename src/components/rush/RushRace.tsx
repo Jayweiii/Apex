@@ -1,5 +1,6 @@
 "use client";
 
+import { BugReportButton } from "@/components/BugReport";
 import { attachTouchDebug, guardPlaySurface, lockPageOverscroll } from "@/components/kart/touch-guard";
 import type { DriveTrackPayload } from "@/lib/drive/types";
 import type { RushAudio } from "@/lib/rush/audio";
@@ -39,6 +40,8 @@ type Results = {
 
 /** Stick ids from the touch fallback, kept apart from pointer ids. */
 const TOUCH_ID_BASE = 1_000_000;
+/** A pointer and a touch this close together are the same press. */
+const SAME_PRESS_MS = 150;
 const ORDINAL = ["1ST", "2ND", "3RD", "4TH", "5TH", "6TH", "7TH", "8TH"];
 const INTRO_S = 3.2;
 const COUNTDOWN_S = 3;
@@ -127,9 +130,15 @@ export function RushRace({
   const stickKnob = useRef<HTMLDivElement | null>(null);
   const debugPanel = useRef<HTMLPreElement | null>(null);
   const placeStickRef = useRef<() => void>(() => {});
+  const releaseStickRef = useRef<() => void>(() => {});
 
   const keys = useRef({ left: false, right: false, up: false, down: false, drift: false, item: false });
-  const stick = useRef({ id: -1, ox: 0, oy: 0, dx: 0, dy: 0 });
+  /**
+   * The one-thumb stick. `id` is the pointer that owns it (or TOUCH_ID_BASE +
+   * a touch identifier when driven by touch events), `touch` the identifier
+   * of the same finger in the touch stream (or -1), `since` when it was taken.
+   */
+  const stick = useRef({ id: -1, ox: 0, oy: 0, dx: 0, dy: 0, touch: -1, since: 0 });
   const nitroHeld = useRef(false);
 
   // The sound engine is created by the Start tap and handed in; keep it in a
@@ -174,20 +183,32 @@ export function RushRace({
     const surface = surfaceRef.current;
     if (surface) {
       cleanups.push(guardPlaySurface(surface));
-      // Touch fallback. iOS normally sends pointer events, but if it doesn't
-      // (seen after a long scroll in the garage), drive the stick from the
-      // touches themselves. Pointer events win when both arrive.
+      // Touch events run alongside pointer events for the same finger. iOS
+      // can cancel the pointer during a long press (the system's long-press
+      // gesture) while the finger is still down, or send no pointer events at
+      // all (seen after a long scroll in the garage). The stick then carries
+      // on from the touches, and only lets go when the finger really lifts.
       const local = (t: Touch) => {
         const rect = surface.getBoundingClientRect();
         return { x: t.clientX - rect.left, y: t.clientY - rect.top };
       };
       const onTouchStart = (e: TouchEvent) => {
         const st = stick.current;
-        if (st.id >= 0) return;
         const t = e.changedTouches[0];
         if (!t || (e.target instanceof Element && e.target.closest("button"))) return;
+        const now = performance.now();
+        if (st.id >= 0 && st.id < TOUCH_ID_BASE && now - st.since < SAME_PRESS_MS) {
+          // The pointer for this same finger just took the stick: remember the finger.
+          if (st.touch < 0) st.touch = t.identifier;
+          return;
+        }
+        // A press while the stick looks held, with no other finger down, means
+        // the old press ended without telling us: start afresh.
+        if (st.id >= 0 && !(e.touches.length <= 1 && now - st.since > SAME_PRESS_MS)) return;
         const p = local(t);
         st.id = TOUCH_ID_BASE + t.identifier;
+        st.touch = t.identifier;
+        st.since = now;
         st.ox = p.x;
         st.oy = p.y;
         st.dx = 0;
@@ -197,8 +218,9 @@ export function RushRace({
       };
       const onTouchMove = (e: TouchEvent) => {
         const st = stick.current;
+        if (st.id < TOUCH_ID_BASE) return;
         for (const t of Array.from(e.changedTouches)) {
-          if (st.id !== TOUCH_ID_BASE + t.identifier) continue;
+          if (t.identifier !== st.touch) continue;
           const p = local(t);
           st.dx = p.x - st.ox;
           st.dy = p.y - st.oy;
@@ -208,11 +230,9 @@ export function RushRace({
       const onTouchEnd = (e: TouchEvent) => {
         const st = stick.current;
         for (const t of Array.from(e.changedTouches)) {
-          if (st.id !== TOUCH_ID_BASE + t.identifier) continue;
-          st.id = -1;
-          st.dx = 0;
-          st.dy = 0;
-          placeStickRef.current();
+          if (t.identifier !== st.touch) continue;
+          // The steering finger lifted (or the system took it): let go.
+          releaseStickRef.current();
         }
       };
       surface.addEventListener("touchstart", onTouchStart);
@@ -226,6 +246,32 @@ export function RushRace({
         surface.removeEventListener("touchcancel", onTouchEnd);
       });
     }
+    // Pointer ends are watched on the window, so an up that lands somewhere
+    // else (capture refused, finger slid onto the HUD) still frees the stick.
+    const onPointerEnd = (e: PointerEvent) => {
+      const st = stick.current;
+      if (e.pointerId !== st.id) return;
+      if (e.type === "pointercancel" && st.touch >= 0) {
+        // The pointer was cancelled but the finger is still down: follow its touches.
+        st.id = TOUCH_ID_BASE + st.touch;
+        return;
+      }
+      releaseStickRef.current();
+    };
+    const onHide = () => releaseStickRef.current();
+    const onVisibility = () => {
+      if (document.hidden) onHide();
+    };
+    window.addEventListener("pointerup", onPointerEnd, true);
+    window.addEventListener("pointercancel", onPointerEnd, true);
+    window.addEventListener("blur", onHide);
+    document.addEventListener("visibilitychange", onVisibility);
+    cleanups.push(() => {
+      window.removeEventListener("pointerup", onPointerEnd, true);
+      window.removeEventListener("pointercancel", onPointerEnd, true);
+      window.removeEventListener("blur", onHide);
+      document.removeEventListener("visibilitychange", onVisibility);
+    });
     // ?debug=1: on-screen touch log to screenshot on a phone.
     const panel = debugPanel.current;
     if (panel && new URLSearchParams(window.location.search).get("debug") === "1") {
@@ -685,15 +731,32 @@ export function RushRace({
     const k = len > STICK_RADIUS ? STICK_RADIUS / len : 1;
     knob.style.transform = `translate(${st.dx * k}px, ${st.dy * k}px)`;
   };
+  const releaseStick = () => {
+    const st = stick.current;
+    st.id = -1;
+    st.touch = -1;
+    st.dx = 0;
+    st.dy = 0;
+    placeStick();
+  };
   useEffect(() => {
     placeStickRef.current = placeStick;
+    releaseStickRef.current = releaseStick;
   });
   const onStickDown = (e: React.PointerEvent<HTMLDivElement>) => {
     audioRef.current?.unlock();
     const st = stick.current;
-    if (st.id >= 0) return;
+    const now = performance.now();
+    if (st.id >= 0) {
+      // Already held: by this same press (its touch arrived first), or by a
+      // second finger. A primary pointer means no other finger is down, so a
+      // stick still "held" from earlier is stale: start afresh.
+      if (!e.isPrimary || now - st.since < SAME_PRESS_MS) return;
+      st.touch = -1;
+    }
     const rect = e.currentTarget.getBoundingClientRect();
     st.id = e.pointerId;
+    st.since = now;
     st.ox = e.clientX - rect.left;
     st.oy = e.clientY - rect.top;
     st.dx = 0;
@@ -713,14 +776,6 @@ export function RushRace({
     st.dy = e.clientY - rect.top - st.oy;
     placeStick();
   };
-  const onStickUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    const st = stick.current;
-    if (e.pointerId !== st.id) return;
-    st.id = -1;
-    st.dx = 0;
-    st.dy = 0;
-    placeStick();
-  };
 
   const paused = phase === "paused";
   const showHud = phase !== "loading" && phase !== "error";
@@ -737,9 +792,6 @@ export function RushRace({
         className="absolute inset-0 touch-none"
         onPointerDown={onStickDown}
         onPointerMove={onStickMove}
-        onPointerUp={onStickUp}
-        onPointerCancel={onStickUp}
-        onLostPointerCapture={onStickUp}
       >
         <div
           ref={stickBase}
@@ -895,6 +947,11 @@ export function RushRace({
                   </button>
                 </div>
               </div>
+              <BugReportButton
+                className="rush-btn rush-btn--ghost"
+                controls={`${touch ? "touch stick" : "keyboard"}, auto gas ${settings.autoGas ? "on" : "off"}`}
+                dataAttr="rush"
+              />
               <button type="button" className="rush-btn rush-btn--ghost" data-rush-quit="1" onClick={onExit}>
                 Quit to menu
               </button>

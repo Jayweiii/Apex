@@ -47,6 +47,30 @@ test.describe("Apex Sim", () => {
     expect(errors).toEqual([]);
   });
 
+  test("a tap presses once: first tap works, the browser's own click does not press it again", async ({ page, isMobile }) => {
+    test.skip(!isMobile, "touch only");
+    await open(page);
+    const tc = page.locator('[data-sim-toggle="tc"]');
+    const before = await tc.getAttribute("aria-pressed");
+    await tc.scrollIntoViewIfNeeded();
+    const box = (await tc.boundingBox())!;
+    const cx = box.x + box.width / 2;
+    const cy = box.y + box.height / 2;
+    const at = { pointerId: 61, pointerType: "touch", isPrimary: true, clientX: cx, clientY: cy, bubbles: true };
+    // Down and up with no click of its own (iOS taking the tap as a hover): it still toggles.
+    await tc.dispatchEvent("pointerdown", at);
+    await tc.dispatchEvent("pointerup", at);
+    // The browser's click for that same tap, right behind it: ignored, no double toggle.
+    await page.mouse.click(cx, cy);
+    const after = before === "true" ? "false" : "true";
+    await page.waitForTimeout(300);
+    await expect(tc).toHaveAttribute("aria-pressed", after);
+    // A real later tap still works.
+    await page.waitForTimeout(800);
+    await tc.tap();
+    await expect(tc).toHaveAttribute("aria-pressed", before!);
+  });
+
   test("driving: the pedals move the car, pause stops it", async ({ page, isMobile }) => {
     await open(page, "?simSpeed=16");
     await activate(page, "[data-sim-start]", isMobile);
@@ -73,10 +97,31 @@ test.describe("Apex Sim", () => {
     await expect(root(page)).toHaveAttribute("data-sim-phase", "drive");
   });
 
-  test("lap: crossing the line starts the clock, the real-lap ghost and the gap", async ({ page, isMobile }) => {
-    await open(page, "?autopilot=1&simSpeed=32");
+  test("touch: holding gas for 3 s keeps accelerating (no pointercancel cut)", async ({ page, isMobile }) => {
+    test.skip(!isMobile, "touch pedals only exist on the iPhone project");
+    await open(page);
     await activate(page, "[data-sim-start]", isMobile);
-    await expect.poll(() => num(page, "lap"), { timeout: 90_000 }).toBeGreaterThanOrEqual(1);
+    await expect(root(page)).toHaveAttribute("data-sim-phase", "drive");
+    const gas = page.locator("[data-sim-gas]");
+    const box = (await gas.boundingBox())!;
+    const cx = box.x + box.width / 2;
+    const cy = box.y + box.height / 2;
+    const cdp = await page.context().newCDPSession(page);
+    const point = [{ x: cx, y: cy, id: 1 }];
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: point });
+    await page.waitForTimeout(1500);
+    const v1 = await num(page, "speed");
+    await page.waitForTimeout(2000);
+    const v2 = await num(page, "speed");
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    expect(v1).toBeGreaterThan(0);
+    expect(v2).toBeGreaterThan(v1);
+  });
+
+  test("lap: crossing the line starts the clock, the real-lap ghost and the gap", async ({ page, isMobile }) => {
+    await open(page, "?autopilot=1&simSpeed=32&runUp=40");
+    await activate(page, "[data-sim-start]", isMobile);
+    await expect.poll(() => num(page, "lap"), { timeout: 30_000 }).toBeGreaterThanOrEqual(1);
     await expect.poll(() => num(page, "lap-ms"), { timeout: 30_000 }).toBeGreaterThan(1500);
     await expect(root(page)).toHaveAttribute("data-sim-ghosts", /real/);
     await expect(page.locator("[data-sim-delta]")).toHaveText(/[+−]\d+\.\d\d s vs real lap/);

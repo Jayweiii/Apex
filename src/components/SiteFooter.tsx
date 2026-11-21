@@ -1,3 +1,4 @@
+import { BugReportButton } from "@/components/BugReport";
 import { PixelMark } from "@/components/pixel/PixelMark";
 import Link from "next/link";
 
@@ -22,6 +23,7 @@ export function SiteFooter({ signedIn = false }: { signedIn?: boolean }) {
             .
           </span>
         </p>
+        <BugReportButton className="apex-hit px-label text-zinc-400 underline-offset-2 hover:text-orange-300 hover:underline" dataAttr="footer" />
         {signedIn ? (
           <Link
             href="/account"
