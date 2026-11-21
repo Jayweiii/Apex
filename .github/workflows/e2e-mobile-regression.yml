@@ -9,8 +9,13 @@ on:
     branches: [main, "cursor/**"]
   workflow_dispatch:
 
+permissions:
+  contents: read
+  deployments: read
+  pull-requests: read
+
 concurrency:
-  group: e2e-mobile-regression-${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -58,6 +63,101 @@ jobs:
               | grep -vF "${PROD_HOST}" \
               | head -1 || true
           }
+
+          # workflow_dispatch and non-main pushes must test this SHA's preview, never production.
+          # pull_request and main keep their existing fallback behavior below.
+          if { [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "${{ github.event_name }}" = "push" ]; } \
+            && [ "${GITHUB_REF_NAME}" != "main" ]; then
+            # Prints the preview URL and returns 0 when this SHA has a successful
+            # non-production deployment. Returns 1 if nothing is ready yet, 2 if
+            # every preview deployment for the SHA has failed or errored, and
+            # 3 if a gh api call itself fails (the wait loop exits the step).
+            preview_url_for_sha() {
+              local err ids id statuses url latest
+              local saw_failure=0
+              local saw_inflight=0
+              err="$(mktemp)"
+              if ! ids="$(gh api "repos/${GITHUB_REPOSITORY}/deployments?sha=${GITHUB_SHA}&per_page=20" \
+                --jq '[.[] | select(.environment != "Production")] | .[].id' 2>"${err}")"; then
+                echo "gh api deployments?sha=${GITHUB_SHA} failed:" >&2
+                cat "${err}" >&2
+                rm -f "${err}"
+                return 3
+              fi
+              rm -f "${err}"
+              if [ -z "${ids}" ]; then
+                return 1
+              fi
+              for id in ${ids}; do
+                err="$(mktemp)"
+                if ! statuses="$(gh api "repos/${GITHUB_REPOSITORY}/deployments/${id}/statuses" \
+                  --jq '[.[] | {state: .state, environment_url: (.environment_url // "")}]' 2>"${err}")"; then
+                  echo "gh api deployments/${id}/statuses failed:" >&2
+                  cat "${err}" >&2
+                  rm -f "${err}"
+                  return 3
+                fi
+                rm -f "${err}"
+                url="$(printf '%s\n' "${statuses}" | jq -r --arg prod "${PROD_HOST}" '
+                  [
+                    .[]
+                    | select(.state == "success")
+                    | .environment_url
+                    | select(. != "" and (contains($prod) | not) and startswith("https://"))
+                  ][0] // empty
+                ')"
+                case "${url}" in
+                  https://*) printf '%s\n' "${url}"; return 0 ;;
+                esac
+                latest="$(printf '%s\n' "${statuses}" | jq -r '.[0].state // empty')"
+                case "${latest}" in
+                  failure|error) saw_failure=1 ;;
+                  pending|in_progress|queued|"") saw_inflight=1 ;;
+                esac
+              done
+              if [ "${saw_failure}" -eq 1 ] && [ "${saw_inflight}" -eq 0 ]; then
+                return 2
+              fi
+              return 1
+            }
+            URL=""
+            rc=1
+            # 60 * 10s = 10 minutes
+            for i in $(seq 1 60); do
+              echo "Waiting for Vercel preview of ${GITHUB_SHA} (attempt ${i}/60)..."
+              set +e
+              URL="$(preview_url_for_sha)"
+              rc=$?
+              set -e
+              if [ "${rc}" -eq 0 ]; then
+                break
+              fi
+              if [ "${rc}" -eq 3 ]; then
+                MSG="gh api lookup of Vercel deployments for ${GITHUB_SHA} failed — see the log above."
+                echo "::error title=e2e target::${MSG}"
+                echo "> ❌ ${MSG}" >> "$GITHUB_STEP_SUMMARY"
+                exit 1
+              fi
+              if [ "${rc}" -eq 2 ]; then
+                MSG="Vercel preview deployment for ${GITHUB_SHA} ended in failure or error — refusing to wait further or fall back to production."
+                echo "::error title=e2e target::${MSG}"
+                echo "> ❌ ${MSG}" >> "$GITHUB_STEP_SUMMARY"
+                exit 1
+              fi
+              URL=""
+              sleep 10
+            done
+            if [ -z "${URL}" ]; then
+              MSG="No successful Vercel preview deployment for ${GITHUB_SHA} after 10 minutes — refusing to run e2e against production."
+              echo "::error title=e2e target::${MSG}"
+              echo "> ❌ ${MSG}" >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+            echo "Using BASE_URL=${URL}"
+            echo "url=${URL}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           # Stable Vercel git alias for this branch (PR + push).
           BRANCH_SLUG="$(echo "${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}" | tr '/' '-')"
           if [ -n "${BRANCH_SLUG}" ] && [ "${BRANCH_SLUG}" != "main" ]; then
