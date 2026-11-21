@@ -126,6 +126,9 @@ export function SimGame() {
     const autopilot = params.get("autopilot") === "1";
     const orbit = params.get("cam") === "orbit";
     const maxSteps = Math.max(4, Math.min(64, Number(params.get("simSpeed")) || 4));
+    // Test hook: start closer to the line (metres, 20–400) so e2e laps cross it quickly.
+    const runUpParam = Number(params.get("runUp"));
+    const runUp = Number.isFinite(runUpParam) && runUpParam >= 20 && runUpParam <= 400 ? runUpParam : 0;
     const track = buildSimTrack(westData as SimTrackData);
     const spec = ND_MIATA;
     let scene: SimScene;
@@ -143,7 +146,7 @@ export function SimGame() {
     let bestGhost: Ghost | null = stored ? ghostFromRecording(track, stored.rec, "Your best") : null;
     let bestMs = stored?.lapMs ?? 0;
 
-    let ses: Session = createSession(track, spec, 160, 0);
+    let ses: Session = createSession(track, spec, runUp || 160, 0);
     let demo = true;
     const input: CarInput = blankInput();
     const controls = createControlState();
@@ -209,7 +212,7 @@ export function SimGame() {
     };
 
     const begin = () => {
-      ses = createSession(track, spec, 70, 0);
+      ses = createSession(track, spec, runUp || 70, 0);
       ses.bestLapMs = bestMs;
       demo = false;
       controls.steer = 0;
@@ -457,6 +460,8 @@ export function SimGame() {
   };
   const hold = (key: "throttle" | "brake" | "up" | "down") => ({
     onPointerDown: (e: React.PointerEvent<HTMLButtonElement>) => {
+      // Stops iOS Safari turning a long press into a text-selection / callout gesture that fires pointercancel.
+      e.preventDefault();
       capture(e.currentTarget, e.pointerId);
       pad.current[key] = true;
     },
