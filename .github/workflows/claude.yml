@@ -34,8 +34,11 @@ jobs:
           claude_args: |
             --append-system-prompt "When working from an issue, end your run with the branch pushed and a summary comment; a workflow step will open the PR."
 
-  # GITHUB_TOKEN-created PRs do not trigger pull_request workflows, so after
-  # opening the PR we dispatch ci.yml and e2e-mobile-regression.yml on the branch.
+  # GITHUB_TOKEN pushes and PRs do not trigger pull_request or push workflows.
+  # workflow_dispatch is the exception, so after opening the PR we dispatch
+  # ci.yml and e2e-mobile-regression.yml on the branch. The claude/** push
+  # trigger is omitted so a non-GITHUB_TOKEN push cannot double-run with this
+  # dispatch.
   open-pr:
     name: Open PR from Claude's branch and dispatch CI
     needs: claude
@@ -52,6 +55,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
+          persist-credentials: false
       - name: Open PR from Claude's branch and dispatch CI
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -68,8 +72,8 @@ jobs:
             exit 0
           fi
 
-          mapfile -t branches < <(git ls-remote --heads origin "${prefix}*" \
-            | awk '{print $2}' | sed 's#^refs/heads/##' | sort -r)
+          mapfile -t branches < <(gh api "repos/${GITHUB_REPOSITORY}/git/matching-refs/heads/${prefix}" \
+            --jq '.[].ref' | sed 's#^refs/heads/##' | sort -r)
           if [ "${#branches[@]}" -eq 0 ]; then
             echo "No Claude branch found for issue #${ISSUE_NUMBER}; skipping."
             exit 0
