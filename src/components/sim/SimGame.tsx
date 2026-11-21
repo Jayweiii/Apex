@@ -1,5 +1,6 @@
 "use client";
 
+import { BugReportButton } from "@/components/BugReport";
 import { ND_MIATA, SURFACE_GRASS, type CarInput } from "@/lib/sim/car";
 import { createSimAudio, type SimAudio } from "@/lib/sim/audio";
 import { enableFastTap } from "@/lib/fast-tap";
@@ -652,6 +653,7 @@ export function SimGame() {
                   Restart
                 </button>
               ) : null}
+              <BugReportButton className="sim-btn min-h-11" controls={touch ? "touch pedals" : "keyboard / gamepad"} dataAttr="sim" />
             </div>
 
             <h2 className="sim-label mt-5">Ghost cars</h2>
