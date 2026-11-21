@@ -13,7 +13,7 @@ permissions:
   pull-requests: write
   issues: write
   id-token: write
-  actions: write
+  actions: read
 jobs:
   claude:
     if: |
@@ -27,17 +27,32 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
-      - uses: anthropics/claude-code-action@v1
+      - uses: anthropics/claude-code-action@acfe7992852970efb4fee683d63d628e3e52df67 # v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_args: |
             --append-system-prompt "When working from an issue, end your run with the branch pushed and a summary comment; a workflow step will open the PR."
 
-      # GITHUB_TOKEN-created PRs do not trigger pull_request workflows, so after
-      # opening the PR we dispatch ci.yml and e2e-mobile-regression.yml on the branch.
+  # GITHUB_TOKEN-created PRs do not trigger pull_request workflows, so after
+  # opening the PR we dispatch ci.yml and e2e-mobile-regression.yml on the branch.
+  open-pr:
+    name: Open PR from Claude's branch and dispatch CI
+    needs: claude
+    if: |
+      !cancelled() && needs.claude.result == 'success' &&
+      (github.event_name == 'issues' || (github.event_name == 'issue_comment' && !github.event.issue.pull_request))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
       - name: Open PR from Claude's branch and dispatch CI
-        if: always() && (github.event_name == 'issues' || (github.event_name == 'issue_comment' && !github.event.issue.pull_request))
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
