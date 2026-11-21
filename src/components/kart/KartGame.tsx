@@ -8,6 +8,7 @@
  * refs, so React never re-renders at 60 Hz — the cause of missed taps
  * found in #43. Touch controls act on pointerdown (single tap, no click).
  */
+import { BugReportButton } from "@/components/BugReport";
 import { THUNDERHILL_LEVEL } from "@/lib/kart/levels/thunderhill";
 import {
   clampToRadius,
@@ -661,6 +662,7 @@ export function KartGame() {
               >
                 {phase === "paused" ? "Resume" : "Start"}
               </button>
+              <BugReportButton className="apex-btn apex-btn--ghost mt-1 w-full min-h-11" controlMode="stick / keyboard" />
               <Link href="/drive" className="apex-hit mt-1 inline-flex min-h-11 min-w-11 items-center justify-center px-3 text-xs text-zinc-500 underline">
                 Back to Drive
               </Link>

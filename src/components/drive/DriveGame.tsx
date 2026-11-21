@@ -1,5 +1,6 @@
 "use client";
 
+import { BugReportButton } from "@/components/BugReport";
 import { pathLength, toLocalMeters } from "@/lib/drive/coords";
 import {
   createDriveAudio,
@@ -1143,6 +1144,7 @@ export function DriveGame({ trackId, carId: carIdProp }: Props) {
               >
                 Restart
               </button>
+              <BugReportButton controlMode={showTouchPads ? "touch pads" : "keyboard"} />
             </div>
           </div>
         ) : null}

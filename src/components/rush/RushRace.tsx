@@ -1,5 +1,6 @@
 "use client";
 
+import { BugReportButton } from "@/components/BugReport";
 import { attachTouchDebug, guardPlaySurface, lockPageOverscroll } from "@/components/kart/touch-guard";
 import type { DriveTrackPayload } from "@/lib/drive/types";
 import type { RushAudio } from "@/lib/rush/audio";
@@ -895,6 +896,7 @@ export function RushRace({
                   </button>
                 </div>
               </div>
+              <BugReportButton className="rush-btn rush-btn--ghost" controlMode={settings.autoGas ? "stick, auto gas" : "stick"} />
               <button type="button" className="rush-btn rush-btn--ghost" data-rush-quit="1" onClick={onExit}>
                 Quit to menu
               </button>

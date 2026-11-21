@@ -1,3 +1,4 @@
+import { BugReportButton } from "@/components/BugReport";
 import { PixelMark } from "@/components/pixel/PixelMark";
 import Link from "next/link";
 
@@ -22,6 +23,8 @@ export function SiteFooter({ signedIn = false }: { signedIn?: boolean }) {
             .
           </span>
         </p>
+        <div className="flex flex-wrap items-center gap-x-4">
+        <BugReportButton className="apex-hit px-label inline-flex min-h-11 items-center text-zinc-400 underline-offset-2 hover:text-orange-300 hover:underline" />
         {signedIn ? (
           <Link
             href="/account"
@@ -37,6 +40,7 @@ export function SiteFooter({ signedIn = false }: { signedIn?: boolean }) {
             Sign in
           </Link>
         )}
+        </div>
       </div>
     </footer>
   );

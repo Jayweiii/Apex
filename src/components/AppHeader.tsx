@@ -1,5 +1,6 @@
 "use client";
 
+import { BugReportButton } from "@/components/BugReport";
 import { PendingNavHint } from "@/components/PendingNavHint";
 import { PixelMark } from "@/components/pixel/PixelMark";
 import { SpeedUnitToggle } from "@/components/SpeedUnitToggle";
@@ -135,6 +136,7 @@ export function AppHeader({ email }: { email?: string }) {
                 >
                   My Sessions
                 </Link>
+                <BugReportButton className="apex-btn apex-btn--ghost min-h-10" />
                 <span className="hidden max-w-[180px] truncate text-xs text-zinc-500 lg:block">
                   {sessionEmail ?? (guest ? "Guest" : "")}
                 </span>
@@ -211,6 +213,7 @@ export function AppHeader({ email }: { email?: string }) {
               <Link href="/account" className="apex-btn apex-btn--ghost">
                 My Sessions
               </Link>
+              <BugReportButton />
               {guest ? (
                 <Link href="/login" className="apex-btn apex-btn--accent">
                   Keep sessions
