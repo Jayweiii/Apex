@@ -13,7 +13,7 @@ permissions:
   pull-requests: write
   issues: write
   id-token: write
-  actions: read
+  actions: write
 jobs:
   claude:
     if: |
@@ -31,3 +31,56 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: |
+            --append-system-prompt "When working from an issue, end your run with the branch pushed and a summary comment; a workflow step will open the PR."
+
+      # GITHUB_TOKEN-created PRs do not trigger pull_request workflows, so after
+      # opening the PR we dispatch ci.yml and e2e-mobile-regression.yml on the branch.
+      - name: Open PR from Claude's branch and dispatch CI
+        if: always() && (github.event_name == 'issues' || (github.event_name == 'issue_comment' && !github.event.issue.pull_request))
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+        run: |
+          set -euo pipefail
+          prefix="claude/issue-${ISSUE_NUMBER}-"
+
+          existing="$(gh pr list --state open --limit 100 --json headRefName,number \
+            --jq "[.[] | select(.headRefName | startswith(\"${prefix}\"))] | .[0].number // empty")"
+          if [ -n "${existing}" ]; then
+            echo "Open PR #${existing} already exists for ${prefix}*; skipping."
+            exit 0
+          fi
+
+          mapfile -t branches < <(git ls-remote --heads origin "${prefix}*" \
+            | awk '{print $2}' | sed 's#^refs/heads/##' | sort -r)
+          if [ "${#branches[@]}" -eq 0 ]; then
+            echo "No Claude branch found for issue #${ISSUE_NUMBER}; skipping."
+            exit 0
+          fi
+
+          chosen=""
+          for branch in "${branches[@]}"; do
+            encoded="$(printf %s "main...${branch}" | jq -sRr @uri)"
+            ahead="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${encoded}" --jq '.ahead_by')"
+            if [ "${ahead}" -gt 0 ]; then
+              chosen="${branch}"
+              break
+            fi
+            echo "Branch ${branch} is not ahead of main; trying next."
+          done
+
+          if [ -z "${chosen}" ]; then
+            echo "No ${prefix}* branch is ahead of main; skipping."
+            exit 0
+          fi
+
+          echo "Creating PR from ${chosen}..."
+          gh pr create --base main --head "${chosen}" --title "${ISSUE_TITLE}" \
+            --body "Closes #${ISSUE_NUMBER}. Opened automatically from Claude's branch."
+
+          echo "Dispatching CI workflows on ${chosen} (GITHUB_TOKEN PRs do not trigger pull_request workflows)..."
+          gh workflow run ci.yml --ref "${chosen}"
+          gh workflow run e2e-mobile-regression.yml --ref "${chosen}"
+          echo "Dispatched ci.yml and e2e-mobile-regression.yml on ${chosen}."
