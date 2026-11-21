@@ -6,6 +6,7 @@ import { levelById, RUSH_LEVELS } from "@/lib/rush/levels";
 import type { RushMode } from "@/lib/rush/race";
 import { Silkscreen } from "next/font/google";
 import { createRushAudio, type RushAudio } from "@/lib/rush/audio";
+import { enableFastTap } from "@/lib/fast-tap";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RushMenu } from "./RushMenu";
 import { RushRace, type RushSettings } from "./RushRace";
@@ -74,6 +75,9 @@ export function RushGame() {
   // the page: iOS can mis-route touches to a full-screen fixed layer while
   // the document underneath is scrolled. Put the menu back where it was after.
   const menuScroll = useRef(0);
+  // iOS can need two taps per button while the 3D view is busy: press on the first.
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => (rootRef.current ? enableFastTap(rootRef.current) : undefined), []);
   const start = useCallback(() => {
     if (!audio.current) audio.current = createRushAudio();
     audio.current.unlock();
@@ -95,7 +99,7 @@ export function RushGame() {
   const level = levelById(levelId) ?? RUSH_LEVELS[0]!;
 
   return (
-    <div className={`${pixel.variable} flex min-h-full flex-1 flex-col bg-[#14151a]`}>
+    <div ref={rootRef} className={`${pixel.variable} flex min-h-full flex-1 flex-col bg-[#14151a]`}>
       {racing ? (
         <RushRace level={level} mode={mode} look={look} settings={settings} onSettings={setSettings} onExit={exitRace} audio={audioReady} />
       ) : (
