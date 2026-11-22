@@ -83,6 +83,25 @@
   text-transform: uppercase;
   touch-action: manipulation;
 }
+/* Full-width segment on phones: equal parts, so no label runs into the edge. */
+.rush-seg--fill {
+  display: flex;
+  width: 100%;
+}
+.rush-seg--fill button {
+  flex: 1 1 0;
+  padding-inline: 0.5rem;
+}
+@media (min-width: 640px) {
+  .rush-seg--fill {
+    display: inline-flex;
+    width: auto;
+  }
+  .rush-seg--fill button {
+    flex: none;
+    padding-inline: 0.6rem;
+  }
+}
 .rush-seg button[aria-pressed="true"] {
   background: var(--rush-gold);
   color: var(--rush-ink);

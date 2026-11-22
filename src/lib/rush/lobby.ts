@@ -6,13 +6,14 @@
  */
 import type { RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
-import { PAINTS, sanitizeLook, type KartLook } from "./garage";
+import { sanitizeLook, type KartLook } from "./garage";
 import {
   acceptStart,
   cleanName,
   CREATOR_PREFIX,
   decodeSnapshot,
   dedupeNames,
+  distinctPaints,
   JOINER_PREFIX,
   lobbyChannelName,
   makeLobbyCode,
@@ -124,16 +125,8 @@ export function openLobby(
       if (!channel) return null;
       const host = pickHost(players);
       if (!host || host.id !== myId) return null;
-      const grid: GridEntry[] = players.slice(0, MAX_PLAYERS).map((p) => ({ id: p.id, name: p.name, look: sanitizeLook(p.look) }));
-      // Two racers on the same paint (e.g. both on the default look) get told apart.
-      const used = new Set<string>();
-      for (const g of grid) {
-        if (used.has(g.look.paint)) {
-          const free = PAINTS.find((c) => !used.has(c));
-          if (free) g.look = { ...g.look, paint: free };
-        }
-        used.add(g.look.paint);
-      }
+      // Two racers on the same (or a very similar) paint, e.g. both on the default look, get told apart.
+      const grid: GridEntry[] = distinctPaints(players.slice(0, MAX_PLAYERS).map((p) => ({ id: p.id, name: p.name, look: p.look })));
       const msg: StartMessage = { raceId: randomId(), levelId, grid, startInMs: START_LEAD_MS, from: myId };
       void channel.send({ type: "broadcast", event: "start", payload: msg });
       return msg;

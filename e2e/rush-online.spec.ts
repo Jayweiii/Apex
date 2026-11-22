@@ -58,6 +58,25 @@ test.describe("Apex Rush online", () => {
     await expect(page.locator("[data-rush-lobby]")).toHaveCount(0);
   });
 
+  test("leaving a lobby clears the join code, whether it came from a link or was typed", async ({ page, browser, isMobile }, info) => {
+    const code = await createLobby(page, isMobile);
+    const guest = await secondPlayer(browser, info);
+    // By invite link: the code is filled in, Join is one tap.
+    await guest.goto(`/rush?lobby=${code}`);
+    await expect(guest.locator("[data-rush-join-code]")).toHaveValue(code, { timeout: 90_000 });
+    await activate(guest, "[data-rush-join]", isMobile);
+    await expect(guest.locator(`[data-rush-lobby="${code}"]`)).toBeVisible({ timeout: 60_000 });
+    await activate(guest, "[data-rush-lobby-leave]", isMobile);
+    await expect(guest.locator("[data-rush-join-code]")).toHaveValue("");
+    // Typed.
+    await guest.locator("[data-rush-join-code]").fill(code);
+    await activate(guest, "[data-rush-join]", isMobile);
+    await expect(guest.locator(`[data-rush-lobby="${code}"]`)).toBeVisible({ timeout: 60_000 });
+    await activate(guest, "[data-rush-lobby-leave]", isMobile);
+    await expect(guest.locator("[data-rush-join-code]")).toHaveValue("");
+    await guest.context().close();
+  });
+
   test("create, join by link, pick a track, race each other, and leave", async ({ page, browser, isMobile }, info) => {
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));
@@ -76,6 +95,11 @@ test.describe("Apex Rush online", () => {
     await expect(guest.locator("[data-rush-players]")).toHaveAttribute("data-rush-players", "2", { timeout: 30_000 });
     await expect(page.locator("[data-rush-players]")).toHaveAttribute("data-rush-players", "2", { timeout: 30_000 });
     await expect(guest.locator("[data-rush-lobby-wait]")).toContainText("HOSTY");
+    // Both on the default kart, yet each racer has their own colour, the same on both screens.
+    const paints = (p: Page) => p.locator("[data-rush-player]").evaluateAll((els) => els.map((e) => e.getAttribute("data-rush-paint")));
+    const hostPaints = await paints(page);
+    expect(new Set(hostPaints).size).toBe(2);
+    expect(await paints(guest)).toEqual(hostPaints);
 
     // Only the host picks the track; the guest sees the choice.
     await activate(page, '[data-rush-lobby-track="streets-of-willow-cw"]', isMobile);

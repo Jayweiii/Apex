@@ -188,8 +188,8 @@ export function RushMenu({
 
       {tab === "race" ? (
         <div role="tabpanel" className="mt-5 space-y-5">
-          <div className="flex flex-wrap items-center justify-between gap-3 pr-2">
-            <div className="rush-seg max-w-full" role="group" aria-label="Mode">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="rush-seg rush-seg--fill" role="group" aria-label="Mode">
               <button type="button" aria-pressed={mode === "gp"} data-rush-mode="gp" onClick={() => onMode("gp")}>
                 Grand Prix
               </button>

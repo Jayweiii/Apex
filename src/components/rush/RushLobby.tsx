@@ -1,8 +1,7 @@
 "use client";
 
-import { sanitizeLook } from "@/lib/rush/garage";
 import { levelById, RUSH_LEVELS } from "@/lib/rush/levels";
-import { MAX_PLAYERS, type LobbyPlayer } from "@/lib/rush/net";
+import { distinctPaints, MAX_PLAYERS, type LobbyPlayer } from "@/lib/rush/net";
 import { useState } from "react";
 
 /** The lobby: the code to share, who is here, the track, and Start for the host. */
@@ -73,10 +72,11 @@ export function RushLobby({
           RACERS {players.length}/{MAX_PLAYERS}
         </h2>
         <ul className="mt-2 space-y-2" data-rush-players={players.length}>
-          {players.map((p) => {
-            const look = sanitizeLook(p.look);
+          {/* The colours each kart will race in (repeats repainted, the same on every device). */}
+          {distinctPaints(players).map((p) => {
+            const look = p.look;
             return (
-              <li key={p.id} className="rush-card" data-rush-player={p.id === myId ? "me" : "other"}>
+              <li key={p.id} className="rush-card" data-rush-player={p.id === myId ? "me" : "other"} data-rush-paint={look.paint}>
                 <span className="flex items-center gap-3">
                   <span className="block h-6 w-6 shrink-0 border-2 border-[#14151a]" style={{ background: look.paint }} aria-hidden />
                   <span className="min-w-0 flex-1 truncate text-sm font-bold">{p.name.toUpperCase()}</span>

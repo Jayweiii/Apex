@@ -10,6 +10,7 @@ import {
   acceptStart,
   cleanName,
   dedupeNames,
+  distinctPaints,
   MAX_COORD,
   MAX_LAP,
   MAX_PLAYERS,
@@ -211,6 +212,27 @@ const track = buildRushTrack(level.data);
   assert(aWon !== bWon, "exactly one winner");
   assert(a.karts[1]!.finished && b.karts[1]!.finished, "each device sees the other finish");
   assert(Math.abs(a.karts[1]!.finishMs - b.karts[0]!.finishMs) < 1, "finish times agree across devices");
+}
+
+// ── Kart colours: everyone distinct, the same on every device ──
+{
+  const same = Array.from({ length: MAX_PLAYERS }, (_, i) => ({ id: `1${i}`, look: { ...DEFAULT_LOOK } }));
+  const painted = distinctPaints(same);
+  assert(painted[0]!.look.paint === DEFAULT_LOOK.paint, "the first racer keeps their paint");
+  assert(new Set(painted.map((p) => p.look.paint)).size === MAX_PLAYERS, "a full lobby of default karts gets one colour each");
+  assert(JSON.stringify(distinctPaints(same)) === JSON.stringify(painted), "every device repaints the same way");
+  assert(painted.every((p, i) => p.id === same[i]!.id && p.look.body === DEFAULT_LOOK.body), "only the paint changes");
+  const near = distinctPaints([
+    { id: "a", look: { ...DEFAULT_LOOK, paint: "#ef233c" } },
+    { id: "b", look: { ...DEFAULT_LOOK, paint: "#f0243d" } },
+  ]);
+  assert(near[1]!.look.paint !== "#f0243d", "a near-identical paint is changed");
+  const mixed = distinctPaints([
+    { id: "a", look: { ...DEFAULT_LOOK, paint: "#ef233c" } },
+    { id: "b", look: { ...DEFAULT_LOOK, paint: "#4361ee" } },
+  ]);
+  assert(mixed[0]!.look.paint === "#ef233c" && mixed[1]!.look.paint === "#4361ee", "distinct paints are kept");
+  assert(JSON.stringify(distinctPaints(painted)) === JSON.stringify(painted), "repainting twice changes nothing");
 }
 
 console.log("verify-rush-online: ok");

@@ -8,6 +8,7 @@
  * moment in the past so there is always a pair to blend between, and carried
  * forward along their heading when a packet is late.
  */
+import { PAINTS, sanitizeLook, type KartLook } from "./garage";
 import type { Kart } from "./kart";
 
 /**
@@ -256,7 +257,7 @@ export function dedupeNames<T extends { id: string; name: string }>(players: T[]
   return players.map((p) => (rename.has(p.id) ? { ...p, name: rename.get(p.id)! } : p));
 }
 
-export type GridEntry = { id: string; name: string; look: import("./garage").KartLook };
+export type GridEntry = { id: string; name: string; look: KartLook };
 export type StartMessage = {
   raceId: string;
   levelId: string;
@@ -268,7 +269,7 @@ export type StartMessage = {
 };
 
 /** A start message that is well formed and from the current host; otherwise null. */
-export function acceptStart(payload: unknown, players: LobbyPlayer[], clean: (look: unknown) => import("./garage").KartLook): StartMessage | null {
+export function acceptStart(payload: unknown, players: LobbyPlayer[], clean: (look: unknown) => KartLook): StartMessage | null {
   if (!payload || typeof payload !== "object") return null;
   const p = payload as Partial<StartMessage>;
   if (typeof p.from !== "string" || p.from !== pickHost(players)?.id) return null;
@@ -280,4 +281,35 @@ export function acceptStart(payload: unknown, players: LobbyPlayer[], clean: (lo
     .slice(0, MAX_PLAYERS)
     .map((g) => ({ id: g.id, name: cleanName(String(g.name ?? ""), "Racer"), look: clean(g.look) }));
   return { raceId: p.raceId, levelId: p.levelId, grid, startInMs: Math.max(0, Math.min(15000, p.startInMs)), from: p.from };
+}
+
+function rgb(hex: string): [number, number, number] {
+  const n = Number.parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+/** Paints closer than this (RGB distance) are too alike to tell karts apart at a glance. */
+const SAME_PAINT = 90;
+function alike(a: string, b: string): boolean {
+  const [r1, g1, b1] = rgb(a);
+  const [r2, g2, b2] = rgb(b);
+  return Math.hypot(r1 - r2, g1 - g2, b1 - b2) < SAME_PAINT;
+}
+
+/**
+ * Every racer a kart colour of their own. In list order (id order, the same on
+ * every device), a racer whose paint matches or nearly matches an earlier
+ * one's gets the first garage paint nobody is using. Used for the race grid
+ * and the lobby's colour chips, so the lobby shows the colours you'll race in.
+ */
+export function distinctPaints<T extends { look: unknown }>(entries: T[]): Array<T & { look: KartLook }> {
+  const used: string[] = [];
+  return entries.map((e) => {
+    const look = sanitizeLook(e.look);
+    if (used.some((u) => alike(u, look.paint))) {
+      const free = PAINTS.find((c) => !used.some((u) => alike(u, c)));
+      if (free) look.paint = free;
+    }
+    used.push(look.paint);
+    return { ...e, look };
+  });
 }
