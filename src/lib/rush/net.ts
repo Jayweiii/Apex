@@ -120,7 +120,8 @@ export function decodeSnapshot(a: unknown): Snapshot | null {
     chargeLevel: Math.max(0, Math.min(3, Math.round(n[9]!))),
     boosting: n[10] === 1,
     lap: Math.max(0, Math.min(MAX_LAP, Math.round(n[11]!))),
-    progress: Math.max(0, Math.min(MAX_PROGRESS, n[12]!)),
+    // Negative on the grid, behind the start line, until lap 1 begins: keep the sign.
+    progress: Math.max(-MAX_PROGRESS, Math.min(MAX_PROGRESS, n[12]!)),
     finished: n[13] === 1,
     finishMs: Math.max(0, Math.min(MAX_TIME_MS, n[14]!)),
     bestLapMs: Math.max(0, Math.min(MAX_TIME_MS, n[15]!)),
@@ -237,8 +238,8 @@ export const JOINER_PREFIX = "1";
  * The host is the player with the lowest id: the creator first, then (if they
  * leave) a deterministic pick the same on every device. Client clocks play no part.
  */
-export function pickHost(players: LobbyPlayer[]): LobbyPlayer | null {
-  let best: LobbyPlayer | null = null;
+export function pickHost<T extends { id: string }>(players: T[]): T | null {
+  let best: T | null = null;
   for (const p of players) if (!best || p.id < best.id) best = p;
   return best;
 }

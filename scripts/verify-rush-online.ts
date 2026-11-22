@@ -13,6 +13,7 @@ import {
   distinctPaints,
   MAX_COORD,
   MAX_LAP,
+  MAX_PROGRESS,
   MAX_PLAYERS,
   MAX_SPEED,
   SEND_HZ,
@@ -59,11 +60,18 @@ function assert(condition: unknown, message: string): asserts condition {
 assert(SEND_HZ * MAX_PLAYERS * (MAX_PLAYERS - 1) <= 100, "a full lobby stays under 100 realtime messages a second");
 
 // ── Snapshot validation ──
+// Before lap 1 a kart's progress is negative (behind the start line). Flooring it at 0 made every
+// player see everyone else ahead in the first seconds of a race.
+{
+  const grid = decodeSnapshot([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -12.5, 0, 0, 0])!;
+  assert(grid.progress === -12.5, "a kart on the grid keeps its negative progress");
+  assert(decodeSnapshot([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1e9, 0, 0, 0])!.progress === -MAX_PROGRESS, "and it is still bounded");
+}
 {
   const wild = decodeSnapshot([0, 1e9, -1e9, 5, 0, 0, 1e6, 50, 1, 9, 1, 12345, -5, 0, -1, 1e12])!;
   assert(Math.abs(wild.x) <= MAX_COORD && Math.abs(wild.y) <= MAX_COORD, "positions are clamped");
   assert(wild.v <= MAX_SPEED && Math.abs(wild.steer) <= 1, "speed and steer are clamped");
-  assert(wild.lap === MAX_LAP && wild.progress === 0 && wild.finishMs === 0 && wild.bestLapMs <= 3_600_000, "lap, progress and times are clamped");
+  assert(wild.lap === MAX_LAP && wild.progress === -5 && wild.finishMs === 0 && wild.bestLapMs <= 3_600_000, "lap and times are clamped; grid progress keeps its sign");
 }
 
 // ── Duplicate names ──
