@@ -73,6 +73,10 @@ export type Kart = {
   lastLapMs: number;
   bestLapMs: number;
   place: number;
+  /** Online: driven by another player's snapshots, not by this device. */
+  remote: boolean;
+  /** Online: the player left; not drawn and out of the standings. */
+  gone: boolean;
 };
 
 export const EV_DRIFT_START = 1;
@@ -139,6 +143,8 @@ export function createKart(id: number, stats: KartStats): Kart {
     lastLapMs: 0,
     bestLapMs: 0,
     place: 1,
+    remote: false,
+    gone: false,
   };
 }
 

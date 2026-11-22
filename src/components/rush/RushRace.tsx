@@ -16,17 +16,21 @@ import {
   type GhostPose,
   type RealLap,
 } from "@/lib/rush/ghost";
-import { stickInput, STICK_RADIUS, type StickInput } from "@/lib/rush/input";
+import { BRAKE_PULL, stickInput, STICK_RADIUS, type StickInput } from "@/lib/rush/input";
+import { requestTilt, TILT_BLOCKED, tiltAvailable, TiltReader } from "@/lib/rush/tilt";
 import { DT, EV_BOOST, EV_CHARGE, EV_LAP, EV_PICKUP, EV_WALL, MAX_NITRO, type KartInput } from "@/lib/rush/kart";
 import type { RushLevel } from "@/lib/rush/levels";
 import { autopilot, createRace, RIVALS, stepRace, type RaceWorld, type RushMode } from "@/lib/rush/race";
-import { buildRushTrack, type RushTrack, type TrackHit } from "@/lib/rush/track";
+import type { GridEntry } from "@/lib/rush/lobby";
+import { encodeSnapshot, SEND_HZ, type RemoteKart } from "@/lib/rush/net";
+import { buildRushTrack, projectOnTrack, type RushTrack, type TrackHit } from "@/lib/rush/track";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createRushRenderer, type CameraMode, type RushRenderer } from "./renderer";
 
 type Phase = "loading" | "intro" | "countdown" | "racing" | "paused" | "finished" | "error";
 
-export type RushSettings = { autoGas: boolean; muted: boolean };
+/** `tilt`: steer by turning the phone; the thumb then drifts and brakes. */
+export type RushSettings = { autoGas: boolean; muted: boolean; tilt: boolean };
 
 type Standing = { place: number; name: string; timeMs: number | null; bestMs: number; you: boolean };
 type Results = {
@@ -84,6 +88,20 @@ async function fetchRealLap(trackId: string, signal: AbortSignal): Promise<RealL
   }
 }
 
+/** An online race: who is on the grid, and the live link to the other players. */
+export type OnlineRace = {
+  raceId: string;
+  grid: GridEntry[];
+  myId: string;
+  /** Snapshot buffers by player id, filled by the lobby connection. */
+  remotes: Map<string, RemoteKart>;
+  /** Ids of players still connected. */
+  present: () => Set<string>;
+  send: (snap: number[]) => void;
+  /** When GO happens, on this device's clock (performance.now ms), set when the start message arrived. */
+  goPerf: number;
+};
+
 const REAL_GHOST_LOOK: KartLook = { body: "wedge", wheels: "slick", paint: "#dff6ff", accent: "#4cc9f0", helmet: "#ffffff", number: 0 };
 
 export function RushRace({
@@ -94,6 +112,7 @@ export function RushRace({
   onSettings,
   onExit,
   audio,
+  online,
 }: {
   level: RushLevel;
   mode: RushMode;
@@ -103,11 +122,15 @@ export function RushRace({
   onExit: () => void;
   /** Created on the Start tap so the browser allows sound from the first beep. */
   audio: RushAudio | null;
+  /** Set for an online race: other players' karts come from the network. */
+  online?: OnlineRace;
 }) {
   const [phase, setPhase] = useState<Phase>("loading");
   const [results, setResults] = useState<Results | null>(null);
   const [raceKey, setRaceKey] = useState(0);
   const [touch] = useState(() => window.matchMedia("(pointer: coarse)").matches);
+  const [canTilt] = useState(tiltAvailable);
+  const [tiltNote, setTiltNote] = useState("");
   const [error, setError] = useState("");
 
   const phaseRef = useRef<Phase>("loading");
@@ -140,6 +163,29 @@ export function RushRace({
    */
   const stick = useRef({ id: -1, ox: 0, oy: 0, dx: 0, dy: 0, touch: -1, since: 0 });
   const nitroHeld = useRef(false);
+  /** Phone orientation while tilt steering is on. */
+  const tilt = useRef<TiltReader | null>(null);
+  useEffect(() => {
+    if (!settings.tilt) return;
+    const reader = new TiltReader();
+    reader.start();
+    tilt.current = reader;
+    return () => {
+      reader.stop();
+      tilt.current = null;
+    };
+  }, [settings.tilt]);
+  const chooseTilt = (on: boolean) => {
+    setTiltNote("");
+    if (!on) {
+      onSettings({ ...settings, tilt: false });
+      return;
+    }
+    void requestTilt().then((r) => {
+      if (r === "granted") onSettings({ ...settings, tilt: true });
+      else setTiltNote(TILT_BLOCKED);
+    });
+  };
 
   // The sound engine is created by the Start tap and handed in; keep it in a
   // ref for the race loop and key handlers.
@@ -228,6 +274,8 @@ export function RushRace({
         }
       };
       const onTouchEnd = (e: TouchEvent) => {
+        // Tilt wanted but no readings (iPhone after a reload): a lifted finger can ask.
+        if (e.type === "touchend" && settingsRef.current.tilt && !tilt.current?.live(performance.now())) void requestTilt();
         const st = stick.current;
         for (const t of Array.from(e.changedTouches)) {
           if (t.identifier !== st.touch) continue;
@@ -300,13 +348,24 @@ export function RushRace({
     const ghosts: Array<Ghost | null> = [null, null];
     try {
       track = trackFor(level);
-      world = createRace(track, mode, statsFor(look));
+      const slot = online ? Math.max(0, online.grid.findIndex((g) => g.id === online.myId)) : 0;
+      world = online
+        ? createRace(track, "gp", statsFor(look), { online: { count: online.grid.length, slot } })
+        : createRace(track, mode, statsFor(look));
       const looks: KartLook[] = [look];
+      const labels: Array<string | null> = [null];
       for (let i = 1; i < world.karts.length; i += 1) {
+        if (online) {
+          const g = online.grid[world.karts[i]!.id]!;
+          looks.push(g.look);
+          labels.push(g.name);
+          continue;
+        }
         const r = RIVALS[world.karts[i]!.id - 1]!;
         looks.push({ body: (["classic", "wedge", "buggy", "bubble"] as const)[r.body]!, wheels: "slick", paint: r.paint, accent: r.accent, helmet: r.helmet, number: i });
+        labels.push(null);
       }
-      renderer = createRushRenderer(canvas, track, level.theme, looks, mode === "tt" ? [REAL_GHOST_LOOK, look] : []);
+      renderer = createRushRenderer(canvas, track, level.theme, looks, !online && mode === "tt" ? [REAL_GHOST_LOOK, look] : [], labels);
     } catch (err) {
       const message = err instanceof Error ? err.message : "This device could not start the 3D view.";
       const id = requestAnimationFrame(() => {
@@ -336,6 +395,7 @@ export function RushRace({
 
     const input: KartInput = { steer: 0, throttle: 0, brake: 0, drift: false, useItem: false };
     const so: StickInput = { steer: 0, brake: 0, drift: false };
+    let tiltSteer = 0;
     const ghostHits: TrackHit[] = [
       { i: 0, s: 0, d: 0 },
       { i: 0, s: 0, d: 0 },
@@ -367,7 +427,11 @@ export function RushRace({
     const mScale = (MAP - 12) / Math.max(mx1 - mx0, my1 - my0);
     const mapX = (x: number) => 6 + (x - mx0) * mScale + (MAP - 12 - (mx1 - mx0) * mScale) / 2;
     const mapY = (y: number) => MAP - 6 - (y - my0) * mScale - (MAP - 12 - (my1 - my0) * mScale) / 2;
-    const rivalColors = world.karts.map((k) => (k.id === 0 ? "#ffffff" : RIVALS[k.id - 1]!.paint));
+    const rivalColors = world.karts.map((k, n) =>
+      online ? (n === 0 ? "#ffffff" : online.grid[k.id]!.look.paint) : k.id === 0 ? "#ffffff" : RIVALS[k.id - 1]!.paint,
+    );
+    const nameOf = (k: (typeof world.karts)[number]) =>
+      k === player ? "YOU" : online ? online.grid[k.id]!.name.toUpperCase() : RIVALS[k.id - 1]!.name.toUpperCase();
 
     const drawMap = () => {
       if (!mctx) return;
@@ -394,6 +458,7 @@ export function RushRace({
       }
       for (let k = world.karts.length - 1; k >= 0; k -= 1) {
         const kart = world.karts[k]!;
+        if (kart.gone) continue;
         const x = Math.round(mapX(kart.x));
         const y = Math.round(mapY(kart.y));
         const r = k === 0 ? 4 : 3;
@@ -427,7 +492,17 @@ export function RushRace({
       let drift = k.drift;
       let gas = k.up || settingsRef.current.autoGas;
       let item = k.item || nitroHeld.current;
-      if (st.id >= 0) {
+      const tr = tilt.current;
+      if (tr && tr.live(performance.now())) {
+        // Tilt steers (smoothed a touch); a held thumb drifts, pulled down it brakes.
+        tiltSteer += (tr.steer - tiltSteer) * 0.4;
+        if (steer === 0) steer = tiltSteer;
+        if (st.id >= 0) {
+          brake = st.dy / STICK_RADIUS > BRAKE_PULL ? 1 : 0;
+          drift = brake === 0;
+          gas = true;
+        }
+      } else if (st.id >= 0) {
         stickInput(st.dx, st.dy, player.drifting, so);
         steer = so.steer;
         brake = so.brake;
@@ -454,17 +529,45 @@ export function RushRace({
 
     const standingsNow = (): Standing[] =>
       world.karts
-        .slice()
+        .filter((k) => !k.gone)
         .sort((a, b) => a.place - b.place)
         .map((k) => ({
           place: k.place,
-          name: k.id === 0 ? "YOU" : RIVALS[k.id - 1]!.name.toUpperCase(),
+          name: nameOf(k),
           timeMs: k.finished ? k.finishMs : null,
           bestMs: k.bestLapMs,
-          you: k.id === 0,
+          you: k === player,
         }));
     let shownFinished = 0;
-    const countFinished = () => world.karts.reduce((nDone, k) => nDone + (k.finished ? 1 : 0), 0);
+    const countFinished = () => world.karts.reduce((nDone, k) => nDone + (k.finished || k.gone ? 1 : 0), 0);
+
+    // Online: GO happens at the host's chosen moment. Convert it to this
+    // device's clock once (clamped, in case a phone's clock is far off).
+    const goPerf = online ? Math.max(performance.now() + INTRO_S * 1000 * 0.5, Math.min(performance.now() + 15_000, online.goPerf)) : 0;
+    let nextSend = 0;
+    // A player is only dropped after being missing from the lobby for a few seconds (presence can blip).
+    const missingSince = new Map<string, number>();
+    const GONE_AFTER_MS = 3000;
+    const syncRemotes = (now: number, dtMs: number) => {
+      if (!online) return;
+      const here = online.present();
+      for (let n = 1; n < world.karts.length; n += 1) {
+        const k = world.karts[n]!;
+        const entry = online.grid[k.id]!;
+        if (!here.has(entry.id)) {
+          const since = missingSince.get(entry.id) ?? now;
+          missingSince.set(entry.id, since);
+          k.gone = now - since >= GONE_AFTER_MS;
+          continue;
+        }
+        missingSince.delete(entry.id);
+        k.gone = false;
+        const remote = online.remotes.get(entry.id);
+        if (!remote) continue;
+        remote.relax(dtMs);
+        if (remote.sample(now, k)) projectOnTrack(track, k.x, k.y, k.hit);
+      }
+    };
 
     const finish = (now: number) => {
       const audio = audioRef.current;
@@ -477,6 +580,7 @@ export function RushRace({
         newBest = true;
       }
       const ghost = ghosts[0];
+      online?.send(encodeSnapshot(player, now)); // the last snapshot carries the finish
       const standings = standingsNow();
       shownFinished = countFinished();
       setResults({ standings, laps: lapTimes.slice(), bestMs: best, newBest, ghostLabel: ghost ? ghost.label : null, ghostMs: ghost ? ghost.lapMs : 0 });
@@ -505,22 +609,39 @@ export function RushRace({
       }
       const ph = phaseRef.current;
       const audio = audioRef.current;
-      if (ph === "paused" || ph === "error") {
+      // An online race can't stop for one player: paused just shows the menu
+      // while the kart coasts.
+      if ((ph === "paused" && !online) || ph === "error") {
         audio?.update(0, false, false, false, false);
         return;
       }
       phaseT += dt;
       let steps = 0;
+      syncRemotes(now, dt * 1000);
+      // Snapshots only while racing: not in the intro, paused, finished or on results (message quota).
+      if (online && now >= nextSend && ph === "racing" && !player.finished) {
+        nextSend = now + 1000 / SEND_HZ;
+        online.send(encodeSnapshot(player, now));
+      }
+      // Online, intro and countdown follow the shared GO time.
+      const toGo = online ? (goPerf - now) / 1000 : 0;
+      // Online, the race runs on under the pause menu: time it as the phase it paused from.
+      const stage = ph === "paused" ? beforePause.current : ph;
+      const moveOn = (next: Phase) => {
+        if (phaseRef.current === "paused") beforePause.current = next;
+        else changePhase(next);
+      };
 
-      if (ph === "intro") {
+      if (stage === "intro") {
         view.camera = "intro";
         view.cameraT = phaseT;
-        if (phaseT >= INTRO_S) {
-          phaseT = 0;
-          changePhase("countdown");
+        if (online ? toGo <= COUNTDOWN_S : phaseT >= INTRO_S) {
+          phaseT = online ? COUNTDOWN_S - Math.max(0, toGo) : 0;
+          moveOn("countdown");
         }
-      } else if (ph === "countdown") {
+      } else if (stage === "countdown") {
         view.camera = "chase";
+        if (online) phaseT = COUNTDOWN_S - toGo;
         const n = Math.ceil(COUNTDOWN_S - phaseT);
         if (n !== lastCount && n > 0) {
           lastCount = n;
@@ -529,16 +650,16 @@ export function RushRace({
         }
         if (phaseT >= COUNTDOWN_S) {
           phaseT = 0;
-          flash("GO!", 0.9, now);
+          flash(settingsRef.current.tilt && !tilt.current?.live(performance.now()) ? "GO! · NO TILT, DRAG TO STEER" : "GO!", 0.9, now);
           audio?.blip("go");
-          changePhase("racing");
+          moveOn("racing");
         }
       } else {
         acc += dt;
         accum.fill(0);
         while (acc >= DT && steps < 6) {
           readInput();
-          if (ph === "finished") {
+          if (ph === "finished" || ph === "paused") {
             input.throttle = 0;
             input.drift = false;
             input.useItem = false;
@@ -559,7 +680,7 @@ export function RushRace({
           if (ev & EV_PICKUP) audio?.blip("pickup");
           if (ev & EV_CHARGE) audio?.blip("charge");
           if (ev & EV_WALL) audio?.blip("wall");
-          if (player.finished && phaseRef.current === "racing") finish(now);
+          if (player.finished && (phaseRef.current === "racing" || (online && phaseRef.current === "paused"))) finish(now);
         }
         if (steps === 6) acc = 0;
         for (let k = 0; k < world.karts.length; k += 1) world.karts[k]!.events = steps > 0 ? accum[k]! : 0;
@@ -625,6 +746,13 @@ export function RushRace({
       canvas.dataset.rushLap = String(player.lap);
       canvas.dataset.rushDrift = String(player.drifting);
       canvas.dataset.rushHeading = player.heading.toFixed(3);
+      canvas.dataset.rushSteer = input.steer.toFixed(2);
+      if (online) {
+        let live = 0;
+        for (let n = 1; n < world.karts.length; n += 1) if (!world.karts[n]!.gone && online.remotes.get(online.grid[world.karts[n]!.id]!.id)?.latest) live += 1;
+        canvas.dataset.rushRemote = String(live);
+        canvas.dataset.rushPlace = String(player.place);
+      }
 
       audio?.update(Math.abs(player.v) / 27, player.drifting !== 0, player.boostT > 0, player.offroad, phaseRef.current !== "finished" || finishedT < 3);
       drawMap();
@@ -645,6 +773,7 @@ export function RushRace({
     const ro = new ResizeObserver(onResize);
     ro.observe(canvas);
     const onVisibility = () => {
+      if (online) return; // the others keep racing; this kart just coasts
       if (document.hidden && (phaseRef.current === "racing" || phaseRef.current === "countdown")) changePhase("paused");
     };
     document.addEventListener("visibilitychange", onVisibility);
@@ -658,7 +787,7 @@ export function RushRace({
       document.removeEventListener("visibilitychange", onVisibility);
       renderer.dispose();
     };
-  }, [level, mode, look, raceKey, changePhase]);
+  }, [level, mode, look, raceKey, changePhase, online]);
 
   // ── Keyboard ──
   useEffect(() => {
@@ -850,7 +979,13 @@ export function RushRace({
             WRONG WAY
           </div>
           <div ref={hintEl} className="absolute inset-x-4 top-[56%] text-center text-xs leading-relaxed opacity-0 transition-opacity sm:text-sm">
-            {touch ? (
+            {touch && settings.tilt ? (
+              <>
+                TILT TO STEER · HOLD THE SCREEN TO DRIFT
+                <br />
+                LET GO TO BOOST · PULL DOWN TO BRAKE
+              </>
+            ) : touch ? (
               <>
                 DRAG TO STEER · PUSH TO THE EDGE TO DRIFT
                 <br />
@@ -922,9 +1057,13 @@ export function RushRace({
               <button type="button" className="rush-btn rush-btn--go" data-rush-resume="1" onClick={resume}>
                 Resume
               </button>
-              <button type="button" className="rush-btn" data-rush-restart="1" onClick={() => setRaceKey((k) => k + 1)}>
-                Restart
-              </button>
+              {online ? (
+                <p className="text-[11px] text-[#adb5bd]">ONLINE RACE: YOUR KART COASTS WHILE THIS MENU IS OPEN</p>
+              ) : (
+                <button type="button" className="rush-btn" data-rush-restart="1" onClick={() => setRaceKey((k) => k + 1)}>
+                  Restart
+                </button>
+              )}
               <div className="flex items-center justify-between gap-2 text-xs">
                 <span>SOUND</span>
                 <div className="rush-seg" role="group" aria-label="Sound">
@@ -947,13 +1086,33 @@ export function RushRace({
                   </button>
                 </div>
               </div>
+              {canTilt ? (
+                <div className="text-xs">
+                  <div className="flex items-center justify-between gap-2">
+                    <span>STEERING</span>
+                    <div className="rush-seg" role="group" aria-label="Steering">
+                      <button type="button" aria-pressed={!settings.tilt} data-rush-steer="stick" onClick={() => chooseTilt(false)}>
+                        Thumb
+                      </button>
+                      <button type="button" aria-pressed={settings.tilt} data-rush-steer="tilt" onClick={() => chooseTilt(true)}>
+                        Tilt
+                      </button>
+                    </div>
+                  </div>
+                  {tiltNote ? (
+                    <p className="mt-2 text-left text-[10px] text-[#ff6b6b]" role="alert" data-rush-tilt-note="1">
+                      {tiltNote}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
               <BugReportButton
                 className="rush-btn rush-btn--ghost"
-                controls={`${touch ? "touch stick" : "keyboard"}, auto gas ${settings.autoGas ? "on" : "off"}`}
+                controls={`${touch ? (settings.tilt ? "tilt" : "touch stick") : "keyboard"}, auto gas ${settings.autoGas ? "on" : "off"}`}
                 dataAttr="rush"
               />
               <button type="button" className="rush-btn rush-btn--ghost" data-rush-quit="1" onClick={onExit}>
-                Quit to menu
+                {online ? "Leave race" : "Quit to menu"}
               </button>
             </div>
           </div>
@@ -963,8 +1122,8 @@ export function RushRace({
       {phase === "finished" && results ? (
         <div className="absolute inset-x-0 bottom-0 flex justify-center p-3 [padding-bottom:max(0.75rem,env(safe-area-inset-bottom))]" data-rush-results="1">
           <div className="rush-panel w-full max-w-md p-4 text-[#f8f9fa]">
-            {mode === "gp" ? (
-              <ol className="space-y-1 text-sm">
+            {mode === "gp" || online ? (
+              <ol className="space-y-1 text-sm" data-rush-standings="1">
                 {results.standings.map((s) => (
                   <li key={s.name} className={`flex justify-between gap-3 px-2 py-1 ${s.you ? "bg-[#ffd60a] font-bold text-[#14151a]" : ""}`}>
                     <span>
@@ -998,14 +1157,23 @@ export function RushRace({
                 ) : null}
               </div>
             )}
-            <div className="mt-3 flex gap-3">
-              <button type="button" className="rush-btn rush-btn--go flex-1" data-rush-again="1" onClick={() => setRaceKey((k) => k + 1)}>
-                Again
-              </button>
-              <button type="button" className="rush-btn rush-btn--ghost flex-1" onClick={onExit}>
-                Menu
-              </button>
-            </div>
+            {online ? (
+              <div className="mt-3">
+                <button type="button" className="rush-btn rush-btn--go w-full" data-rush-lobby-back="1" onClick={onExit}>
+                  Back to lobby
+                </button>
+                <p className="mt-2 text-center text-[10px] text-[#adb5bd]">THE HOST CAN START THE NEXT RACE FROM THE LOBBY</p>
+              </div>
+            ) : (
+              <div className="mt-3 flex gap-3">
+                <button type="button" className="rush-btn rush-btn--go flex-1" data-rush-again="1" onClick={() => setRaceKey((k) => k + 1)}>
+                  Again
+                </button>
+                <button type="button" className="rush-btn rush-btn--ghost flex-1" onClick={onExit}>
+                  Menu
+                </button>
+              </div>
+            )}
           </div>
         </div>
       ) : null}
