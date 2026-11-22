@@ -10,6 +10,20 @@ import { createKartPreview, type KartPreview } from "./preview";
 import { formatRushTime } from "./RushRace";
 
 type Tab = "race" | "garage";
+/** What the mode switch offers: the two solo modes, or racing friends online. */
+export type MenuMode = RushMode | "online";
+
+export type OnlineMenu = {
+  available: boolean;
+  name: string;
+  onName: (name: string) => void;
+  onCreate: () => void;
+  onJoin: (code: string) => void;
+  busy: boolean;
+  error: string;
+  /** Code from an invite link, to prefill the join field. */
+  initialCode: string;
+};
 
 /** Tiny outline of the real circuit, drawn from its baked centreline. */
 function TrackOutline({ level, active }: { level: RushLevel; active: boolean }) {
@@ -88,16 +102,19 @@ export function RushMenu({
   mode,
   onMode,
   onStart,
+  online,
 }: {
   look: KartLook;
   onLook: (look: KartLook) => void;
   levelId: string;
   onLevel: (id: string) => void;
-  mode: RushMode;
-  onMode: (mode: RushMode) => void;
+  mode: MenuMode;
+  onMode: (mode: MenuMode) => void;
   onStart: () => void;
+  online: OnlineMenu;
 }) {
   const [tab, setTab] = useState<Tab>("race");
+  const [joinCode, setJoinCode] = useState(online.initialCode);
   // Client-only component: best laps can be read straight from storage.
   const [bests] = useState<Record<string, number>>(() => {
     const next: Record<string, number> = {};
@@ -176,9 +193,16 @@ export function RushMenu({
               <button type="button" aria-pressed={mode === "tt"} data-rush-mode="tt" onClick={() => onMode("tt")}>
                 Time Trial
               </button>
+              <button type="button" aria-pressed={mode === "online"} data-rush-mode="online" onClick={() => onMode("online")}>
+                Online
+              </button>
             </div>
             <p className="text-[11px] text-[#adb5bd]">
-              {mode === "gp" ? "RACE 5 RIVALS FROM THE BACK OF THE GRID" : "CHASE A GHOST OF A REAL LAP, THEN YOUR OWN"}
+              {mode === "gp"
+                ? "RACE 5 RIVALS FROM THE BACK OF THE GRID"
+                : mode === "tt"
+                  ? "CHASE A GHOST OF A REAL LAP, THEN YOUR OWN"
+                  : "RACE FRIENDS: CREATE A LOBBY OR JOIN WITH A CODE"}
             </p>
           </div>
 
@@ -212,9 +236,75 @@ export function RushMenu({
             })}
           </div>
 
-          <button type="button" className="rush-btn rush-btn--go w-full text-lg" data-rush-start="1" onClick={onStart}>
-            Race {level.data.name} →
-          </button>
+          {mode === "online" ? (
+            <div className="rush-panel space-y-4 p-4" data-rush-online="1">
+              {online.available ? (
+                <>
+                  <div>
+                    <label className="block text-[11px] text-[#adb5bd]" htmlFor="rush-online-name">
+                      YOUR NAME
+                    </label>
+                    <input
+                      id="rush-online-name"
+                      className="rush-input mt-1"
+                      value={online.name}
+                      maxLength={14}
+                      autoComplete="nickname"
+                      data-rush-name="1"
+                      onChange={(e) => online.onName(e.target.value)}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="rush-btn rush-btn--go w-full text-lg"
+                    data-rush-create="1"
+                    disabled={online.busy}
+                    onClick={online.onCreate}
+                  >
+                    Create lobby on {level.data.name}
+                  </button>
+                  <form
+                    className="flex gap-2"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      online.onJoin(joinCode);
+                    }}
+                  >
+                    <label className="sr-only" htmlFor="rush-join-code">
+                      Lobby code
+                    </label>
+                    <input
+                      id="rush-join-code"
+                      className="rush-input flex-1 tracking-[0.3em]"
+                      placeholder="CODE"
+                      value={joinCode}
+                      maxLength={6}
+                      autoComplete="off"
+                      autoCapitalize="characters"
+                      spellCheck={false}
+                      data-rush-join-code="1"
+                      onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+                    />
+                    <button type="submit" className="rush-btn" data-rush-join="1" disabled={online.busy}>
+                      Join
+                    </button>
+                  </form>
+                  {online.busy ? <p className="text-xs text-[#adb5bd]" role="status">CONNECTING…</p> : null}
+                  {online.error ? (
+                    <p className="text-xs text-[#ff6b6b]" role="alert" data-rush-online-error="1">
+                      {online.error}
+                    </p>
+                  ) : null}
+                </>
+              ) : (
+                <p className="text-sm">Online races aren&apos;t available on this copy of Apex.</p>
+              )}
+            </div>
+          ) : (
+            <button type="button" className="rush-btn rush-btn--go w-full text-lg" data-rush-start="1" onClick={onStart}>
+              Race {level.data.name} →
+            </button>
+          )}
           <p className="text-[10px] leading-relaxed text-[#6c757d]">
             Tracks are shrunk to kart size from real outlines and real elevation. {level.data.sources?.join(" · ")}. Times here are game
             times and never count as real laps.

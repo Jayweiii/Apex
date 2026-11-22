@@ -55,19 +55,25 @@ export function statsFor(look: KartLook): KartStats {
 const KEY = "apex.rush.kart";
 const HEX = /^#[0-9a-f]{6}$/i;
 
+/** A kart look from anywhere (storage, another player): unknown fields fall back. */
+export function sanitizeLook(raw: unknown): KartLook {
+  if (typeof raw !== "object" || raw === null) return { ...DEFAULT_LOOK };
+  const v = raw as Partial<KartLook>;
+  return {
+    body: BODIES.some((b) => b.id === v.body) ? v.body! : DEFAULT_LOOK.body,
+    wheels: WHEELS.some((w) => w.id === v.wheels) ? v.wheels! : DEFAULT_LOOK.wheels,
+    paint: typeof v.paint === "string" && HEX.test(v.paint) ? v.paint : DEFAULT_LOOK.paint,
+    accent: typeof v.accent === "string" && HEX.test(v.accent) ? v.accent : DEFAULT_LOOK.accent,
+    helmet: typeof v.helmet === "string" && HEX.test(v.helmet) ? v.helmet : DEFAULT_LOOK.helmet,
+    number: typeof v.number === "number" && v.number >= 0 && v.number <= 99 ? Math.round(v.number) : DEFAULT_LOOK.number,
+  };
+}
+
 export function loadLook(): KartLook {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return { ...DEFAULT_LOOK };
-    const v = JSON.parse(raw) as Partial<KartLook>;
-    return {
-      body: BODIES.some((b) => b.id === v.body) ? v.body! : DEFAULT_LOOK.body,
-      wheels: WHEELS.some((w) => w.id === v.wheels) ? v.wheels! : DEFAULT_LOOK.wheels,
-      paint: typeof v.paint === "string" && HEX.test(v.paint) ? v.paint : DEFAULT_LOOK.paint,
-      accent: typeof v.accent === "string" && HEX.test(v.accent) ? v.accent : DEFAULT_LOOK.accent,
-      helmet: typeof v.helmet === "string" && HEX.test(v.helmet) ? v.helmet : DEFAULT_LOOK.helmet,
-      number: typeof v.number === "number" && v.number >= 0 && v.number <= 99 ? Math.round(v.number) : DEFAULT_LOOK.number,
-    };
+    return sanitizeLook(JSON.parse(raw));
   } catch {
     return { ...DEFAULT_LOOK };
   }

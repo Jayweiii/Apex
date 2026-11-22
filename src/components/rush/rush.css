@@ -172,3 +172,34 @@
     4px 4px 0 #ff5400,
     8px 8px 0 #14151a;
 }
+/* Online: text fields and the lobby code. */
+.rush-input {
+  min-height: 48px;
+  width: 100%;
+  border: 3px solid #495057;
+  background: #14151a;
+  padding: 0.4rem 0.7rem;
+  color: #f8f9fa;
+  font-family: inherit;
+  font-size: 16px; /* 16px keeps iOS from zooming into the field */
+  text-transform: uppercase;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.rush-input:focus-visible {
+  outline: 3px solid #4cc9f0;
+  outline-offset: 2px;
+  border-color: var(--rush-gold);
+}
+.rush-code {
+  font-size: clamp(2.6rem, 14vw, 4.5rem);
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  color: var(--rush-gold);
+  text-shadow: 4px 4px 0 #14151a;
+  line-height: 1;
+}
+.rush-btn:disabled {
+  opacity: 0.5;
+  transform: none;
+}

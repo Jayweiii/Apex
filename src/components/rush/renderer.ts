@@ -61,6 +61,8 @@ export function createRushRenderer(
   theme: RushTheme,
   looks: KartLook[],
   ghostLooks: KartLook[],
+  /** Name tag over each kart (index-aligned with `looks`; null for none). */
+  labels: Array<string | null> = [],
 ): RushRenderer {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: "high-performance", alpha: false });
   renderer.setPixelRatio(1);
@@ -550,6 +552,16 @@ export function createRushRenderer(
     g.group.visible = false;
     scene.add(g.group);
   }
+  // Name tags float over other players' karts (online races).
+  const tags = models.map((_, k) => {
+    const text = labels[k];
+    if (!text) return null;
+    const mat = keep(new THREE.SpriteMaterial({ map: keep(bannerTexture(text, "#14151a", "#f8f9fa")), depthWrite: false, transparent: true }));
+    const sprite = new THREE.Sprite(mat);
+    sprite.scale.set(3.4, 0.6, 1);
+    scene.add(sprite);
+    return sprite;
+  });
   const wheelSpin = new Float32Array(models.length);
   const visYaw = new Float32Array(models.length);
   const visRoll = new Float32Array(models.length);
@@ -633,6 +645,13 @@ export function createRushRenderer(
     for (let k = 0; k < world.karts.length && k < models.length; k += 1) {
       const kart: Kart = world.karts[k]!;
       const model = models[k]!;
+      const tag = tags[k] ?? null;
+      // A player who left the race is not drawn.
+      model.group.visible = !kart.gone;
+      blobs[k]!.visible = !kart.gone;
+      if (tag) tag.visible = !kart.gone;
+      if (kart.gone) continue;
+      if (tag) tag.position.set(kart.x, kart.z + 2.3, -kart.y);
       const speed = Math.abs(kart.v);
       wheelSpin[k] = (wheelSpin[k]! + (kart.v * dt) / model.wheelRadius) % (Math.PI * 2);
       // The kart points into the corner in a drift, with a touch of lean.

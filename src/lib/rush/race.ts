@@ -68,8 +68,17 @@ export function createRace(
   track: RushTrack,
   mode: RushMode,
   playerStats: KartStats,
-  opts: { rivals?: number; laps?: number } = {},
+  opts: {
+    rivals?: number;
+    laps?: number;
+    /**
+     * Online race: `count` players on the grid, this device drives the one in
+     * grid slot `slot`, the rest are remote (no AI). Kart ids are grid slots.
+     */
+    online?: { count: number; slot: number };
+  } = {},
 ): RaceWorld {
+  if (opts.online) return createOnlineRace(track, playerStats, opts.online, opts.laps);
   const rivalCount = mode === "gp" ? Math.min(RIVALS.length, opts.rivals ?? RIVALS.length) : 0;
   const rand = rushRng(trackSeed(track) ^ 0x9e3779b9);
   const karts: Kart[] = [];
@@ -118,6 +127,53 @@ export function createRace(
     laps: opts.laps ?? track.laps,
     karts,
     ai,
+    playerAi: { lane: 0, laneT: 1e9, skill: 1, baseTop: playerStats.top, nitroT: 0, drift: false, rand: () => 0.5 },
+    tick: 0,
+    timeMs: 0,
+    boxT: new Float32Array(track.boxes.length),
+    wrongWayT: 0,
+    rec: [],
+    bestRec: null,
+    bestRecMs: 0,
+  };
+}
+
+function gridKart(track: RushTrack, id: number, slot: number, stats: KartStats): Kart {
+  const kart = createKart(id, stats);
+  const pose = poseAt(track, track.length - 7 - slot * 4.5, slot % 2 === 0 ? -2.4 : 2.4);
+  kart.x = pose.x;
+  kart.y = pose.y;
+  kart.z = pose.z;
+  kart.heading = pose.heading;
+  kart.va = pose.heading;
+  kart.hit.i = pose.i;
+  projectOnTrack(track, kart.x, kart.y, kart.hit, true);
+  kart.gate = track.gates - 1;
+  kart.progress = kart.hit.s - track.length;
+  return kart;
+}
+
+/** Everyone on the grid in lobby order; karts[0] is always this device's kart. */
+function createOnlineRace(track: RushTrack, playerStats: KartStats, online: { count: number; slot: number }, laps?: number): RaceWorld {
+  const count = Math.max(1, online.count);
+  const slot = Math.max(0, Math.min(count - 1, online.slot));
+  const karts: Kart[] = [];
+  for (let g = 0; g < count; g += 1) {
+    const kart = gridKart(track, g, g, g === slot ? { ...playerStats } : { ...BASE_STATS });
+    kart.remote = g !== slot;
+    if (g === slot) karts.unshift(kart);
+    else karts.push(kart);
+  }
+  karts
+    .slice()
+    .sort((a, b) => b.progress - a.progress)
+    .forEach((k, i) => (k.place = i + 1));
+  return {
+    track,
+    mode: "gp",
+    laps: laps ?? track.laps,
+    karts,
+    ai: karts.map(() => null),
     playerAi: { lane: 0, laneT: 1e9, skill: 1, baseTop: playerStats.top, nitroT: 0, drift: false, rand: () => 0.5 },
     tick: 0,
     timeMs: 0,
@@ -252,6 +308,14 @@ function updateLap(world: RaceWorld, k: Kart, prevS: number): void {
 
 const order: Kart[] = [];
 
+/** Finished first (by time), then by distance; anyone who left goes last. */
+function byStanding(a: Kart, b: Kart): number {
+  if (a.gone !== b.gone) return a.gone ? 1 : -1;
+  if (a.finished && b.finished) return a.finishMs - b.finishMs;
+  if (a.finished !== b.finished) return a.finished ? -1 : 1;
+  return b.progress - a.progress;
+}
+
 /** Advance the whole race one tick with the player's input. */
 export function stepRace(world: RaceWorld, input: KartInput): void {
   const track = world.track;
@@ -260,6 +324,8 @@ export function stepRace(world: RaceWorld, input: KartInput): void {
 
   for (let n = 0; n < world.karts.length; n += 1) {
     const k = world.karts[n]!;
+    // Another player's kart: its own device moves it (see net.ts).
+    if (k.remote) continue;
     const ai = world.ai[n];
     const prevS = k.hit.s;
     if (k.finished) {
@@ -299,6 +365,7 @@ export function stepRace(world: RaceWorld, input: KartInput): void {
     for (let b = a + 1; b < world.karts.length; b += 1) {
       const p = world.karts[a]!;
       const q = world.karts[b]!;
+      if (p.gone || q.gone || (p.remote && q.remote)) continue;
       const dx = q.x - p.x;
       const dy = q.y - p.y;
       const d2 = dx * dx + dy * dy;
@@ -307,14 +374,16 @@ export function stepRace(world: RaceWorld, input: KartInput): void {
       const push = (1.9 - d) / 2;
       const nx = dx / d;
       const ny = dy / d;
-      const wp = q.stats.weight / (p.stats.weight + q.stats.weight);
+      // A remote kart is moved by its own device (which sees the same bump), so
+      // only the local kart is pushed, the whole way.
+      const wp = q.remote ? 1 : p.remote ? 0 : q.stats.weight / (p.stats.weight + q.stats.weight);
       p.x -= nx * push * 2 * wp;
       p.y -= ny * push * 2 * wp;
       q.x += nx * push * 2 * (1 - wp);
       q.y += ny * push * 2 * (1 - wp);
       const dv = p.v - q.v;
-      p.v -= dv * 0.12;
-      q.v += dv * 0.12;
+      if (!p.remote) p.v -= dv * 0.12;
+      if (!q.remote) q.v += dv * 0.12;
       p.events |= EV_BUMP;
       q.events |= EV_BUMP;
     }
@@ -323,7 +392,7 @@ export function stepRace(world: RaceWorld, input: KartInput): void {
   // Places.
   order.length = 0;
   for (const k of world.karts) order.push(k);
-  order.sort((a, b) => (a.finished && b.finished ? a.finishMs - b.finishMs : b.progress - a.progress));
+  order.sort(byStanding);
   for (let n = 0; n < order.length; n += 1) order[n]!.place = n + 1;
 
   // Player-only bookkeeping.
