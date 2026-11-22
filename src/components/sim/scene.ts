@@ -7,6 +7,7 @@ import * as THREE from "three";
 import { Sky } from "three/examples/jsm/objects/Sky.js";
 import { SURFACE_GRASS, SURFACE_ROAD, type Car, type CarSpec } from "@/lib/sim/car";
 import type { GhostPose } from "@/lib/sim/ghost";
+import type { RemotePose } from "@/lib/sim/online";
 import { createPilot } from "@/lib/sim/session";
 import { gridHeight, groundHeight, poseAt, projectOnTrack, type SimTrack, type TrackHit } from "@/lib/sim/track";
 import { buildMiata, type CarModel } from "./miata";
@@ -18,6 +19,8 @@ export type SimView = {
   car: Car;
   /** Ghosts to draw this frame (null hides one): [real lap, your best]. */
   ghosts: Array<GhostPose | null>;
+  /** Other drivers in an online race (null hides one): solid cars in their paint, with a name tag. */
+  rivals?: Array<{ pose: RemotePose; paint: string; label: string } | null>;
   camera: CameraMode;
 };
 
@@ -516,6 +519,55 @@ export function createSimScene(canvas: HTMLCanvasElement, track: SimTrack, spec:
     scene.add(m.group);
   });
 
+  // ── Other drivers (online races): built when first needed ──
+  type Rival = { model: CarModel; paint: string; label: string; tag: THREE.Sprite; tagTex: THREE.CanvasTexture | null };
+  const rivals: Rival[] = [];
+  const rivalHit: TrackHit = { i: 0, s: 0, d: 0 };
+  const nameTag = (text: string): THREE.CanvasTexture => {
+    const c = document.createElement("canvas");
+    c.width = 256;
+    c.height = 64;
+    const g = c.getContext("2d")!;
+    g.font = "600 30px system-ui, -apple-system, sans-serif";
+    const w = Math.min(244, g.measureText(text).width + 28);
+    g.fillStyle = "rgba(10,11,14,0.72)";
+    g.beginPath();
+    g.roundRect((256 - w) / 2, 8, w, 48, 12);
+    g.fill();
+    g.fillStyle = "#f4f4f5";
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    g.fillText(text, 128, 33, 230);
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  };
+  const rivalAt = (i: number, paint: string, label: string): Rival => {
+    let r = rivals[i];
+    if (!r) {
+      const model = buildMiata(spec, paint);
+      model.group.rotation.order = "YZX";
+      const tag = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, depthWrite: false }));
+      tag.scale.set(2.6, 0.65, 1);
+      tag.renderOrder = 2;
+      scene.add(model.group, tag);
+      r = { model, paint, label: "", tag, tagTex: null };
+      rivals[i] = r;
+    }
+    if (r.paint !== paint) {
+      r.model.setPaint(paint);
+      r.paint = paint;
+    }
+    if (r.label !== label) {
+      r.tagTex?.dispose();
+      r.tagTex = nameTag(label);
+      r.tag.material.map = r.tagTex;
+      r.tag.material.needsUpdate = true;
+      r.label = label;
+    }
+    return r;
+  };
+
   // ── Tyre smoke and skid marks ──
   const blob = keep(blobTexture());
   const smoke: Array<{ sprite: THREE.Sprite; life: number; max: number; vx: number; vy: number; vz: number; grow: number }> = [];
@@ -607,6 +659,32 @@ export function createSimScene(canvas: HTMLCanvasElement, track: SimTrack, spec:
       m.group.rotation.set(0, gp.heading, 0);
       for (const holder of m.wheels) holder.rotation.z -= (gp.speed / spec.tyreRadius) * dt;
     });
+
+    // Other drivers.
+    const rv = view.rivals ?? [];
+    for (let i = 0; i < Math.max(rv.length, rivals.length); i += 1) {
+      const want = rv[i];
+      if (!want) {
+        const r = rivals[i];
+        if (r) r.model.group.visible = r.tag.visible = false;
+        continue;
+      }
+      const r = rivalAt(i, want.paint, want.label);
+      const gp = want.pose;
+      projectOnTrack(track, gp.x, gp.y, rivalHit);
+      const slope = Math.atan(track.grade[rivalHit.i] ?? 0) * Math.cos(gp.heading - Math.atan2(track.ty[rivalHit.i]!, track.tx[rivalHit.i]!));
+      r.model.group.visible = r.tag.visible = true;
+      r.model.group.position.copy(P(gp.x, gp.y, gp.z));
+      r.model.group.rotation.set(0, gp.heading, slope);
+      r.model.body.rotation.set(gp.roll, 0, -gp.pitch);
+      for (let w = 0; w < 4; w += 1) {
+        const holder = r.model.wheels[w]!;
+        holder.rotation.z -= (gp.speed / spec.tyreRadius) * dt;
+        if (w < 2) (holder.userData as { pivot: THREE.Group }).pivot.rotation.y = gp.steer;
+      }
+      r.model.brakeLights.emissiveIntensity = gp.braking ? 3.2 : 0.25;
+      r.tag.position.copy(P(gp.x, gp.y, gp.z + 2.1));
+    }
 
     // Smoke, dust and skid marks from what each tyre is doing.
     for (let w = 0; w < 4; w += 1) {
@@ -718,6 +796,11 @@ export function createSimScene(canvas: HTMLCanvasElement, track: SimTrack, spec:
     dispose: () => {
       player.dispose();
       ghostModels.forEach((m) => m.dispose());
+      for (const r of rivals) {
+        r.model.dispose();
+        r.tagTex?.dispose();
+        r.tag.material.dispose();
+      }
       for (const o of owned) o.dispose();
       renderer.dispose();
       renderer.forceContextLoss();

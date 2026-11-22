@@ -105,6 +105,14 @@ export function stepSession(ses: Session, input: CarInput): void {
   if (car.events & EV_OFF) ses.lapValid = ses.started ? false : ses.lapValid;
 }
 
+/** A standing start on the grid: `back` metres behind the line, `side` metres left (+) or right (−) of centre. */
+export function createGridSession(track: SimTrack, spec: CarSpec, back: number, side: number): Session {
+  const ses = createSession(track, spec, back, 0);
+  placeCar(ses.car, track, track.length - back, side, 0);
+  ses.prevS = ses.car.hit.s;
+  return ses;
+}
+
 /** Back on the road, stopped, a little before where the car left it. */
 export function resetToTrack(ses: Session): void {
   const s = ses.car.hit.s - 15;

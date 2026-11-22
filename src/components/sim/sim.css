@@ -357,3 +357,83 @@
     height: 92px;
   }
 }
+
+/* Online races */
+.sim-input {
+  display: block;
+  min-height: 48px;
+  width: 100%;
+  border: 2px solid rgb(244 244 245 / 0.35);
+  background: #0d0e11;
+  padding: 0.5rem 0.7rem;
+  font-size: 1rem; /* 16px: iOS does not zoom into the field */
+  color: #f4f4f5;
+  user-select: text;
+  touch-action: manipulation;
+}
+.sim-input--code {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+.sim-input:focus-visible {
+  outline: 3px solid #7dd3fc;
+  outline-offset: 2px;
+}
+.sim-code {
+  font-family: var(--font-pixel), var(--font-sans), sans-serif;
+  font-size: 2.4rem;
+  letter-spacing: 0.3em;
+  color: #facc15;
+  line-height: 1;
+}
+.sim-seg {
+  display: flex;
+  border: 2px solid rgb(244 244 245 / 0.5);
+}
+.sim-seg button {
+  flex: 1 1 0;
+  min-height: 44px;
+  padding: 0.4rem 0.6rem;
+  font-family: var(--font-label), var(--font-mono), monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #d4d4d8;
+  touch-action: manipulation;
+}
+.sim-seg button + button {
+  border-left: 2px solid rgb(244 244 245 / 0.25);
+}
+.sim-seg button[aria-pressed="true"] {
+  background: #facc15;
+  color: #0d0e11;
+  font-weight: 700;
+}
+.sim-seg button:active {
+  filter: brightness(0.85);
+}
+.sim-seg button:focus-visible {
+  outline: 3px solid #7dd3fc;
+  outline-offset: -3px;
+}
+.sim-lights {
+  font-family: var(--font-pixel), var(--font-sans), sans-serif;
+  font-size: 3.5rem;
+  line-height: 1;
+  color: #f4f4f5;
+  text-shadow: 3px 3px 0 rgb(0 0 0 / 0.7);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.sim-lights[data-on="1"] {
+  opacity: 1;
+}
+.sim-lights[data-go="1"] {
+  color: #4ade80;
+}
+.sim-order {
+  white-space: pre;
+  font-size: 0.75rem;
+  line-height: 1.35;
+}

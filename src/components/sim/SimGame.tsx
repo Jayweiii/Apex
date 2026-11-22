@@ -6,12 +6,32 @@ import { createSimAudio, type SimAudio } from "@/lib/sim/audio";
 import { enableFastTap } from "@/lib/fast-tap";
 import { createControlState, DEFAULT_ASSISTS, readGamepad, shapeControls, type Assists, type RawControls } from "@/lib/sim/controls";
 import { bundledRealLap, ghostDelta, ghostFromRealLap, ghostFromRecording, ghostPose, loadBest, saveBest, type Ghost, type GhostPose } from "@/lib/sim/ghost";
-import { blankInput, createPilot, createSession, FRAME_HZ, pilotInput, resetToTrack, stepSession, type Session } from "@/lib/sim/session";
-import { buildSimTrack, type SimTrackData } from "@/lib/sim/track";
+import { blankInput, createGridSession, createPilot, createSession, FRAME_HZ, pilotInput, resetToTrack, stepSession, type Session } from "@/lib/sim/session";
+import { buildSimTrack, poseAt, type SimTrackData } from "@/lib/sim/track";
+import { onlineAvailable, openSimLobby, type SimLobby } from "@/lib/sim/lobby";
+import {
+  DEFAULT_LAPS,
+  encodeSimSnapshot,
+  GONE_AFTER_MS,
+  gridSpot,
+  LIGHTS_S,
+  MAX_DRIVERS,
+  raceDistance,
+  RemoteCar,
+  SEND_HZ,
+  simStandings,
+  type RemotePose,
+  type SimGridEntry,
+  type SimPlayer,
+  type SimStanding,
+  type SimStart,
+} from "@/lib/sim/online";
+import { cleanName, normalizeLobbyCode } from "@/lib/rush/net";
 import westData from "@/lib/rush/data/thunderhill-west.json";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CAMERA_MODES, createSimScene, type CameraMode, type SimScene } from "./scene";
+import { SimLobbyPanel, SimOnlineMenu, SimResults } from "./SimOnline";
 import "./sim.css";
 
 type Phase = "menu" | "drive" | "paused";
@@ -26,6 +46,46 @@ const PAINTS: Array<{ name: string; hex: string }> = [
   { name: "Black", hex: "#15161a" },
 ];
 const PREFS_KEY = "apex.sim.prefs";
+const NAME_KEY = "apex.sim.name";
+
+/** An online race as the frame loop sees it. */
+type OnlineRun = {
+  raceId: string;
+  laps: number;
+  grid: SimGridEntry[];
+  myId: string;
+  /** GO on this device's clock (performance.now ms). */
+  goPerf: number;
+  remotes: Map<string, RemoteCar>;
+  /** Ids of drivers still in the lobby. */
+  present: () => Set<string>;
+  send: (snap: number[]) => void;
+  /** Called (from the frame loop) with the order when you finish, then as it changes. */
+  onResults: (standings: SimStanding[]) => void;
+};
+type LobbyView = { code: string; players: SimPlayer[]; hostId: string | null; myId: string };
+
+function loadName(): string {
+  try {
+    const saved = localStorage.getItem(NAME_KEY);
+    if (saved) return cleanName(saved, "Driver");
+  } catch {
+    // fall through to a made-up name
+  }
+  return `Driver ${Math.floor(10 + Math.random() * 90)}`;
+}
+
+/** ?lobby=CODE from an invite link. */
+function inviteCode(): string {
+  return normalizeLobbyCode(new URLSearchParams(window.location.search).get("lobby") ?? "") ?? "";
+}
+
+function setLobbyUrl(code: string | null) {
+  const url = new URL(window.location.href);
+  if (code) url.searchParams.set("lobby", code);
+  else url.searchParams.delete("lobby");
+  window.history.replaceState(null, "", url.toString());
+}
 const DEFAULT_PREFS: Prefs = { assists: DEFAULT_ASSISTS, ghostReal: true, ghostBest: true, paint: PAINTS[0]!.hex, unit: "mph", camera: "chase", muted: false };
 
 function loadPrefs(): Prefs {
@@ -76,7 +136,8 @@ export function SimGame() {
   const [savedBest, setSavedBest] = useState(() => loadBest("thunderhill-west", ND_MIATA.name)?.lapMs ?? 0);
 
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  /** Holds the 3D canvas, which the world effect creates. */
+  const canvasRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<HTMLCanvasElement | null>(null);
   const speedEl = useRef<HTMLSpanElement | null>(null);
   const gearEl = useRef<HTMLSpanElement | null>(null);
@@ -92,9 +153,13 @@ export function SimGame() {
   const steerEl = useRef<HTMLDivElement | null>(null);
   const absEl = useRef<HTMLSpanElement | null>(null);
   const tcEl = useRef<HTMLSpanElement | null>(null);
+  const lightsEl = useRef<HTMLDivElement | null>(null);
+  const placeEl = useRef<HTMLSpanElement | null>(null);
+  const raceLapEl = useRef<HTMLSpanElement | null>(null);
+  const orderEl = useRef<HTMLDivElement | null>(null);
 
   /** What the frame loop reads; kept in step with React state by an effect. */
-  const live = useRef({ phase: "menu" as Phase, prefs, restart: 0, reset: 0 });
+  const live = useRef({ phase: "menu" as Phase, prefs, restart: 0, reset: 0, race: null as OnlineRun | null });
   useEffect(() => {
     live.current.phase = phase;
     live.current.prefs = prefs;
@@ -120,13 +185,21 @@ export function SimGame() {
 
   // ── World, session and the frame loop ──
   useEffect(() => {
-    const canvas = canvasRef.current;
+    const host = canvasRef.current;
     const root = rootRef.current;
-    if (!canvas || !root) return;
+    if (!host || !root) return;
+    // A fresh canvas each time: disposing the scene ends its WebGL context for
+    // good, and a dev remount (React StrictMode) would otherwise reuse the dead one.
+    const canvas = document.createElement("canvas");
+    canvas.dataset.simCanvas = "1";
+    canvas.className = "absolute inset-0 h-full w-full";
+    host.appendChild(canvas);
     const params = new URLSearchParams(window.location.search);
     const autopilot = params.get("autopilot") === "1";
     const orbit = params.get("cam") === "orbit";
     const maxSteps = Math.max(4, Math.min(64, Number(params.get("simSpeed")) || 4));
+    // Test hook: draw only every Nth frame, so two drivers in one headless machine both keep up.
+    const drawEvery = Math.max(1, Math.min(30, Math.round(Number(params.get("drawEvery")) || 1)));
     // Test hook: start closer to the line (metres, 20–400) so e2e laps cross it quickly.
     const runUpParam = Number(params.get("runUp"));
     const runUp = Number.isFinite(runUpParam) && runUpParam >= 20 && runUpParam <= 400 ? runUpParam : 0;
@@ -137,6 +210,7 @@ export function SimGame() {
       scene = createSimScene(canvas, track, spec, { paint: live.current.prefs.paint, lowPower: window.matchMedia("(pointer: coarse)").matches });
     } catch {
       requestAnimationFrame(() => setFailed(true));
+      canvas.remove();
       return;
     }
     sceneRef.current = scene;
@@ -223,6 +297,127 @@ export function SimGame() {
       notice("Cross the line to start your lap", 4, "info");
     };
 
+    // ── Online race ──
+    let race: OnlineRun | null = null;
+    let raceId = "";
+    let raceFinished = false;
+    let raceFinishMs = 0;
+    let nextSend = 0;
+    let lastResults = 0;
+    let goShown = false;
+    const missingSince = new Map<string, number>();
+    const goneIds = new Set<string>();
+    const finishedSeen = new Map<string, number>();
+    const rivalPoses: RemotePose[] = Array.from({ length: MAX_DRIVERS }, () => ({ x: 0, y: 0, z: 0, heading: 0, speed: 0, steer: 0, roll: 0, pitch: 0, braking: false }));
+    const rivalsView: Array<{ pose: RemotePose; paint: string; label: string } | null> = [];
+    const lapsDone = () => (ses.started ? ses.lap - 1 : 0);
+    const myDist = () => raceDistance(track, ses.started, ses.lap, ses.car.hit.s);
+    const startRace = (r: OnlineRun) => {
+      race = r;
+      raceId = r.raceId;
+      const slot = Math.max(0, r.grid.findIndex((g) => g.id === r.myId));
+      const spot = gridSpot(slot);
+      ses = createGridSession(track, spec, spot.back, spot.side);
+      demo = false;
+      controls.steer = 0;
+      controls.throttle = 0;
+      controls.brake = 0;
+      wasValid = true;
+      raceFinished = false;
+      raceFinishMs = 0;
+      nextSend = 0;
+      lastResults = 0;
+      goShown = false;
+      missingSince.clear();
+      goneIds.clear();
+      finishedSeen.clear();
+      // The grid may have repainted you so no two cars match.
+      scene.setPaint(r.grid[slot]?.paint ?? live.current.prefs.paint);
+    };
+    const endRace = () => {
+      race = null;
+      raceId = "";
+      rivalsView.length = 0;
+      ses = createSession(track, spec, runUp || 160, 0);
+      demo = true;
+      scene.setPaint(live.current.prefs.paint);
+    };
+    /** Other drivers: who is still here, and where to draw them now. */
+    const syncRivals = (now: number, dtMs: number) => {
+      rivalsView.length = 0;
+      const r = race;
+      if (!r) return;
+      const here = r.present();
+      r.grid.forEach((g, slot) => {
+        if (g.id === r.myId) return;
+        if (here.has(g.id)) {
+          missingSince.delete(g.id);
+          goneIds.delete(g.id);
+        } else {
+          // Presence can blip: only a driver missing for a few seconds is out.
+          const since = missingSince.get(g.id) ?? now;
+          missingSince.set(g.id, since);
+          if (now - since >= GONE_AFTER_MS) goneIds.add(g.id);
+        }
+        const pose = rivalPoses[rivalsView.length]!;
+        const remote = r.remotes.get(g.id);
+        remote?.relax(dtMs);
+        if (goneIds.has(g.id)) {
+          rivalsView.push(null);
+          return;
+        }
+        if (remote && remote.sample(now, pose)) {
+          // A finished car pulls off a few seconds later (it stops sending).
+          if (remote.latest!.finished) {
+            const seen = finishedSeen.get(g.id) ?? now;
+            finishedSeen.set(g.id, seen);
+            if (now - seen > 3000) {
+              rivalsView.push(null);
+              return;
+            }
+          }
+        } else {
+          // No snapshot yet: waiting on its grid spot.
+          const spot = gridSpot(slot);
+          const at = poseAt(track, track.length - spot.back, spot.side);
+          pose.x = at.x;
+          pose.y = at.y;
+          pose.z = at.z;
+          pose.heading = at.heading;
+          pose.speed = 0;
+          pose.steer = 0;
+          pose.roll = 0;
+          pose.pitch = 0;
+          pose.braking = true;
+        }
+        rivalsView.push({ pose, paint: g.paint, label: g.name });
+      });
+    };
+    const standingsNow = (): SimStanding[] => {
+      const r = race;
+      if (!r) return [];
+      return simStandings(
+        r.grid.map((g, slot) => {
+          if (g.id === r.myId) {
+            return { id: g.id, name: g.name, paint: g.paint, dist: myDist(), laps: lapsDone(), finished: raceFinished, finishMs: raceFinishMs, bestLapMs: ses.bestLapMs, gone: false, you: true };
+          }
+          const last = r.remotes.get(g.id)?.latest ?? null;
+          return {
+            id: g.id,
+            name: g.name,
+            paint: g.paint,
+            dist: last ? last.dist : -gridSpot(slot).back,
+            laps: last?.laps ?? 0,
+            finished: last?.finished ?? false,
+            finishMs: last?.finishMs ?? 0,
+            bestLapMs: last?.bestLapMs ?? 0,
+            gone: goneIds.has(g.id),
+            you: false,
+          };
+        }),
+      );
+    };
+
     const onResize = () => scene.resize();
     window.addEventListener("resize", onResize);
     let seenRestart = live.current.restart;
@@ -240,9 +435,11 @@ export function SimGame() {
       const o = live.current;
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
+      if (o.race && o.race.raceId !== raceId) startRace(o.race);
+      else if (!o.race && race) endRace();
       if (o.restart !== seenRestart) {
         seenRestart = o.restart;
-        begin();
+        if (!race) begin();
       }
       if (o.reset !== seenReset) {
         seenReset = o.reset;
@@ -251,13 +448,18 @@ export function SimGame() {
           notice("Back on track · this lap will not count", 3, "info");
         }
       }
-      const running = o.phase !== "paused";
+      // Online the race goes on while the menu is open (your car brakes); before GO the grid is held.
+      const beforeGo = race !== null && now < race.goPerf;
+      const running = race ? !beforeGo : o.phase !== "paused";
       if (running) acc += dt * (maxSteps > 4 ? maxSteps / 2 : 1);
+      else acc = 0;
+      let finishedNow = false;
       let steps = 0;
       while (running && acc >= frameDt && steps < maxSteps) {
         acc -= frameDt;
         steps += 1;
-        if (demo || autopilot) pilotInput(pilot, ses, input);
+        // After your finish the car drives itself round (a cool-down lap).
+        if (demo || autopilot || raceFinished) pilotInput(pilot, ses, input);
         else {
           const r = raw.current;
           const k = keys.current;
@@ -279,7 +481,18 @@ export function SimGame() {
           }
           shapeControls(controls, r, o.prefs.assists, ses.car, frameDt, input);
         }
+        if (race && o.phase === "paused" && !raceFinished) {
+          input.throttle = 0;
+          input.brake = 1;
+          input.steer = 0;
+        }
         stepSession(ses, input);
+        if (race && ses.lapDone && !raceFinished && lapsDone() >= race.laps) {
+          raceFinished = true;
+          finishedNow = true;
+          // The line was crossed ses.lapMs ago; race time runs from GO.
+          raceFinishMs = ses.clockMs - ses.lapMs;
+        }
         if (ses.lapDone && !demo) {
           const improved = ses.lastLapValid && (bestMs === 0 || ses.lastLapMs < bestMs);
           if (improved) {
@@ -300,14 +513,44 @@ export function SimGame() {
       }
       if (steps === maxSteps) acc = 0;
 
+      if (race) {
+        syncRivals(now, dt * 1000);
+        // Snapshots while racing (not on the grid, paused or after the finish), and one at the finish.
+        if (!beforeGo && (finishedNow || (!raceFinished && o.phase !== "paused" && now >= nextSend))) {
+          nextSend = now + 1000 / SEND_HZ;
+          race.send(encodeSimSnapshot(ses.car, now, myDist(), lapsDone(), raceFinished, raceFinishMs, ses.bestLapMs));
+        }
+        if (finishedNow) {
+          const order = standingsNow();
+          const place = order.findIndex((s) => s.you) + 1;
+          notice(`Finished P${place} · ${formatLap(raceFinishMs)}`, 6, "good");
+        }
+        if (raceFinished && (finishedNow || now - lastResults > 500)) {
+          lastResults = now;
+          race.onResults(standingsNow());
+        }
+        if (lightsEl.current) {
+          const left = race.goPerf - now;
+          const el = lightsEl.current;
+          const text = left > LIGHTS_S * 1000 ? "Grid" : left > 0 ? String(Math.ceil(left / 1000)) : left > -1200 ? "GO" : "";
+          if (el.textContent !== text) el.textContent = text;
+          el.dataset.on = text ? "1" : "0";
+          el.dataset.go = text === "GO" ? "1" : "0";
+          if (left <= 0 && !goShown) {
+            goShown = true;
+            notice("Race on", 2, "info");
+          }
+        }
+      } else if (lightsEl.current && lightsEl.current.dataset.on === "1") lightsEl.current.dataset.on = "0";
+
       // Ghosts run from the moment your lap starts.
       const car = ses.car;
       const ghosts: Array<Ghost | null> = [o.prefs.ghostReal ? realGhost : null, o.prefs.ghostBest ? bestGhost : null];
       for (let i = 0; i < 2; i += 1) {
         const g = ghosts[i];
-        shown[i] = g && ses.started && !demo && ghostPose(g, track, ses.lapMs, cursors[i]!, poses[i]!) ? poses[i]! : null;
+        shown[i] = g && !race && ses.started && !demo && ghostPose(g, track, ses.lapMs, cursors[i]!, poses[i]!) ? poses[i]! : null;
       }
-      scene.draw({ car, ghosts: shown, camera: o.phase === "menu" || orbit ? "orbit" : o.prefs.camera }, dt);
+      if (frames % drawEvery === 0) scene.draw({ car, ghosts: shown, rivals: rivalsView, camera: o.phase === "menu" || orbit ? "orbit" : o.prefs.camera }, dt * drawEvery);
 
       // HUD.
       const speed = Math.hypot(car.vx, car.vy);
@@ -324,7 +567,7 @@ export function SimGame() {
       if (lastEl.current) lastEl.current.textContent = formatLap(ses.lastLapMs);
       if (bestEl.current) bestEl.current.textContent = formatLap(demo ? bestMs : ses.bestLapMs || bestMs);
       if (lapEl.current) lapEl.current.dataset.valid = ses.lapValid ? "1" : "0";
-      const ref = ghosts[1] ?? ghosts[0];
+      const ref = race ? null : (ghosts[1] ?? ghosts[0]);
       if (deltaEl.current) {
         if (ref && ses.started && !demo) {
           const d = ghostDelta(ref, car.hit.i, ses.lapMs);
@@ -344,6 +587,11 @@ export function SimGame() {
         mapCtx.drawImage(outline, 0, 0);
         if (shown[0]) dot(shown[0].x, shown[0].y, "#7dd3fc", 3);
         if (shown[1]) dot(shown[1].x, shown[1].y, "#fde68a", 3);
+        for (const rv of rivalsView) {
+          if (!rv) continue;
+          dot(rv.pose.x, rv.pose.y, "#f4f4f5", 4);
+          dot(rv.pose.x, rv.pose.y, rv.paint, 2.8);
+        }
         dot(car.x, car.y, "#ef4444", 3.6);
       }
 
@@ -354,7 +602,7 @@ export function SimGame() {
         slide = Math.max(slide, Math.abs(car.slipRatio[w]!) / spec.peakSlipRatio - 1, Math.abs(car.slipAngle[w]!) / spec.peakSlipAngle - 0.85);
         if (car.surface[w] === SURFACE_GRASS) grass = true;
       }
-      audio.current?.update(car.rpm, car.throttle, speed > 3 ? Math.max(0, Math.min(1, slide)) : 0, speed, grass, running && o.phase === "drive");
+      audio.current?.update(car.rpm, car.throttle, speed > 3 ? Math.max(0, Math.min(1, slide)) : 0, speed, grass, (running || beforeGo) && o.phase === "drive");
 
       frames += 1;
       // Readouts for tests and tools, a few times a second whatever the frame rate.
@@ -373,6 +621,26 @@ export function SimGame() {
         d.simGhosts = `${shown[0] ? "real" : ""}${shown[1] ? "+best" : ""}`;
         const st = scene.stats();
         d.simDraw = `${st.w}x${st.h}`;
+        if (race) {
+          const order = standingsNow();
+          const place = order.findIndex((s) => s.you) + 1;
+          d.simRace = beforeGo ? "grid" : raceFinished ? "finished" : "racing";
+          d.simPlace = String(place);
+          d.simRemote = String(rivalsView.filter(Boolean).length);
+          d.simRaceLap = String(lapsDone());
+          if (placeEl.current) placeEl.current.textContent = `P${place}/${order.length}`;
+          if (raceLapEl.current) raceLapEl.current.textContent = raceFinished ? "Finished" : `Lap ${Math.min(race.laps, lapsDone() + 1)}/${race.laps}`;
+          if (orderEl.current) {
+            orderEl.current.textContent = order
+              .map((s, i) => `${i + 1}  ${s.you ? "▸ " : ""}${s.name}${s.gone ? "  (left)" : s.finished ? "  ✓" : ""}`)
+              .join("\n");
+          }
+        } else if (d.simRace) {
+          delete d.simRace;
+          delete d.simPlace;
+          delete d.simRemote;
+          delete d.simRaceLap;
+        }
       }
     };
     rafId = requestAnimationFrame(frame);
@@ -381,6 +649,7 @@ export function SimGame() {
       cancelAnimationFrame(rafId);
       window.removeEventListener("resize", onResize);
       scene.dispose();
+      canvas.remove();
       sceneRef.current = null;
     };
   }, []);
@@ -427,6 +696,168 @@ export function SimGame() {
   }, [cycleCamera, resetCar]);
 
   useEffect(() => () => audio.current?.dispose(), []);
+
+  // ── Online: lobbies and races ──
+  const [name, setName] = useState(loadName);
+  const [joinCode, setJoinCode] = useState(inviteCode);
+  const [invited] = useState(() => inviteCode() !== "");
+  const [onlineBusy, setOnlineBusy] = useState(false);
+  const [onlineError, setOnlineError] = useState("");
+  const [lobbyView, setLobbyView] = useState<LobbyView | null>(null);
+  const [lobbyNote, setLobbyNote] = useState("");
+  const [laps, setLaps] = useState(DEFAULT_LAPS);
+  const [inRace, setInRace] = useState(false);
+  const [results, setResults] = useState<SimStanding[] | null>(null);
+  const lobbyRef = useRef<SimLobby | null>(null);
+  const presentRef = useRef(new Set<string>());
+  const remotesRef = useRef(new Map<string, RemoteCar>());
+  const gridIdsRef = useRef(new Set<string>());
+  const nameTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(nameTimer.current), []);
+
+  const wakeAudio = useCallback(() => {
+    if (!audio.current) audio.current = createSimAudio();
+    audio.current.unlock();
+    audio.current.setMuted(live.current.prefs.muted);
+  }, []);
+
+  const changeName = useCallback((raw: string) => {
+    setName(raw);
+    const clean = cleanName(raw, "Driver");
+    try {
+      localStorage.setItem(NAME_KEY, clean);
+    } catch {
+      // not saved
+    }
+    // Presence updates are rate limited (5 per 30 s): send the name once typing pauses.
+    clearTimeout(nameTimer.current);
+    nameTimer.current = setTimeout(() => lobbyRef.current?.update({ name: clean }), 1500);
+  }, []);
+
+  // Your paint shows in the lobby.
+  useEffect(() => {
+    lobbyRef.current?.update({ paint: prefs.paint });
+  }, [prefs.paint]);
+
+  const enterRace = useCallback((msg: SimStart) => {
+    const lobby = lobbyRef.current;
+    if (!lobby || !msg.grid.some((g) => g.id === lobby.myId)) {
+      // Joined after the grid was set: wait for the next race.
+      setLobbyNote("A race is on. You'll be in the next one.");
+      return;
+    }
+    const remotes = new Map<string, RemoteCar>();
+    remotesRef.current = remotes;
+    gridIdsRef.current = new Set(msg.grid.map((g) => g.id));
+    live.current.race = {
+      raceId: msg.raceId,
+      laps: msg.laps,
+      grid: msg.grid,
+      myId: lobby.myId,
+      goPerf: performance.now() + msg.startInMs,
+      remotes,
+      present: () => presentRef.current,
+      send: (snap) => lobbyRef.current?.sendState(snap),
+      onResults: (order) => setResults(order),
+    };
+    setResults(null);
+    setLobbyNote("");
+    setInRace(true);
+    lobby.update({ racing: true });
+    window.scrollTo(0, 0);
+    setPhase("drive");
+  }, []);
+
+  const openOnline = useCallback(
+    (how: { create: true } | { create: false; code: string }) => {
+      lobbyRef.current?.leave();
+      setOnlineError("");
+      setOnlineBusy(true);
+      // This tap is the one iOS needs to allow sound for the race.
+      wakeAudio();
+      const me = { name: cleanName(name, "Driver"), paint: live.current.prefs.paint };
+      const lobby = openSimLobby(how.create ? { create: true, me: { ...me, laps } } : { create: false, code: how.code, me }, {
+        onStatus: (status, message) => {
+          if (lobbyRef.current !== lobby) return;
+          if (status === "open") {
+            setOnlineBusy(false);
+            setLobbyUrl(lobby.code);
+          } else if (status === "error") {
+            setOnlineBusy(false);
+            setOnlineError(message ?? "Could not join.");
+            lobbyRef.current = null;
+            setLobbyView(null);
+            setLobbyUrl(null);
+          }
+        },
+        onPlayers: (players, hostId) => {
+          if (lobbyRef.current !== lobby) return;
+          presentRef.current = new Set(players.map((p) => p.id));
+          setLobbyView({ code: lobby.code, players, hostId, myId: lobby.myId });
+        },
+        onStart: (msg) => {
+          if (lobbyRef.current === lobby) enterRace(msg);
+        },
+        onState: (id, snap, at) => {
+          // Only drivers on this grid (and never ourselves) get a buffer.
+          if (id === lobby.myId || !gridIdsRef.current.has(id)) return;
+          let remote = remotesRef.current.get(id);
+          if (!remote) {
+            remote = new RemoteCar();
+            remotesRef.current.set(id, remote);
+          }
+          remote.push(snap, at);
+        },
+      });
+      lobbyRef.current = lobby;
+    },
+    [name, laps, wakeAudio, enterRace],
+  );
+
+  const endRaceView = () => {
+    live.current.race = null;
+    setInRace(false);
+    setResults(null);
+  };
+  const backToLobby = useCallback(() => {
+    lobbyRef.current?.update({ racing: false });
+    endRaceView();
+    setPhase("menu");
+  }, []);
+  const leaveLobby = useCallback(() => {
+    lobbyRef.current?.leave();
+    lobbyRef.current = null;
+    presentRef.current = new Set();
+    setLobbyView(null);
+    setLobbyNote("");
+    endRaceView();
+    setLobbyUrl(null);
+    // Start the Join field empty so Join can't rejoin the lobby just left.
+    setJoinCode("");
+    setPhase("menu");
+  }, []);
+  useEffect(() => () => lobbyRef.current?.leave(), []);
+
+  const chooseLaps = (n: number) => {
+    setLaps(n);
+    lobbyRef.current?.update({ laps: n });
+  };
+  const hostStart = () => {
+    const lobby = lobbyRef.current;
+    if (!lobby) return;
+    wakeAudio();
+    const msg = lobby.start(laps);
+    // The host does not hear its own broadcast: start here too.
+    if (msg) enterRace(msg);
+  };
+  const joinTyped = () => {
+    const code = normalizeLobbyCode(joinCode);
+    if (!code) {
+      setOnlineError("Lobby codes are 4 letters or digits.");
+      return;
+    }
+    openOnline({ create: false, code });
+  };
   // iOS can need two taps per button while the 3D view is busy: press on the first.
   useEffect(() => (rootRef.current ? enableFastTap(rootRef.current) : undefined), []);
 
@@ -487,11 +918,30 @@ export function SimGame() {
   );
 
   const driving = phase === "drive";
+  const onlineSection = (
+    <section aria-labelledby="sim-online-title" className={invited ? "mt-4" : "mt-5"}>
+      <h2 id="sim-online-title" className="sim-label">
+        {invited ? "You're invited to an online race" : "Race online"}
+      </h2>
+      <SimOnlineMenu
+        available={onlineAvailable()}
+        name={name}
+        onName={changeName}
+        joinCode={joinCode}
+        onJoinCode={setJoinCode}
+        onCreate={() => openOnline({ create: true })}
+        onJoin={joinTyped}
+        busy={onlineBusy}
+        error={onlineError}
+        disabled={!ready}
+      />
+    </section>
+  );
   const real = bundledRealLap("thunderhill-west");
 
   return (
     <div ref={rootRef} className="sim fixed left-0 top-0 z-50 h-dvh w-screen select-none overflow-hidden bg-[#0d0e11]" data-sim-phase={phase} data-sim-ready={ready ? "1" : "0"} data-touch={touch ? "1" : "0"}>
-      <canvas ref={canvasRef} data-sim-canvas="1" className="absolute inset-0 h-full w-full" />
+      <div ref={canvasRef} className="absolute inset-0" />
 
       {failed ? (
         <div className="absolute inset-0 grid place-items-center p-6 text-center text-zinc-100">
@@ -508,10 +958,16 @@ export function SimGame() {
       {/* HUD */}
       <div className="sim-hud pointer-events-none absolute inset-0" data-on={driving ? "1" : "0"} aria-hidden={!driving}>
         <div className="absolute left-3 top-3 flex items-start gap-2 [padding-top:env(safe-area-inset-top)]">
-          <button type="button" className="sim-icon pointer-events-auto" aria-label="Pause" data-sim-pause="1" onClick={() => setPhase("paused")}>
+          <button type="button" className="sim-icon pointer-events-auto" aria-label={inRace ? "Race menu" : "Pause"} data-sim-pause="1" onClick={() => setPhase("paused")}>
             II
           </button>
-          <div className="sim-card px-3 py-2">
+          <div className="sim-card px-3 py-2" data-sim-racebox={inRace ? "1" : undefined}>
+            {inRace ? (
+              <div className="mb-1 flex items-baseline gap-2 border-b border-zinc-600 pb-1">
+                <span ref={placeEl} className="sim-time text-xl font-semibold text-amber-300" />
+                <span ref={raceLapEl} className="sim-label" />
+              </div>
+            ) : null}
             <div className="sim-label">Lap</div>
             <span ref={lapEl} data-sim-laptime="1" className="sim-time block text-2xl" />
             <div className="mt-1 grid grid-cols-[auto_1fr] gap-x-2 text-xs text-zinc-300">
@@ -520,9 +976,11 @@ export function SimGame() {
               <span className="sim-label">Best</span>
               <span ref={bestEl} className="sim-time" />
             </div>
+            {inRace ? <div ref={orderEl} className="sim-order sim-time mt-1 border-t border-zinc-600 pt-1 text-zinc-200" /> : null}
           </div>
         </div>
         <div className="sim-banners absolute inset-x-0 flex flex-col items-center gap-2 [padding-top:env(safe-area-inset-top)]">
+          <div ref={lightsEl} data-sim-lights="1" className="sim-lights" aria-live="polite" />
           <div ref={deltaEl} data-sim-delta="1" className="sim-delta" />
           <div ref={noticeEl} data-sim-notice="1" role="status" className="sim-notice" />
         </div>
@@ -612,6 +1070,8 @@ export function SimGame() {
         ) : null}
       </div>
 
+      {inRace && results && driving ? <SimResults standings={results} onBack={backToLobby} /> : null}
+
       {/* Menu and pause */}
       {!driving && !failed ? (
         <div className="absolute inset-0 overflow-y-auto bg-black/45 p-3 sm:p-6" data-sim-menu="1">
@@ -625,42 +1085,79 @@ export function SimGame() {
                 Exit
               </Link>
             </div>
-            <p className="mt-2 text-sm text-zinc-300">
-              The real circuit at full size on its surveyed hills, and a 181 hp, {ND_MIATA.mass} kg rear-drive roadster modelled tyre by tyre. Chase
-              {real ? ` the real ${formatLap(real.timeMs)} lap from uploaded telemetry` : " your own best lap"}.
-            </p>
-            <dl className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
-              <div className="sim-stat">
-                <dt className="sim-label">Lap length</dt>
-                <dd>2.61 km</dd>
+            {inRace && phase === "paused" ? (
+              <div className="mt-3" data-sim-race-menu="1">
+                <p className="text-sm text-zinc-300">Online race: it goes on while this menu is open, and your car brakes to a stop.</p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button type="button" className="sim-btn sim-btn--go" data-sim-start="1" onClick={() => setPhase("drive")}>
+                    Resume
+                  </button>
+                  <button type="button" className="sim-btn" data-sim-race-leave="1" onClick={backToLobby}>
+                    Leave race
+                  </button>
+                  <BugReportButton className="sim-btn min-h-11" controls={touch ? "touch pedals" : "keyboard / gamepad"} dataAttr="sim" />
+                </div>
               </div>
-              <div className="sim-stat">
-                <dt className="sim-label">Real lap</dt>
-                <dd data-sim-reallap="1">{real ? formatLap(real.timeMs) : "none"}</dd>
-              </div>
-              <div className="sim-stat">
-                <dt className="sim-label">Your best</dt>
-                <dd data-sim-best="1">{savedBest ? formatLap(savedBest) : "not set"}</dd>
-              </div>
-            </dl>
+            ) : lobbyView ? (
+              <SimLobbyPanel
+                code={lobbyView.code}
+                players={lobbyView.players}
+                hostId={lobbyView.hostId}
+                myId={lobbyView.myId}
+                laps={laps}
+                onLaps={chooseLaps}
+                onStart={hostStart}
+                onLeave={leaveLobby}
+                note={lobbyNote}
+              />
+            ) : (
+              <>
+                {/* Opened from an invite link: joining comes first. */}
+                {invited ? onlineSection : null}
+              <p className="mt-2 text-sm text-zinc-300">
+                The real circuit at full size on its surveyed hills, and a 181 hp, {ND_MIATA.mass} kg rear-drive roadster modelled tyre by tyre. Chase
+                {real ? ` the real ${formatLap(real.timeMs)} lap from uploaded telemetry` : " your own best lap"}.
+              </p>
+              <dl className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
+                <div className="sim-stat">
+                  <dt className="sim-label">Lap length</dt>
+                  <dd>2.61 km</dd>
+                </div>
+                <div className="sim-stat">
+                  <dt className="sim-label">Real lap</dt>
+                  <dd data-sim-reallap="1">{real ? formatLap(real.timeMs) : "none"}</dd>
+                </div>
+                <div className="sim-stat">
+                  <dt className="sim-label">Your best</dt>
+                  <dd data-sim-best="1">{savedBest ? formatLap(savedBest) : "not set"}</dd>
+                </div>
+              </dl>
 
-            <div className="mt-4 flex flex-wrap gap-2">
-              <button type="button" className="sim-btn sim-btn--go" data-sim-start="1" disabled={!ready} onClick={phase === "paused" ? () => setPhase("drive") : startDrive}>
-                {!ready ? "Loading…" : phase === "paused" ? "Resume" : "Drive"}
-              </button>
-              {phase === "paused" ? (
-                <button type="button" className="sim-btn" data-sim-restart="1" onClick={startDrive}>
-                  Restart
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button type="button" className="sim-btn sim-btn--go" data-sim-start="1" disabled={!ready} onClick={phase === "paused" ? () => setPhase("drive") : startDrive}>
+                  {!ready ? "Loading…" : phase === "paused" ? "Resume" : "Drive"}
                 </button>
-              ) : null}
-              <BugReportButton className="sim-btn min-h-11" controls={touch ? "touch pedals" : "keyboard / gamepad"} dataAttr="sim" />
-            </div>
+                {phase === "paused" ? (
+                  <button type="button" className="sim-btn" data-sim-restart="1" onClick={startDrive}>
+                    Restart
+                  </button>
+                ) : null}
+                <BugReportButton className="sim-btn min-h-11" controls={touch ? "touch pedals" : "keyboard / gamepad"} dataAttr="sim" />
+              </div>
 
-            <h2 className="sim-label mt-5">Ghost cars</h2>
-            <div className="mt-2 grid gap-2 sm:grid-cols-2">
-              {toggle("Real lap", prefs.ghostReal, (v) => setPrefs((p) => ({ ...p, ghostReal: v })), "Blue car on the real line at real speed", "ghost-real")}
-              {toggle("Your best", prefs.ghostBest, (v) => setPrefs((p) => ({ ...p, ghostBest: v })), "Gold car replaying your fastest valid lap", "ghost-best")}
-            </div>
+                {invited ? null : onlineSection}
+              </>
+            )}
+
+            {lobbyView ? null : (
+              <>
+                <h2 className="sim-label mt-5">Ghost cars</h2>
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  {toggle("Real lap", prefs.ghostReal, (v) => setPrefs((p) => ({ ...p, ghostReal: v })), "Blue car on the real line at real speed", "ghost-real")}
+                  {toggle("Your best", prefs.ghostBest, (v) => setPrefs((p) => ({ ...p, ghostBest: v })), "Gold car replaying your fastest valid lap", "ghost-best")}
+                </div>
+              </>
+            )}
 
             <h2 className="sim-label mt-5">Driving aids</h2>
             <div className="mt-2 grid gap-2 sm:grid-cols-2">
