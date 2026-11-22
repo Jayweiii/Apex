@@ -70,6 +70,7 @@ export function RushGame() {
   const [look, setLook] = useState<KartLook>(loadLook);
   const [levelId, setLevelId] = useState(prefs.levelId && levelById(prefs.levelId) ? prefs.levelId : RUSH_LEVELS[0]!.id);
   const [invite] = useState(inviteCode);
+  const [prefillCode, setPrefillCode] = useState(invite);
   const [mode, setMode] = useState<MenuMode>(invite ? "online" : prefs.mode ?? "gp");
   const [settings, setSettings] = useState<RushSettings>(() => ({
     // A thumb can't hold a gas button and steer; a keyboard can.
@@ -264,6 +265,8 @@ export function RushGame() {
     setOnlineRace(null);
     setLobbyNote("");
     setInviteUrl(null);
+    // Start the Join field empty so Join can't rejoin the lobby just left.
+    setPrefillCode("");
     setScreen("menu");
   }, []);
   useEffect(() => () => lobbyRef.current?.leave(), []);
@@ -308,7 +311,7 @@ export function RushGame() {
           key={onlineRace.raceId}
           level={onlineLevel}
           mode="gp"
-          look={look}
+          look={onlineRace.grid.find((g) => g.id === onlineRace.myId)?.look ?? look}
           settings={settings}
           onSettings={setSettings}
           onExit={backToLobby}
@@ -359,7 +362,7 @@ export function RushGame() {
                   },
                   busy: onlineBusy,
                   error: onlineError,
-                  initialCode: invite,
+                  initialCode: prefillCode,
                 }}
                 steering={canTilt ? { tilt: settings.tilt, onTilt: chooseTilt, note: tiltNote } : null}
               />

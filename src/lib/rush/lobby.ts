@@ -6,7 +6,7 @@
  */
 import type { RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
-import { sanitizeLook, type KartLook } from "./garage";
+import { PAINTS, sanitizeLook, type KartLook } from "./garage";
 import { cleanName, decodeSnapshot, lobbyChannelName, makeLobbyCode, MAX_PLAYERS, pickHost, type LobbyPlayer, type Snapshot } from "./net";
 
 export type GridEntry = { id: string; name: string; look: KartLook };
@@ -16,6 +16,8 @@ export type StartMessage = {
   grid: GridEntry[];
   /** GO time on the host's wall clock (Date.now ms). */
   goAt: number;
+  /** Presence key of the host who sent it; receivers ignore anyone else. */
+  from: string;
 };
 
 /** From the start tap to GO: everyone loads, flies over the track, counts down. */
@@ -116,7 +118,16 @@ export function openLobby(
       const host = pickHost(players);
       if (!host || host.id !== myId) return null;
       const grid: GridEntry[] = players.slice(0, MAX_PLAYERS).map((p) => ({ id: p.id, name: p.name, look: sanitizeLook(p.look) }));
-      const msg: StartMessage = { raceId: randomId(), levelId, grid, goAt: Date.now() + START_LEAD_MS };
+      // Two racers on the same paint (e.g. both on the default look) get told apart.
+      const used = new Set<string>();
+      for (const g of grid) {
+        if (used.has(g.look.paint)) {
+          const free = PAINTS.find((c) => !used.has(c));
+          if (free) g.look = { ...g.look, paint: free };
+        }
+        used.add(g.look.paint);
+      }
+      const msg: StartMessage = { raceId: randomId(), levelId, grid, goAt: Date.now() + START_LEAD_MS, from: myId };
       void channel.send({ type: "broadcast", event: "start", payload: msg });
       return msg;
     },
@@ -187,12 +198,14 @@ export function openLobby(
     ch.on("broadcast", { event: "start" }, ({ payload }) => {
       if (channel !== ch || !decided) return;
       const p = payload as Partial<StartMessage>;
+      // Only the current host may start a race.
+      if (typeof p.from !== "string" || p.from !== pickHost(players)?.id) return;
       if (typeof p.raceId !== "string" || typeof p.levelId !== "string" || !Array.isArray(p.grid) || typeof p.goAt !== "number") return;
       const grid = p.grid
         .filter((g): g is GridEntry => !!g && typeof g.id === "string")
         .slice(0, MAX_PLAYERS)
         .map((g) => ({ id: g.id, name: cleanName(String(g.name ?? ""), "Racer"), look: sanitizeLook(g.look) }));
-      handlers.onStart({ raceId: p.raceId, levelId: p.levelId, grid, goAt: p.goAt });
+      handlers.onStart({ raceId: p.raceId, levelId: p.levelId, grid, goAt: p.goAt, from: p.from });
     });
     ch.on("broadcast", { event: "s" }, ({ payload }) => {
       if (channel !== ch) return;
