@@ -674,6 +674,8 @@ export function RushRace({
             input.throttle = 0;
             input.drift = false;
             input.useItem = false;
+            // Paused (online the race runs on): no steering either, so tilt can't turn a parked kart.
+            if (ph === "paused") input.steer = 0;
           }
           stepRace(world, input);
           acc -= DT;
