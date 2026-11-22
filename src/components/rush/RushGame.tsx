@@ -165,6 +165,9 @@ export function RushGame() {
   const [onlineRace, setOnlineRace] = useState<(OnlineRace & { levelId: string }) | null>(null);
   const presentRef = useRef(new Set<string>());
   const remotesRef = useRef(new Map<string, RemoteKart>());
+  const gridIdsRef = useRef(new Set<string>());
+  const nameTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(nameTimer.current), []);
   const screenRef = useRef<Screen>("menu");
   useEffect(() => {
     screenRef.current = screen;
@@ -178,7 +181,9 @@ export function RushGame() {
     } catch {
       // not saved
     }
-    lobbyRef.current?.update({ name: clean });
+    // Presence updates are rate limited (5 per 30 s): send the name once typing pauses.
+    clearTimeout(nameTimer.current);
+    nameTimer.current = setTimeout(() => lobbyRef.current?.update({ name: clean }), 1500);
   }, []);
 
   const setInviteUrl = (code: string | null) => {
@@ -197,6 +202,7 @@ export function RushGame() {
     }
     const remotes = new Map<string, RemoteKart>();
     remotesRef.current = remotes;
+    gridIdsRef.current = new Set(msg.grid.map((g) => g.id));
     setOnlineRace({
       raceId: msg.raceId,
       levelId: msg.levelId,
@@ -205,7 +211,7 @@ export function RushGame() {
       remotes,
       present: () => presentRef.current,
       send: (snap) => lobbyRef.current?.sendState(snap),
-      goAt: msg.goAt,
+      goPerf: performance.now() + msg.startInMs,
     });
     setLobbyNote("");
     lobby.update({ racing: true });
@@ -245,6 +251,8 @@ export function RushGame() {
           if (lobbyRef.current === lobby) enterRace(msg);
         },
         onState: (id, snap, at) => {
+          // Only racers on this grid (and never ourselves) get a buffer.
+          if (id === lobby.myId || !gridIdsRef.current.has(id)) return;
           let remote = remotesRef.current.get(id);
           if (!remote) {
             remote = new RemoteKart();
@@ -271,16 +279,8 @@ export function RushGame() {
   }, []);
   useEffect(() => () => lobbyRef.current?.leave(), []);
 
-  // An invite link joins straight away (the menu shows progress and errors).
-  const autoJoined = useRef(false);
-  useEffect(() => {
-    if (!invite || autoJoined.current || !onlineAvailable()) return;
-    const id = requestAnimationFrame(() => {
-      autoJoined.current = true;
-      openOnline({ create: false, code: invite });
-    });
-    return () => cancelAnimationFrame(id);
-  }, [invite, openOnline]);
+  // An invite link opens the Online menu with its code filled in; Join is one tap, which also
+  // unlocks sound and asks for motion access (iOS needs both inside a tap).
 
   const hostStart = useCallback(() => {
     const lobby = lobbyRef.current;

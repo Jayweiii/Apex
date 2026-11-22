@@ -98,8 +98,8 @@ export type OnlineRace = {
   /** Ids of players still connected. */
   present: () => Set<string>;
   send: (snap: number[]) => void;
-  /** When GO happens, on the host's wall clock (Date.now ms). */
-  goAt: number;
+  /** When GO happens, on this device's clock (performance.now ms), set when the start message arrived. */
+  goPerf: number;
 };
 
 const REAL_GHOST_LOOK: KartLook = { body: "wedge", wheels: "slick", paint: "#dff6ff", accent: "#4cc9f0", helmet: "#ffffff", number: 0 };
@@ -543,8 +543,11 @@ export function RushRace({
 
     // Online: GO happens at the host's chosen moment. Convert it to this
     // device's clock once (clamped, in case a phone's clock is far off).
-    const goPerf = online ? performance.now() + Math.max(INTRO_S * 1000 * 0.5, Math.min(15_000, online.goAt - Date.now())) : 0;
+    const goPerf = online ? Math.max(performance.now() + INTRO_S * 1000 * 0.5, Math.min(performance.now() + 15_000, online.goPerf)) : 0;
     let nextSend = 0;
+    // A player is only dropped after being missing from the lobby for a few seconds (presence can blip).
+    const missingSince = new Map<string, number>();
+    const GONE_AFTER_MS = 3000;
     const syncRemotes = (now: number, dtMs: number) => {
       if (!online) return;
       const here = online.present();
@@ -552,9 +555,13 @@ export function RushRace({
         const k = world.karts[n]!;
         const entry = online.grid[k.id]!;
         if (!here.has(entry.id)) {
-          k.gone = true;
+          const since = missingSince.get(entry.id) ?? now;
+          missingSince.set(entry.id, since);
+          k.gone = now - since >= GONE_AFTER_MS;
           continue;
         }
+        missingSince.delete(entry.id);
+        k.gone = false;
         const remote = online.remotes.get(entry.id);
         if (!remote) continue;
         remote.relax(dtMs);
@@ -573,6 +580,7 @@ export function RushRace({
         newBest = true;
       }
       const ghost = ghosts[0];
+      online?.send(encodeSnapshot(player, now)); // the last snapshot carries the finish
       const standings = standingsNow();
       shownFinished = countFinished();
       setResults({ standings, laps: lapTimes.slice(), bestMs: best, newBest, ghostLabel: ghost ? ghost.label : null, ghostMs: ghost ? ghost.lapMs : 0 });
@@ -610,7 +618,8 @@ export function RushRace({
       phaseT += dt;
       let steps = 0;
       syncRemotes(now, dt * 1000);
-      if (online && now >= nextSend && ph !== "intro") {
+      // Snapshots only while racing: not in the intro, paused, finished or on results (message quota).
+      if (online && now >= nextSend && ph === "racing" && !player.finished) {
         nextSend = now + 1000 / SEND_HZ;
         online.send(encodeSnapshot(player, now));
       }

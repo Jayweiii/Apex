@@ -65,10 +65,13 @@ test.describe("Apex Rush online", () => {
     expect(code).toMatch(/^[A-Z2-9]{4}$/);
     await expect(page.locator("[data-rush-lobby-start]")).toBeDisabled();
 
-    // The friend opens the invite link: it joins straight away.
+    // The friend opens the invite link: the code is filled in and Join is one tap.
     const guest = await secondPlayer(browser, info);
     guest.on("pageerror", (e) => errors.push(e.message));
     await guest.goto(`/rush?lobby=${code}&auto=1`);
+    await expect(guest.locator("[data-rush-join-code]")).toHaveValue(code, { timeout: 90_000 });
+    await expect(guest.locator("[data-rush-lobby]")).toHaveCount(0);
+    await activate(guest, "[data-rush-join]", isMobile);
     await expect(guest.locator(`[data-rush-lobby="${code}"]`)).toBeVisible({ timeout: 60_000 });
     await expect(guest.locator("[data-rush-players]")).toHaveAttribute("data-rush-players", "2", { timeout: 30_000 });
     await expect(page.locator("[data-rush-players]")).toHaveAttribute("data-rush-players", "2", { timeout: 30_000 });

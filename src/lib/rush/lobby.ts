@@ -7,18 +7,24 @@
 import type { RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
 import { PAINTS, sanitizeLook, type KartLook } from "./garage";
-import { cleanName, decodeSnapshot, lobbyChannelName, makeLobbyCode, MAX_PLAYERS, pickHost, type LobbyPlayer, type Snapshot } from "./net";
+import {
+  acceptStart,
+  cleanName,
+  CREATOR_PREFIX,
+  decodeSnapshot,
+  dedupeNames,
+  JOINER_PREFIX,
+  lobbyChannelName,
+  makeLobbyCode,
+  MAX_PLAYERS,
+  pickHost,
+  type GridEntry,
+  type LobbyPlayer,
+  type Snapshot,
+  type StartMessage,
+} from "./net";
 
-export type GridEntry = { id: string; name: string; look: KartLook };
-export type StartMessage = {
-  raceId: string;
-  levelId: string;
-  grid: GridEntry[];
-  /** GO time on the host's wall clock (Date.now ms). */
-  goAt: number;
-  /** Presence key of the host who sent it; receivers ignore anyone else. */
-  from: string;
-};
+export type { GridEntry, StartMessage };
 
 /** From the start tap to GO: everyone loads, flies over the track, counts down. */
 export const START_LEAD_MS = 7000;
@@ -60,9 +66,10 @@ function playersFrom(channel: RealtimeChannel): LobbyPlayer[] {
     const metas = state[key] ?? [];
     // One entry per player (a reconnect can briefly leave two).
     const m = metas[metas.length - 1];
-    if (!m || typeof m.id !== "string") continue;
+    if (!m) continue;
     out.push({
-      id: m.id,
+      // The presence key is vouched for by the server; the id inside the payload is not.
+      id: key,
       name: cleanName(String(m.name ?? ""), "Racer"),
       joinedAt: typeof m.joinedAt === "number" ? m.joinedAt : Date.now(),
       look: sanitizeLook(m.look),
@@ -70,7 +77,7 @@ function playersFrom(channel: RealtimeChannel): LobbyPlayer[] {
       racing: m.racing === true,
     });
   }
-  return out.sort((a, b) => a.joinedAt - b.joinedAt || (a.id < b.id ? -1 : 1));
+  return dedupeNames(out).sort((a, b) => (a.id < b.id ? -1 : 1));
 }
 
 function randomId(): string {
@@ -87,7 +94,7 @@ export function openLobby(
   opts: { create: true; me: { name: string; look: KartLook; levelId: string } } | { create: false; code: string; me: { name: string; look: KartLook } },
   handlers: LobbyHandlers,
 ): Lobby {
-  const myId = randomId();
+  const myId = (opts.create ? CREATOR_PREFIX : JOINER_PREFIX) + randomId().slice(1);
   const joinedAt = Date.now();
   let meta: LobbyPlayer = {
     id: myId,
@@ -127,7 +134,7 @@ export function openLobby(
         }
         used.add(g.look.paint);
       }
-      const msg: StartMessage = { raceId: randomId(), levelId, grid, goAt: Date.now() + START_LEAD_MS, from: myId };
+      const msg: StartMessage = { raceId: randomId(), levelId, grid, startInMs: START_LEAD_MS, from: myId };
       void channel.send({ type: "broadcast", event: "start", payload: msg });
       return msg;
     },
@@ -197,15 +204,9 @@ export function openLobby(
     });
     ch.on("broadcast", { event: "start" }, ({ payload }) => {
       if (channel !== ch || !decided) return;
-      const p = payload as Partial<StartMessage>;
       // Only the current host may start a race.
-      if (typeof p.from !== "string" || p.from !== pickHost(players)?.id) return;
-      if (typeof p.raceId !== "string" || typeof p.levelId !== "string" || !Array.isArray(p.grid) || typeof p.goAt !== "number") return;
-      const grid = p.grid
-        .filter((g): g is GridEntry => !!g && typeof g.id === "string")
-        .slice(0, MAX_PLAYERS)
-        .map((g) => ({ id: g.id, name: cleanName(String(g.name ?? ""), "Racer"), look: sanitizeLook(g.look) }));
-      handlers.onStart({ raceId: p.raceId, levelId: p.levelId, grid, goAt: p.goAt, from: p.from });
+      const msg = acceptStart(payload, players, sanitizeLook);
+      if (msg) handlers.onStart(msg);
     });
     ch.on("broadcast", { event: "s" }, ({ payload }) => {
       if (channel !== ch) return;

@@ -7,7 +7,14 @@ import { DEFAULT_LOOK, sanitizeLook, statsFor } from "../src/lib/rush/garage";
 import { createKart, DT, type KartInput } from "../src/lib/rush/kart";
 import { RUSH_LEVELS } from "../src/lib/rush/levels";
 import {
+  acceptStart,
   cleanName,
+  dedupeNames,
+  MAX_COORD,
+  MAX_LAP,
+  MAX_PLAYERS,
+  MAX_SPEED,
+  SEND_HZ,
   CODE_LENGTH,
   decodeSnapshot,
   encodeSnapshot,
@@ -47,12 +54,49 @@ function assert(condition: unknown, message: string): asserts condition {
   assert(sanitizeLook({ body: "rocket", paint: "red" }).body === DEFAULT_LOOK.body, "an unknown kart part falls back");
 }
 
+// ── Message budget: SEND_HZ * N * (N-1) must stay under Supabase's 100/s ──
+assert(SEND_HZ * MAX_PLAYERS * (MAX_PLAYERS - 1) <= 100, "a full lobby stays under 100 realtime messages a second");
+
+// ── Snapshot validation ──
+{
+  const wild = decodeSnapshot([0, 1e9, -1e9, 5, 0, 0, 1e6, 50, 1, 9, 1, 12345, -5, 0, -1, 1e12])!;
+  assert(Math.abs(wild.x) <= MAX_COORD && Math.abs(wild.y) <= MAX_COORD, "positions are clamped");
+  assert(wild.v <= MAX_SPEED && Math.abs(wild.steer) <= 1, "speed and steer are clamped");
+  assert(wild.lap === MAX_LAP && wild.progress === 0 && wild.finishMs === 0 && wild.bestLapMs <= 3_600_000, "lap, progress and times are clamped");
+}
+
+// ── Duplicate names ──
+{
+  const d = dedupeNames([{ id: "1b", name: "Sam" }, { id: "0a", name: "sam" }, { id: "1c", name: "Kim" }]);
+  assert(d.find((x) => x.id === "0a")!.name === "sam" && d.find((x) => x.id === "1b")!.name === "Sam 2", "the second tab gets a suffix, in id order");
+  assert(d.find((x) => x.id === "1c")!.name === "Kim", "unique names are untouched");
+}
+
+// ── Host-only start ──
+{
+  const pl = (id: string): LobbyPlayer => ({ id, name: id, joinedAt: 0, look: DEFAULT_LOOK });
+  const players = [pl("1b"), pl("0a")];
+  const msg = (from: unknown, extra: object = {}) => ({
+    raceId: "r", levelId: RUSH_LEVELS[0]!.id, startInMs: 7000, from,
+    grid: [{ id: "0a", name: "a", look: DEFAULT_LOOK }, { id: "1b", name: "b", look: DEFAULT_LOOK }, { id: "9z", name: "ghost", look: DEFAULT_LOOK }],
+    ...extra,
+  });
+  const ok = acceptStart(msg("0a"), players, sanitizeLook);
+  assert(ok !== null && ok.grid.length === 2, "the host's start is accepted, unknown racers are dropped from the grid");
+  assert(acceptStart(msg("1b"), players, sanitizeLook) === null, "a start from a non-host is ignored");
+  assert(acceptStart(msg(undefined), players, sanitizeLook) === null, "a start with no sender is ignored");
+  assert(acceptStart(msg("0a", { startInMs: "soon" }), players, sanitizeLook) === null, "a malformed start is ignored");
+  assert(acceptStart(msg("0a", { grid: "x" }), players, sanitizeLook) === null, "a start without a grid is ignored");
+  assert(acceptStart(null, players, sanitizeLook) === null, "a non-object is ignored");
+  assert(acceptStart(msg("0a", { startInMs: 1e9 }), players, sanitizeLook)!.startInMs === 15000, "the lead time is capped");
+}
+
 // ── Host ──
 {
   const p = (id: string, joinedAt: number): LobbyPlayer => ({ id, name: id, joinedAt, look: DEFAULT_LOOK });
-  assert(pickHost([p("b", 20), p("a", 10), p("c", 30)])!.id === "a", "the longest-present player hosts");
-  assert(pickHost([p("b", 20), p("c", 30)])!.id === "b", "when the host leaves, the next oldest takes over");
-  assert(pickHost([p("z", 5), p("y", 5)])!.id === "y", "ties are broken the same way on every device");
+  assert(pickHost([p("1b", 20), p("0a", 99), p("1c", 30)])!.id === "0a", "the creator (lowest id) hosts whatever any clock says");
+  assert(pickHost([p("1c", 1), p("1b", 99)])!.id === "1b", "when the host leaves, the lowest id takes over");
+  assert(pickHost([p("1c", 5), p("1b", 5)])!.id === "1b", "every device picks the same host");
   assert(pickHost([]) === null, "no players, no host");
 }
 

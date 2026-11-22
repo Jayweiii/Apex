@@ -10,14 +10,23 @@
  */
 import type { Kart } from "./kart";
 
-/** Most racers in one lobby. */
-export const MAX_PLAYERS = 6;
-/** Snapshots per second from each racer. */
-export const SEND_HZ = 8;
-/** Remote karts are drawn this far behind their newest snapshot (ms). */
-export const INTERP_DELAY_MS = 220;
+/**
+ * Most racers in one lobby. Every snapshot is delivered to every other racer
+ * (SEND_HZ * N * (N-1) messages a second), and Supabase's free tier allows 100/s.
+ */
+export const MAX_PLAYERS = 3;
+/** Snapshots per second from each racer (only while racing). */
+export const SEND_HZ = 4;
+/** Remote karts are drawn this far behind their newest snapshot (ms): a bit over one send interval. */
+export const INTERP_DELAY_MS = 320;
 /** A late packet is extrapolated at most this far (ms), then the kart holds. */
-export const MAX_EXTRAPOLATE_MS = 400;
+export const MAX_EXTRAPOLATE_MS = 500;
+/** Bounds for snapshot values from other players (anything outside is clamped). */
+export const MAX_COORD = 20000;
+export const MAX_SPEED = 120;
+export const MAX_LAP = 99;
+export const MAX_PROGRESS = 100000;
+export const MAX_TIME_MS = 3_600_000;
 
 /** No 0/O, 1/I/L: codes are read aloud and typed on phones. */
 const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
@@ -92,26 +101,28 @@ export function encodeSnapshot(k: Kart, t: number): number[] {
   ];
 }
 
+const clamp = (v: number, lim: number) => Math.max(-lim, Math.min(lim, v));
+
 export function decodeSnapshot(a: unknown): Snapshot | null {
   if (!Array.isArray(a) || a.length < 16 || !a.every((v) => typeof v === "number" && Number.isFinite(v))) return null;
   const n = a as number[];
   return {
     t: n[0]!,
-    x: n[1]!,
-    y: n[2]!,
-    z: n[3]!,
+    x: clamp(n[1]!, MAX_COORD),
+    y: clamp(n[2]!, MAX_COORD),
+    z: clamp(n[3]!, MAX_COORD),
     heading: n[4]!,
     va: n[5]!,
-    v: n[6]!,
-    steer: n[7]!,
+    v: clamp(n[6]!, MAX_SPEED),
+    steer: clamp(n[7]!, 1),
     drifting: Math.sign(n[8]!),
     chargeLevel: Math.max(0, Math.min(3, Math.round(n[9]!))),
     boosting: n[10] === 1,
-    lap: n[11]!,
-    progress: n[12]!,
+    lap: Math.max(0, Math.min(MAX_LAP, Math.round(n[11]!))),
+    progress: Math.max(0, Math.min(MAX_PROGRESS, n[12]!)),
     finished: n[13] === 1,
-    finishMs: n[14]!,
-    bestLapMs: n[15]!,
+    finishMs: Math.max(0, Math.min(MAX_TIME_MS, n[14]!)),
+    bestLapMs: Math.max(0, Math.min(MAX_TIME_MS, n[15]!)),
   };
 }
 
@@ -213,11 +224,60 @@ export type LobbyPlayer = {
   racing?: boolean;
 };
 
-/** The host is whoever has been in the lobby longest (ties by id), so a new host is picked if they leave. */
+/**
+ * Presence keys are the ids, which the server (not the client's clock) vouches
+ * for per connection. The creator's id starts with this, so it sorts first and
+ * hosts; everyone else's starts with JOINER_PREFIX.
+ */
+export const CREATOR_PREFIX = "0";
+export const JOINER_PREFIX = "1";
+
+/**
+ * The host is the player with the lowest id: the creator first, then (if they
+ * leave) a deterministic pick the same on every device. Client clocks play no part.
+ */
 export function pickHost(players: LobbyPlayer[]): LobbyPlayer | null {
   let best: LobbyPlayer | null = null;
-  for (const p of players) {
-    if (!best || p.joinedAt < best.joinedAt || (p.joinedAt === best.joinedAt && p.id < best.id)) best = p;
-  }
+  for (const p of players) if (!best || p.id < best.id) best = p;
   return best;
+}
+
+/** Two players with one name (two tabs, same person) get " 2", " 3"... in id order, the same on every device. */
+export function dedupeNames<T extends { id: string; name: string }>(players: T[]): T[] {
+  const sorted = players.slice().sort((a, b) => (a.id < b.id ? -1 : 1));
+  const seen = new Map<string, number>();
+  const rename = new Map<string, string>();
+  for (const p of sorted) {
+    const key = p.name.toLowerCase();
+    const n = (seen.get(key) ?? 0) + 1;
+    seen.set(key, n);
+    if (n > 1) rename.set(p.id, `${p.name.slice(0, 12)} ${n}`);
+  }
+  return players.map((p) => (rename.has(p.id) ? { ...p, name: rename.get(p.id)! } : p));
+}
+
+export type GridEntry = { id: string; name: string; look: import("./garage").KartLook };
+export type StartMessage = {
+  raceId: string;
+  levelId: string;
+  grid: GridEntry[];
+  /** Milliseconds from receipt to GO (not a wall-clock time, so clock skew can't desync it). */
+  startInMs: number;
+  /** Presence key of the host who sent it; receivers ignore anyone else. */
+  from: string;
+};
+
+/** A start message that is well formed and from the current host; otherwise null. */
+export function acceptStart(payload: unknown, players: LobbyPlayer[], clean: (look: unknown) => import("./garage").KartLook): StartMessage | null {
+  if (!payload || typeof payload !== "object") return null;
+  const p = payload as Partial<StartMessage>;
+  if (typeof p.from !== "string" || p.from !== pickHost(players)?.id) return null;
+  if (typeof p.raceId !== "string" || typeof p.levelId !== "string" || !Array.isArray(p.grid)) return null;
+  if (typeof p.startInMs !== "number" || !Number.isFinite(p.startInMs)) return null;
+  const known = new Set(players.map((q) => q.id));
+  const grid = (p.grid as unknown[])
+    .filter((g): g is GridEntry => !!g && typeof (g as GridEntry).id === "string" && known.has((g as GridEntry).id))
+    .slice(0, MAX_PLAYERS)
+    .map((g) => ({ id: g.id, name: cleanName(String(g.name ?? ""), "Racer"), look: clean(g.look) }));
+  return { raceId: p.raceId, levelId: p.levelId, grid, startInMs: Math.max(0, Math.min(15000, p.startInMs)), from: p.from };
 }
