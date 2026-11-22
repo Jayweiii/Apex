@@ -155,6 +155,8 @@ export function RushRace({
   const placeStickRef = useRef<() => void>(() => {});
   const releaseStickRef = useRef<() => void>(() => {});
 
+  /** Last pointer/touch event seen anywhere (for the bug report). */
+  const lastEvent = useRef({ type: "none", t: 0 });
   const keys = useRef({ left: false, right: false, up: false, down: false, drift: false, item: false });
   /**
    * The one-thumb stick. `id` is the pointer that owns it (or TOUCH_ID_BASE +
@@ -310,11 +312,19 @@ export function RushRace({
     const onVisibility = () => {
       if (document.hidden) onHide();
     };
+    const noteEvent = (e: Event) => {
+      lastEvent.current.type = e.type;
+      lastEvent.current.t = performance.now();
+    };
+    const seen = ["pointerdown", "pointermove", "pointerup", "pointercancel", "touchstart", "touchmove", "touchend", "touchcancel"];
+    const passiveCapture: AddEventListenerOptions = { capture: true, passive: true };
+    for (const type of seen) window.addEventListener(type, noteEvent, passiveCapture);
     window.addEventListener("pointerup", onPointerEnd, true);
     window.addEventListener("pointercancel", onPointerEnd, true);
     window.addEventListener("blur", onHide);
     document.addEventListener("visibilitychange", onVisibility);
     cleanups.push(() => {
+      for (const type of seen) window.removeEventListener(type, noteEvent, passiveCapture);
       window.removeEventListener("pointerup", onPointerEnd, true);
       window.removeEventListener("pointercancel", onPointerEnd, true);
       window.removeEventListener("blur", onHide);
@@ -497,10 +507,11 @@ export function RushRace({
         // Tilt steers (smoothed a touch); a held thumb drifts, pulled down it brakes.
         tiltSteer += (tr.steer - tiltSteer) * 0.4;
         if (steer === 0) steer = tiltSteer;
+        // The thumb is free in tilt mode, so the kart always drives; pulling down brakes.
+        gas = true;
         if (st.id >= 0) {
           brake = st.dy / STICK_RADIUS > BRAKE_PULL ? 1 : 0;
           drift = brake === 0;
-          gas = true;
         }
       } else if (st.id >= 0) {
         stickInput(st.dx, st.dy, player.drifting, so);
@@ -1078,10 +1089,10 @@ export function RushRace({
               <div className="flex items-center justify-between gap-2 text-xs">
                 <span>AUTO GAS</span>
                 <div className="rush-seg" role="group" aria-label="Auto gas">
-                  <button type="button" aria-pressed={settings.autoGas} onClick={() => onSettings({ ...settings, autoGas: true })}>
+                  <button type="button" data-rush-gas="auto" aria-pressed={settings.autoGas} onClick={() => onSettings({ ...settings, autoGas: true })}>
                     On
                   </button>
-                  <button type="button" aria-pressed={!settings.autoGas} onClick={() => onSettings({ ...settings, autoGas: false })}>
+                  <button type="button" data-rush-gas="manual" aria-pressed={!settings.autoGas} onClick={() => onSettings({ ...settings, autoGas: false })}>
                     Off
                   </button>
                 </div>
@@ -1108,7 +1119,19 @@ export function RushRace({
               ) : null}
               <BugReportButton
                 className="rush-btn rush-btn--ghost"
-                controls={`${touch ? (settings.tilt ? "tilt" : "touch stick") : "keyboard"}, auto gas ${settings.autoGas ? "on" : "off"}`}
+                controls={() => {
+                  const s = settingsRef.current;
+                  const ev = lastEvent.current;
+                  const ago = ev.t ? `${Math.round((performance.now() - ev.t) / 100) / 10}s ago` : "never";
+                  return [
+                    `${touch ? (s.tilt ? "tilt" : "touch stick") : "keyboard"}, auto gas ${s.autoGas ? "on" : "off"}`,
+                    online ? "online" : "solo",
+                    `phase ${phaseRef.current}`,
+                    `stick ${stick.current.id >= 0 ? "held" : "free"}`,
+                    `tilt ${tilt.current ? (tilt.current.live(performance.now()) ? "live" : "no readings") : "off"}`,
+                    `last event ${ev.type} ${ago}`,
+                  ].join(", ");
+                }}
                 dataAttr="rush"
               />
               <button type="button" className="rush-btn rush-btn--ghost" data-rush-quit="1" onClick={onExit}>

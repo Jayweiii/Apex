@@ -257,6 +257,28 @@ test.describe("Apex Rush", () => {
     await expect.poll(() => num(page, "drift"), { timeout: 3_000 }).toBe(0);
   });
 
+  test("tilt with auto gas off: the kart still drives forward", async ({ page, isMobile }) => {
+    await openMenu(page);
+    test.skip(!isMobile, "tilt is a phone control");
+    test.setTimeout(240_000);
+    await page.context().grantPermissions(["accelerometer", "gyroscope", "magnetometer"]);
+    await activate(page, '[data-rush-steer="tilt"]', isMobile);
+    await page.evaluate(() => setInterval(() => window.dispatchEvent(new DeviceOrientationEvent("deviceorientation", { alpha: 0, beta: 40, gamma: 0 })), 30));
+    await activate(page, '[data-rush-track="buttonwillow-13cw"]', isMobile);
+    await activate(page, '[data-rush-mode="tt"]', isMobile);
+    await activate(page, "[data-rush-start]", isMobile);
+    await expect(canvas(page)).toHaveAttribute("data-rush-phase", "racing", { timeout: 60_000 });
+    await activate(page, "[data-rush-pause]", isMobile);
+    await activate(page, '[data-rush-gas="manual"]', isMobile);
+    await activate(page, "[data-rush-resume]", isMobile);
+    // No thumb on the screen and no auto gas: tilt mode still accelerates.
+    await expect.poll(() => num(page, "speed"), { timeout: 15_000 }).toBeGreaterThan(6);
+    // The bug report says how the kart was being driven.
+    await activate(page, "[data-rush-pause]", isMobile);
+    await activate(page, "[data-bug-report-open=rush]", isMobile);
+    await expect(page.getByRole("dialog")).toContainText(/tilt, auto gas off, solo, phase paused, stick free, tilt live, last event/);
+  });
+
   test("after garage changes and a long scroll, the stick appears and drives", async ({ page, isMobile }) => {
     await openMenu(page);
     await activate(page, '[data-rush-tab="garage"]', isMobile);
