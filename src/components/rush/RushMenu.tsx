@@ -103,6 +103,7 @@ export function RushMenu({
   onMode,
   onStart,
   online,
+  steering,
 }: {
   look: KartLook;
   onLook: (look: KartLook) => void;
@@ -112,6 +113,8 @@ export function RushMenu({
   onMode: (mode: MenuMode) => void;
   onStart: () => void;
   online: OnlineMenu;
+  /** Stick or tilt steering; null where there is no motion sensor. */
+  steering: { tilt: boolean; onTilt: (on: boolean) => void; note: string } | null;
 }) {
   const [tab, setTab] = useState<Tab>("race");
   const [joinCode, setJoinCode] = useState(online.initialCode);
@@ -236,6 +239,29 @@ export function RushMenu({
             })}
           </div>
 
+          {steering ? (
+            <div>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <span className="text-xs">STEERING</span>
+                <div className="rush-seg" role="group" aria-label="Steering">
+                  <button type="button" aria-pressed={!steering.tilt} data-rush-steer="stick" onClick={() => steering.onTilt(false)}>
+                    Thumb
+                  </button>
+                  <button type="button" aria-pressed={steering.tilt} data-rush-steer="tilt" onClick={() => steering.onTilt(true)}>
+                    Tilt
+                  </button>
+                </div>
+              </div>
+              <p className="mt-1 text-[11px] text-[#adb5bd]">
+                {steering.tilt ? "TURN THE PHONE LIKE A WHEEL · HOLD THE SCREEN TO DRIFT" : "DRAG ANYWHERE TO STEER"}
+              </p>
+              {steering.note ? (
+                <p className="mt-1 text-[11px] text-[#ff6b6b]" role="alert" data-rush-tilt-note="1">
+                  {steering.note}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
           {mode === "online" ? (
             <div className="rush-panel space-y-4 p-4" data-rush-online="1">
               {online.available ? (

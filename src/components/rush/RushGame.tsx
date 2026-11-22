@@ -12,13 +12,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { RushLobby } from "./RushLobby";
 import { RushMenu, type MenuMode } from "./RushMenu";
 import { RushRace, type OnlineRace, type RushSettings } from "./RushRace";
+import { requestTilt, TILT_BLOCKED, tiltAvailable } from "@/lib/rush/tilt";
 import "./rush.css";
 
 const pixel = Silkscreen({ weight: ["400", "700"], subsets: ["latin"], variable: "--font-rush", display: "swap" });
 
 const PREFS_KEY = "apex.rush.prefs";
 const NAME_KEY = "apex.rush.name";
-type Prefs = { levelId: string; mode: MenuMode; autoGas: boolean; muted: boolean };
+type Prefs = { levelId: string; mode: MenuMode; autoGas: boolean; muted: boolean; tilt: boolean };
 
 type StoredPrefs = Partial<Omit<Prefs, "autoGas">> & { autoGas?: boolean; autoGasCoarse?: boolean };
 
@@ -38,6 +39,7 @@ function loadPrefs(): StoredPrefs {
       // Which device class the saved autoGas choice was made on.
       autoGasCoarse: typeof p.autoGasCoarse === "boolean" ? p.autoGasCoarse : undefined,
       muted: typeof p.muted === "boolean" ? p.muted : undefined,
+      tilt: typeof p.tilt === "boolean" ? p.tilt : undefined,
     };
   } catch {
     return {};
@@ -78,13 +80,23 @@ export function RushGame() {
         ? prefs.autoGas
         : isCoarse(),
     muted: prefs.muted === true,
+    // Tilt only means something on a phone or tablet with a motion sensor.
+    tilt: prefs.tilt === true && tiltAvailable(),
   }));
   const [screen, setScreen] = useState<Screen>("menu");
   const [name, setName] = useState(loadName);
 
   useEffect(() => {
     try {
-      localStorage.setItem(PREFS_KEY, JSON.stringify({ levelId, mode, autoGas: settings.autoGas, autoGasCoarse: isCoarse(), muted: settings.muted }));
+      localStorage.setItem(PREFS_KEY, JSON.stringify({
+          levelId,
+          mode,
+          autoGas: settings.autoGas,
+          autoGasCoarse: isCoarse(),
+          muted: settings.muted,
+          tilt: settings.tilt,
+        }),
+      );
     } catch {
       // Preferences just don't persist.
     }
@@ -94,10 +106,30 @@ export function RushGame() {
   const audio = useRef<RushAudio | null>(null);
   const [audioReady, setAudioReady] = useState<RushAudio | null>(null);
   useEffect(() => () => audio.current?.dispose(), []);
+  // Tilt on iPhone needs motion access asked for inside a tap, on every page
+  // load: the same taps that wake the sound ask for it (no prompt once allowed).
+  const tiltWanted = useRef(settings.tilt);
+  useEffect(() => {
+    tiltWanted.current = settings.tilt;
+  }, [settings.tilt]);
   const unlockAudio = useCallback(() => {
+    if (tiltWanted.current) void requestTilt();
     if (!audio.current) audio.current = createRushAudio();
     audio.current.unlock();
     setAudioReady(audio.current);
+  }, []);
+  const [canTilt] = useState(tiltAvailable);
+  const [tiltNote, setTiltNote] = useState("");
+  const chooseTilt = useCallback((on: boolean) => {
+    setTiltNote("");
+    if (!on) {
+      setSettings((s) => ({ ...s, tilt: false }));
+      return;
+    }
+    void requestTilt().then((r) => {
+      if (r === "granted") setSettings((s) => ({ ...s, tilt: true }));
+      else setTiltNote(TILT_BLOCKED);
+    });
   }, []);
   // The menu and garage are long on a phone. Start the race from the top of
   // the page: iOS can mis-route touches to a full-screen fixed layer while
@@ -329,6 +361,7 @@ export function RushGame() {
                   error: onlineError,
                   initialCode: invite,
                 }}
+                steering={canTilt ? { tilt: settings.tilt, onTilt: chooseTilt, note: tiltNote } : null}
               />
             )}
           </main>

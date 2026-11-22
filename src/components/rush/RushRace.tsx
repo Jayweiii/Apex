@@ -16,7 +16,8 @@ import {
   type GhostPose,
   type RealLap,
 } from "@/lib/rush/ghost";
-import { stickInput, STICK_RADIUS, type StickInput } from "@/lib/rush/input";
+import { BRAKE_PULL, stickInput, STICK_RADIUS, type StickInput } from "@/lib/rush/input";
+import { requestTilt, TILT_BLOCKED, tiltAvailable, TiltReader } from "@/lib/rush/tilt";
 import { DT, EV_BOOST, EV_CHARGE, EV_LAP, EV_PICKUP, EV_WALL, MAX_NITRO, type KartInput } from "@/lib/rush/kart";
 import type { RushLevel } from "@/lib/rush/levels";
 import { autopilot, createRace, RIVALS, stepRace, type RaceWorld, type RushMode } from "@/lib/rush/race";
@@ -28,7 +29,8 @@ import { createRushRenderer, type CameraMode, type RushRenderer } from "./render
 
 type Phase = "loading" | "intro" | "countdown" | "racing" | "paused" | "finished" | "error";
 
-export type RushSettings = { autoGas: boolean; muted: boolean };
+/** `tilt`: steer by turning the phone; the thumb then drifts and brakes. */
+export type RushSettings = { autoGas: boolean; muted: boolean; tilt: boolean };
 
 type Standing = { place: number; name: string; timeMs: number | null; bestMs: number; you: boolean };
 type Results = {
@@ -127,6 +129,8 @@ export function RushRace({
   const [results, setResults] = useState<Results | null>(null);
   const [raceKey, setRaceKey] = useState(0);
   const [touch] = useState(() => window.matchMedia("(pointer: coarse)").matches);
+  const [canTilt] = useState(tiltAvailable);
+  const [tiltNote, setTiltNote] = useState("");
   const [error, setError] = useState("");
 
   const phaseRef = useRef<Phase>("loading");
@@ -159,6 +163,29 @@ export function RushRace({
    */
   const stick = useRef({ id: -1, ox: 0, oy: 0, dx: 0, dy: 0, touch: -1, since: 0 });
   const nitroHeld = useRef(false);
+  /** Phone orientation while tilt steering is on. */
+  const tilt = useRef<TiltReader | null>(null);
+  useEffect(() => {
+    if (!settings.tilt) return;
+    const reader = new TiltReader();
+    reader.start();
+    tilt.current = reader;
+    return () => {
+      reader.stop();
+      tilt.current = null;
+    };
+  }, [settings.tilt]);
+  const chooseTilt = (on: boolean) => {
+    setTiltNote("");
+    if (!on) {
+      onSettings({ ...settings, tilt: false });
+      return;
+    }
+    void requestTilt().then((r) => {
+      if (r === "granted") onSettings({ ...settings, tilt: true });
+      else setTiltNote(TILT_BLOCKED);
+    });
+  };
 
   // The sound engine is created by the Start tap and handed in; keep it in a
   // ref for the race loop and key handlers.
@@ -247,6 +274,8 @@ export function RushRace({
         }
       };
       const onTouchEnd = (e: TouchEvent) => {
+        // Tilt wanted but no readings (iPhone after a reload): a lifted finger can ask.
+        if (e.type === "touchend" && settingsRef.current.tilt && !tilt.current?.live(performance.now())) void requestTilt();
         const st = stick.current;
         for (const t of Array.from(e.changedTouches)) {
           if (t.identifier !== st.touch) continue;
@@ -366,6 +395,7 @@ export function RushRace({
 
     const input: KartInput = { steer: 0, throttle: 0, brake: 0, drift: false, useItem: false };
     const so: StickInput = { steer: 0, brake: 0, drift: false };
+    let tiltSteer = 0;
     const ghostHits: TrackHit[] = [
       { i: 0, s: 0, d: 0 },
       { i: 0, s: 0, d: 0 },
@@ -462,7 +492,17 @@ export function RushRace({
       let drift = k.drift;
       let gas = k.up || settingsRef.current.autoGas;
       let item = k.item || nitroHeld.current;
-      if (st.id >= 0) {
+      const tr = tilt.current;
+      if (tr && tr.live(performance.now())) {
+        // Tilt steers (smoothed a touch); a held thumb drifts, pulled down it brakes.
+        tiltSteer += (tr.steer - tiltSteer) * 0.4;
+        if (steer === 0) steer = tiltSteer;
+        if (st.id >= 0) {
+          brake = st.dy / STICK_RADIUS > BRAKE_PULL ? 1 : 0;
+          drift = brake === 0;
+          gas = true;
+        }
+      } else if (st.id >= 0) {
         stickInput(st.dx, st.dy, player.drifting, so);
         steer = so.steer;
         brake = so.brake;
@@ -601,7 +641,7 @@ export function RushRace({
         }
         if (phaseT >= COUNTDOWN_S) {
           phaseT = 0;
-          flash("GO!", 0.9, now);
+          flash(settingsRef.current.tilt && !tilt.current?.live(performance.now()) ? "GO! · NO TILT, DRAG TO STEER" : "GO!", 0.9, now);
           audio?.blip("go");
           moveOn("racing");
         }
@@ -697,6 +737,7 @@ export function RushRace({
       canvas.dataset.rushLap = String(player.lap);
       canvas.dataset.rushDrift = String(player.drifting);
       canvas.dataset.rushHeading = player.heading.toFixed(3);
+      canvas.dataset.rushSteer = input.steer.toFixed(2);
       if (online) {
         let live = 0;
         for (let n = 1; n < world.karts.length; n += 1) if (!world.karts[n]!.gone && online.remotes.get(online.grid[world.karts[n]!.id]!.id)?.latest) live += 1;
@@ -929,7 +970,13 @@ export function RushRace({
             WRONG WAY
           </div>
           <div ref={hintEl} className="absolute inset-x-4 top-[56%] text-center text-xs leading-relaxed opacity-0 transition-opacity sm:text-sm">
-            {touch ? (
+            {touch && settings.tilt ? (
+              <>
+                TILT TO STEER · HOLD THE SCREEN TO DRIFT
+                <br />
+                LET GO TO BOOST · PULL DOWN TO BRAKE
+              </>
+            ) : touch ? (
               <>
                 DRAG TO STEER · PUSH TO THE EDGE TO DRIFT
                 <br />
@@ -1030,9 +1077,29 @@ export function RushRace({
                   </button>
                 </div>
               </div>
+              {canTilt ? (
+                <div className="text-xs">
+                  <div className="flex items-center justify-between gap-2">
+                    <span>STEERING</span>
+                    <div className="rush-seg" role="group" aria-label="Steering">
+                      <button type="button" aria-pressed={!settings.tilt} data-rush-steer="stick" onClick={() => chooseTilt(false)}>
+                        Thumb
+                      </button>
+                      <button type="button" aria-pressed={settings.tilt} data-rush-steer="tilt" onClick={() => chooseTilt(true)}>
+                        Tilt
+                      </button>
+                    </div>
+                  </div>
+                  {tiltNote ? (
+                    <p className="mt-2 text-left text-[10px] text-[#ff6b6b]" role="alert" data-rush-tilt-note="1">
+                      {tiltNote}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
               <BugReportButton
                 className="rush-btn rush-btn--ghost"
-                controls={`${touch ? "touch stick" : "keyboard"}, auto gas ${settings.autoGas ? "on" : "off"}`}
+                controls={`${touch ? (settings.tilt ? "tilt" : "touch stick") : "keyboard"}, auto gas ${settings.autoGas ? "on" : "off"}`}
                 dataAttr="rush"
               />
               <button type="button" className="rush-btn rush-btn--ghost" data-rush-quit="1" onClick={onExit}>

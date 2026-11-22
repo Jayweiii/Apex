@@ -195,6 +195,68 @@ test.describe("Apex Rush", () => {
     });
   }
 
+  test("tilt: turning the phone steers, held level it drives straight", async ({ page, isMobile }) => {
+    await openMenu(page);
+    if (!isMobile) {
+      // No motion sensor on a desktop: no tilt choice.
+      await expect(page.locator('[data-rush-steer="tilt"]')).toHaveCount(0);
+      return;
+    }
+    test.setTimeout(240_000);
+    // Newer Chromium asks for motion access the way iPhones do: this phone allows it.
+    await page.context().grantPermissions(["accelerometer", "gyroscope", "magnetometer"]);
+    await activate(page, '[data-rush-steer="tilt"]', isMobile);
+    await expect(page.locator('[data-rush-steer="tilt"]')).toHaveAttribute("aria-pressed", "true");
+    // The phone: a steady stream of orientation readings, gamma set per step.
+    await page.evaluate(() => {
+      const w = window as Window & { __gamma?: number };
+      w.__gamma = 0;
+      setInterval(() => window.dispatchEvent(new DeviceOrientationEvent("deviceorientation", { alpha: 0, beta: 40, gamma: w.__gamma })), 30);
+    });
+    const setGamma = (g: number) => page.evaluate((v) => ((window as Window & { __gamma?: number }).__gamma = v), g);
+
+    for (const dir of [1, -1] as const) {
+      await setGamma(0);
+      if (dir === -1) {
+        // A fresh race from the menu: the choice was saved.
+        await activate(page, "[data-rush-pause]", isMobile);
+        await activate(page, "[data-rush-quit]", isMobile);
+        await expect(page.locator('[data-rush-steer="tilt"]')).toHaveAttribute("aria-pressed", "true");
+      } else {
+        await activate(page, '[data-rush-track="buttonwillow-13cw"]', isMobile);
+        await activate(page, '[data-rush-mode="tt"]', isMobile);
+      }
+      await activate(page, "[data-rush-start]", isMobile);
+      await expect(canvas(page)).toHaveAttribute("data-rush-phase", "racing", { timeout: 60_000 });
+      await expect.poll(() => num(page, "speed"), { timeout: 15_000 }).toBeGreaterThan(6);
+      const h0 = await num(page, "heading");
+      if (dir === 1) {
+        await page.waitForTimeout(400);
+        expect(Math.abs(await num(page, "heading") - h0), "held level: straight").toBeLessThan(0.05);
+      }
+      const turned = async () => {
+        const h = await num(page, "heading");
+        return Math.atan2(Math.sin(h - h0), Math.cos(h - h0));
+      };
+      // Right edge down steers right (heading falls); left edge down, left.
+      await setGamma(dir * 14);
+      // 14° at a 40° hold is about 0.42 of full lock.
+      await expect.poll(async () => dir * (await num(page, "steer")), { timeout: 3_000 }).toBeGreaterThan(0.35);
+      if (dir === 1) await expect.poll(turned, { timeout: 4_000, intervals: [50] }).toBeLessThan(-0.3);
+      else await expect.poll(turned, { timeout: 4_000, intervals: [50] }).toBeGreaterThan(0.3);
+    }
+
+    // Holding the screen while tilted drifts that way; letting go ends it.
+    const surface = page.locator("[data-rush-surface]");
+    const box = (await surface.boundingBox())!;
+    const press = (type: string) =>
+      surface.dispatchEvent(type, { pointerId: 9, pointerType: "touch", isPrimary: true, clientX: box.x + box.width / 2, clientY: box.y + box.height * 0.7, bubbles: true });
+    await press("pointerdown");
+    await expect.poll(() => num(page, "drift"), { timeout: 3_000 }).toBe(-1);
+    await press("pointerup");
+    await expect.poll(() => num(page, "drift"), { timeout: 3_000 }).toBe(0);
+  });
+
   test("after garage changes and a long scroll, the stick appears and drives", async ({ page, isMobile }) => {
     await openMenu(page);
     await activate(page, '[data-rush-tab="garage"]', isMobile);
