@@ -207,8 +207,19 @@ export function RushRace({
   }, [settings, audio]);
 
   const beforePause = useRef<Phase>("racing");
+  // Input state as pause began: by the time Report opens, the stick is free and the last event is the Report tap.
+  const pauseSnap = useRef<string | null>(null);
   const changePhase = useCallback((next: Phase) => {
-    if (next === "paused" && phaseRef.current !== "paused") beforePause.current = phaseRef.current;
+    if (next === "paused" && phaseRef.current !== "paused") {
+      beforePause.current = phaseRef.current;
+      const ev = lastEvent.current;
+      const now = performance.now();
+      pauseSnap.current = [
+        `at pause: stick ${stick.current.id >= 0 ? "held" : "free"}`,
+        `tilt ${tilt.current ? (tilt.current.live(now) ? "live" : "no readings") : "off"}`,
+        `last play event ${ev.type} ${ev.t ? `${Math.round((now - ev.t) / 100) / 10}s before pause` : "never"}`,
+      ].join(", ");
+    } else if (next !== "paused") pauseSnap.current = null;
     phaseRef.current = next;
     setPhase(next);
   }, []);
@@ -315,6 +326,8 @@ export function RushRace({
       const st = stick.current;
       const ph = phaseRef.current;
       if (st.id >= 0 || !surface || ph === "paused" || ph === "error" || ph === "finished") return;
+      // Only presses inside the race (not the Vercel toolbar or dev overlay).
+      if (!(e.target instanceof Node) || !surface.closest("[data-rush-race]")?.contains(e.target)) return;
       if (e.target instanceof Element && e.target.closest("button, a, input, select, textarea, summary, [role=button], [data-rush-paused]")) return;
       const rect = surface.getBoundingClientRect();
       st.id = e.pointerId;
@@ -336,6 +349,8 @@ export function RushRace({
       if (document.hidden) onHide();
     };
     const noteEvent = (e: Event) => {
+      // Play-surface events only: taps on buttons, the pause panel or the report sheet don't count.
+      if (e.target instanceof Element && e.target.closest("button, a, input, select, textarea, [data-rush-paused], [data-bug-report-sheet]")) return;
       lastEvent.current.type = e.type;
       lastEvent.current.t = performance.now();
     };
@@ -955,7 +970,7 @@ export function RushRace({
   const showHud = phase !== "loading" && phase !== "error";
 
   return (
-    <div className="rush fixed left-0 top-0 z-50 h-dvh w-screen select-none overflow-hidden bg-[#14151a]" data-rush-race={mode}>
+    <div className="rush fixed left-0 top-0 z-50 h-dvh w-screen touch-none select-none overflow-hidden bg-[#14151a]" data-rush-race={mode}>
       <canvas key={raceKey} ref={canvasRef} data-rush-canvas="1" className="rush-canvas absolute inset-0 h-full w-full" />
       <div ref={linesEl} aria-hidden className="rush-speedlines pointer-events-none absolute inset-0" />
 
@@ -1155,15 +1170,11 @@ export function RushRace({
                 className="rush-btn rush-btn--ghost"
                 controls={() => {
                   const s = settingsRef.current;
-                  const ev = lastEvent.current;
-                  const ago = ev.t ? `${Math.round((performance.now() - ev.t) / 100) / 10}s ago` : "never";
                   return [
                     `${touch ? (s.tilt ? "tilt" : "touch stick") : "keyboard"}, auto gas ${s.autoGas ? "on" : "off"}`,
                     online ? "online" : "solo",
                     `phase ${phaseRef.current}`,
-                    `stick ${stick.current.id >= 0 ? "held" : "free"}`,
-                    `tilt ${tilt.current ? (tilt.current.live(performance.now()) ? "live" : "no readings") : "off"}`,
-                    `last event ${ev.type} ${ago}`,
+                    pauseSnap.current ?? "no pause snapshot",
                   ].join(", ");
                 }}
                 dataAttr="rush"
