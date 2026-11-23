@@ -25,6 +25,7 @@ import type { GridEntry } from "@/lib/rush/lobby";
 import { encodeSnapshot, SEND_HZ, type RemoteKart } from "@/lib/rush/net";
 import { buildRushTrack, projectOnTrack, type RushTrack, type TrackHit } from "@/lib/rush/track";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { createRushRenderer, type CameraMode, type RushRenderer } from "./renderer";
 
 type Phase = "loading" | "intro" | "countdown" | "racing" | "paused" | "finished" | "error";
@@ -301,12 +302,34 @@ export function RushRace({
     const onPointerEnd = (e: PointerEvent) => {
       const st = stick.current;
       if (e.pointerId !== st.id) return;
-      if (e.type === "pointercancel" && st.touch >= 0) {
+      if ((e.type === "pointercancel" || e.type === "lostpointercapture") && st.touch >= 0) {
         // The pointer was cancelled but the finger is still down: follow its touches.
         st.id = TOUCH_ID_BASE + st.touch;
         return;
       }
       releaseStickRef.current();
+    };
+    // A press that landed on something that then vanished (loading or pause
+    // overlay) never reached the surface: take the stick here instead.
+    const onPointerDownFallback = (e: PointerEvent) => {
+      const st = stick.current;
+      const ph = phaseRef.current;
+      if (st.id >= 0 || !surface || ph === "paused" || ph === "error" || ph === "finished") return;
+      if (e.target instanceof Element && e.target.closest("button, a, input, select, textarea, summary, [role=button], [data-rush-paused]")) return;
+      const rect = surface.getBoundingClientRect();
+      st.id = e.pointerId;
+      st.since = performance.now();
+      st.ox = e.clientX - rect.left;
+      st.oy = e.clientY - rect.top;
+      st.dx = 0;
+      st.dy = 0;
+      audioRef.current?.unlock();
+      try {
+        surface.setPointerCapture(e.pointerId);
+      } catch {
+        // Moves still arrive while the thumb is over the surface.
+      }
+      placeStickRef.current();
     };
     const onHide = () => releaseStickRef.current();
     const onVisibility = () => {
@@ -321,12 +344,16 @@ export function RushRace({
     for (const type of seen) window.addEventListener(type, noteEvent, passiveCapture);
     window.addEventListener("pointerup", onPointerEnd, true);
     window.addEventListener("pointercancel", onPointerEnd, true);
+    window.addEventListener("lostpointercapture", onPointerEnd, true);
+    window.addEventListener("pointerdown", onPointerDownFallback);
     window.addEventListener("blur", onHide);
     document.addEventListener("visibilitychange", onVisibility);
     cleanups.push(() => {
       for (const type of seen) window.removeEventListener(type, noteEvent, passiveCapture);
       window.removeEventListener("pointerup", onPointerEnd, true);
       window.removeEventListener("pointercancel", onPointerEnd, true);
+      window.removeEventListener("lostpointercapture", onPointerEnd, true);
+      window.removeEventListener("pointerdown", onPointerDownFallback);
       window.removeEventListener("blur", onHide);
       document.removeEventListener("visibilitychange", onVisibility);
     });
@@ -616,7 +643,8 @@ export function RushRace({
       if (!booted) {
         booted = true;
         setResults(null);
-        changePhase("intro");
+        // Commit now so the loading overlay is gone before the (possibly slow) first draw.
+        flushSync(() => changePhase("intro"));
       }
       const ph = phaseRef.current;
       const audio = audioRef.current;
@@ -885,6 +913,10 @@ export function RushRace({
     placeStickRef.current = placeStick;
     releaseStickRef.current = releaseStick;
   });
+  // A phase change can remount overlays under a held finger: redraw the stick.
+  useEffect(() => {
+    placeStickRef.current();
+  }, [phase]);
   const onStickDown = (e: React.PointerEvent<HTMLDivElement>) => {
     audioRef.current?.unlock();
     const st = stick.current;
@@ -1047,7 +1079,7 @@ export function RushRace({
       </div>
 
       {phase === "loading" ? (
-        <div className="absolute inset-0 flex items-center justify-center text-lg text-[#ffd60a]">BUILDING TRACK…</div>
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-lg text-[#ffd60a]">BUILDING TRACK…</div>
       ) : null}
 
       {phase === "error" ? (

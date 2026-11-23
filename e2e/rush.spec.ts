@@ -331,6 +331,26 @@ test.describe("Apex Rush", () => {
     await expect(page.locator(".rush-stick")).toHaveCSS("opacity", "0");
   });
 
+  test("a press that lands off the surface during intro still takes the stick and steers", async ({ page, isMobile }) => {
+    await openMenu(page);
+    await activate(page, "[data-rush-start]", isMobile);
+    await expect(canvas(page)).toHaveAttribute("data-rush-phase", /intro|countdown|racing/, { timeout: 60_000 });
+    const surface = page.locator("[data-rush-surface]");
+    const box = (await surface.boundingBox())!;
+    const x = box.x + box.width / 2;
+    const y = box.y + box.height * 0.8;
+    const ev = (px: number) => ({ pointerId: 31, pointerType: isMobile ? "touch" : "mouse", isPrimary: true, clientX: px, clientY: y, bubbles: true });
+    // The press lands on a layer above the surface (like a vanishing overlay).
+    await page.locator("[data-rush-canvas]").dispatchEvent("pointerdown", ev(x));
+    await expect(page.locator(".rush-stick")).toHaveCSS("opacity", "1");
+    // The same pointer then moves over the surface.
+    await surface.dispatchEvent("pointermove", ev(x - 44));
+    await expect(canvas(page)).toHaveAttribute("data-rush-phase", "racing", { timeout: 60_000 });
+    await expect.poll(async () => Math.abs(await num(page, "steer")), { timeout: 5_000 }).toBeGreaterThan(0.3);
+    await surface.dispatchEvent("pointerup", ev(x - 44));
+    await expect(page.locator(".rush-stick")).toHaveCSS("opacity", "0");
+  });
+
   test("a press whose finger-up never arrived does not block the next press", async ({ page, isMobile }) => {
     await openMenu(page);
     await activate(page, "[data-rush-start]", isMobile);
