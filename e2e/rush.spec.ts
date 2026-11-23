@@ -276,7 +276,7 @@ test.describe("Apex Rush", () => {
     // The bug report says how the kart was being driven.
     await activate(page, "[data-rush-pause]", isMobile);
     await activate(page, "[data-bug-report-open=rush]", isMobile);
-    await expect(page.getByRole("dialog")).toContainText(/tilt, auto gas off, solo, phase paused, stick free, tilt live, last event/);
+    await expect(page.getByRole("dialog")).toContainText(/tilt, auto gas off, solo, phase paused, at pause: stick free, tilt live, last play event/);
   });
 
   test("after garage changes and a long scroll, the stick appears and drives", async ({ page, isMobile }) => {
@@ -333,17 +333,29 @@ test.describe("Apex Rush", () => {
 
   test("a real touch held on the BUILDING TRACK overlay takes the stick and steers once it unmounts", async ({ page, isMobile, browserName }) => {
     test.skip(!isMobile || browserName !== "chromium", "needs CDP touch input");
-    // Hold the track fetch so the loading overlay stays up under the finger.
-    let release: () => void = () => {};
-    const gate = new Promise<void>((resolve) => (release = resolve));
-    await page.route("**/api/tracks/*/drive", async (route) => {
-      await gate;
-      await route.continue();
+    // The overlay only lasts until the race loop's first animation frame (the
+    // drive fetch doesn't gate it), so hold animation frames while it is up.
+    await page.addInitScript(() => {
+      const w = window as unknown as { __holdRaf: boolean; __heldRaf: FrameRequestCallback[]; __releaseRaf: () => void };
+      const real = window.requestAnimationFrame.bind(window);
+      w.__holdRaf = false;
+      w.__heldRaf = [];
+      window.requestAnimationFrame = (cb) => {
+        if (!w.__holdRaf) return real(cb);
+        w.__heldRaf.push(cb);
+        return 0;
+      };
+      w.__releaseRaf = () => {
+        w.__holdRaf = false;
+        for (const cb of w.__heldRaf.splice(0)) real(cb);
+      };
     });
     await openMenu(page);
+    await page.evaluate(() => ((window as unknown as { __holdRaf: boolean }).__holdRaf = true));
     await activate(page, "[data-rush-start]", isMobile);
     const overlay = page.getByText("BUILDING TRACK");
     await expect(overlay).toBeVisible({ timeout: 30_000 });
+    const release = () => page.evaluate(() => (window as unknown as { __releaseRaf: () => void }).__releaseRaf());
     const size = page.viewportSize()!;
     const x = size.width / 2;
     const y = size.height * 0.8;
@@ -352,7 +364,7 @@ test.describe("Apex Rush", () => {
       cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x: px, y, id: 1 }] });
     // The finger lands while the loading overlay is on screen.
     await touch("touchStart", x);
-    release();
+    await release();
     await expect(overlay).toBeHidden({ timeout: 60_000 });
     // The same finger keeps moving after the overlay unmounted under it.
     for (let i = 1; i <= 6; i++) await touch("touchMove", x - i * 12);
