@@ -257,6 +257,28 @@ test.describe("Apex Rush", () => {
     await expect.poll(() => num(page, "drift"), { timeout: 3_000 }).toBe(0);
   });
 
+  test("tilt with auto gas off: the kart still drives forward", async ({ page, isMobile }) => {
+    await openMenu(page);
+    test.skip(!isMobile, "tilt is a phone control");
+    test.setTimeout(240_000);
+    await page.context().grantPermissions(["accelerometer", "gyroscope", "magnetometer"]);
+    await activate(page, '[data-rush-steer="tilt"]', isMobile);
+    await page.evaluate(() => setInterval(() => window.dispatchEvent(new DeviceOrientationEvent("deviceorientation", { alpha: 0, beta: 40, gamma: 0 })), 30));
+    await activate(page, '[data-rush-track="buttonwillow-13cw"]', isMobile);
+    await activate(page, '[data-rush-mode="tt"]', isMobile);
+    await activate(page, "[data-rush-start]", isMobile);
+    await expect(canvas(page)).toHaveAttribute("data-rush-phase", "racing", { timeout: 60_000 });
+    await activate(page, "[data-rush-pause]", isMobile);
+    await activate(page, '[data-rush-gas="manual"]', isMobile);
+    await activate(page, "[data-rush-resume]", isMobile);
+    // No thumb on the screen and no auto gas: tilt mode still accelerates.
+    await expect.poll(() => num(page, "speed"), { timeout: 15_000 }).toBeGreaterThan(6);
+    // The bug report says how the kart was being driven.
+    await activate(page, "[data-rush-pause]", isMobile);
+    await activate(page, "[data-bug-report-open=rush]", isMobile);
+    await expect(page.getByRole("dialog")).toContainText(/tilt, auto gas off, solo, phase paused, at pause: stick free, tilt live, last play event/);
+  });
+
   test("after garage changes and a long scroll, the stick appears and drives", async ({ page, isMobile }) => {
     await openMenu(page);
     await activate(page, '[data-rush-tab="garage"]', isMobile);
@@ -306,6 +328,49 @@ test.describe("Apex Rush", () => {
     await touch("touchmove", -45);
     await expect.poll(async () => (await num(page, "heading")) - h0, { timeout: 4_000 }).toBeGreaterThan(0.2);
     await touch("touchend", -45);
+    await expect(page.locator(".rush-stick")).toHaveCSS("opacity", "0");
+  });
+
+  test("a real touch held on the BUILDING TRACK overlay takes the stick and steers once it unmounts", async ({ page, isMobile, browserName }) => {
+    test.skip(!isMobile || browserName !== "chromium", "needs CDP touch input");
+    // The overlay only lasts until the race loop's first animation frame (the
+    // drive fetch doesn't gate it), so hold animation frames while it is up.
+    await page.addInitScript(() => {
+      const w = window as unknown as { __holdRaf: boolean; __heldRaf: FrameRequestCallback[]; __releaseRaf: () => void };
+      const real = window.requestAnimationFrame.bind(window);
+      w.__holdRaf = false;
+      w.__heldRaf = [];
+      window.requestAnimationFrame = (cb) => {
+        if (!w.__holdRaf) return real(cb);
+        w.__heldRaf.push(cb);
+        return 0;
+      };
+      w.__releaseRaf = () => {
+        w.__holdRaf = false;
+        for (const cb of w.__heldRaf.splice(0)) real(cb);
+      };
+    });
+    await openMenu(page);
+    await page.evaluate(() => ((window as unknown as { __holdRaf: boolean }).__holdRaf = true));
+    await activate(page, "[data-rush-start]", isMobile);
+    const overlay = page.getByText("BUILDING TRACK");
+    await expect(overlay).toBeVisible({ timeout: 30_000 });
+    const release = () => page.evaluate(() => (window as unknown as { __releaseRaf: () => void }).__releaseRaf());
+    const size = page.viewportSize()!;
+    const x = size.width / 2;
+    const y = size.height * 0.8;
+    const cdp = await page.context().newCDPSession(page);
+    const touch = (type: "touchStart" | "touchMove" | "touchEnd", px: number) =>
+      cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x: px, y, id: 1 }] });
+    // The finger lands while the loading overlay is on screen.
+    await touch("touchStart", x);
+    await release();
+    await expect(overlay).toBeHidden({ timeout: 60_000 });
+    // The same finger keeps moving after the overlay unmounted under it.
+    for (let i = 1; i <= 6; i++) await touch("touchMove", x - i * 12);
+    await expect(page.locator(".rush-stick")).toHaveCSS("opacity", "1");
+    await expect.poll(async () => Math.abs(await num(page, "steer")), { timeout: 15_000 }).toBeGreaterThan(0.3);
+    await touch("touchEnd", x - 72);
     await expect(page.locator(".rush-stick")).toHaveCSS("opacity", "0");
   });
 

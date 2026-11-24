@@ -25,6 +25,7 @@ import type { GridEntry } from "@/lib/rush/lobby";
 import { encodeSnapshot, SEND_HZ, type RemoteKart } from "@/lib/rush/net";
 import { buildRushTrack, projectOnTrack, type RushTrack, type TrackHit } from "@/lib/rush/track";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { createRushRenderer, type CameraMode, type RushRenderer } from "./renderer";
 
 type Phase = "loading" | "intro" | "countdown" | "racing" | "paused" | "finished" | "error";
@@ -155,6 +156,8 @@ export function RushRace({
   const placeStickRef = useRef<() => void>(() => {});
   const releaseStickRef = useRef<() => void>(() => {});
 
+  /** Last pointer/touch event seen anywhere (for the bug report). */
+  const lastEvent = useRef({ type: "none", t: 0 });
   const keys = useRef({ left: false, right: false, up: false, down: false, drift: false, item: false });
   /**
    * The one-thumb stick. `id` is the pointer that owns it (or TOUCH_ID_BASE +
@@ -204,8 +207,19 @@ export function RushRace({
   }, [settings, audio]);
 
   const beforePause = useRef<Phase>("racing");
+  // Input state as pause began: by the time Report opens, the stick is free and the last event is the Report tap.
+  const pauseSnap = useRef<string | null>(null);
   const changePhase = useCallback((next: Phase) => {
-    if (next === "paused" && phaseRef.current !== "paused") beforePause.current = phaseRef.current;
+    if (next === "paused" && phaseRef.current !== "paused") {
+      beforePause.current = phaseRef.current;
+      const ev = lastEvent.current;
+      const now = performance.now();
+      pauseSnap.current = [
+        `at pause: stick ${stick.current.id >= 0 ? "held" : "free"}`,
+        `tilt ${tilt.current ? (tilt.current.live(now) ? "live" : "no readings") : "off"}`,
+        `last play event ${ev.type} ${ev.t ? `${Math.round((now - ev.t) / 100) / 10}s before pause` : "never"}`,
+      ].join(", ");
+    } else if (next !== "paused") pauseSnap.current = null;
     phaseRef.current = next;
     setPhase(next);
   }, []);
@@ -299,24 +313,62 @@ export function RushRace({
     const onPointerEnd = (e: PointerEvent) => {
       const st = stick.current;
       if (e.pointerId !== st.id) return;
-      if (e.type === "pointercancel" && st.touch >= 0) {
+      if ((e.type === "pointercancel" || e.type === "lostpointercapture") && st.touch >= 0) {
         // The pointer was cancelled but the finger is still down: follow its touches.
         st.id = TOUCH_ID_BASE + st.touch;
         return;
       }
       releaseStickRef.current();
     };
+    // A press that landed on something that then vanished (loading or pause
+    // overlay) never reached the surface: take the stick here instead.
+    const onPointerDownFallback = (e: PointerEvent) => {
+      const st = stick.current;
+      const ph = phaseRef.current;
+      if (st.id >= 0 || !surface || ph === "paused" || ph === "error" || ph === "finished") return;
+      // Only presses inside the race (not the Vercel toolbar or dev overlay).
+      if (!(e.target instanceof Node) || !surface.closest("[data-rush-race]")?.contains(e.target)) return;
+      if (e.target instanceof Element && e.target.closest("button, a, input, select, textarea, summary, [role=button], [data-rush-paused]")) return;
+      const rect = surface.getBoundingClientRect();
+      st.id = e.pointerId;
+      st.since = performance.now();
+      st.ox = e.clientX - rect.left;
+      st.oy = e.clientY - rect.top;
+      st.dx = 0;
+      st.dy = 0;
+      audioRef.current?.unlock();
+      try {
+        surface.setPointerCapture(e.pointerId);
+      } catch {
+        // Moves still arrive while the thumb is over the surface.
+      }
+      placeStickRef.current();
+    };
     const onHide = () => releaseStickRef.current();
     const onVisibility = () => {
       if (document.hidden) onHide();
     };
+    const noteEvent = (e: Event) => {
+      // Play-surface events only: taps on buttons, the pause panel or the report sheet don't count.
+      if (e.target instanceof Element && e.target.closest("button, a, input, select, textarea, [data-rush-paused], [data-bug-report-sheet]")) return;
+      lastEvent.current.type = e.type;
+      lastEvent.current.t = performance.now();
+    };
+    const seen = ["pointerdown", "pointermove", "pointerup", "pointercancel", "touchstart", "touchmove", "touchend", "touchcancel"];
+    const passiveCapture: AddEventListenerOptions = { capture: true, passive: true };
+    for (const type of seen) window.addEventListener(type, noteEvent, passiveCapture);
     window.addEventListener("pointerup", onPointerEnd, true);
     window.addEventListener("pointercancel", onPointerEnd, true);
+    window.addEventListener("lostpointercapture", onPointerEnd, true);
+    window.addEventListener("pointerdown", onPointerDownFallback);
     window.addEventListener("blur", onHide);
     document.addEventListener("visibilitychange", onVisibility);
     cleanups.push(() => {
+      for (const type of seen) window.removeEventListener(type, noteEvent, passiveCapture);
       window.removeEventListener("pointerup", onPointerEnd, true);
       window.removeEventListener("pointercancel", onPointerEnd, true);
+      window.removeEventListener("lostpointercapture", onPointerEnd, true);
+      window.removeEventListener("pointerdown", onPointerDownFallback);
       window.removeEventListener("blur", onHide);
       document.removeEventListener("visibilitychange", onVisibility);
     });
@@ -497,10 +549,11 @@ export function RushRace({
         // Tilt steers (smoothed a touch); a held thumb drifts, pulled down it brakes.
         tiltSteer += (tr.steer - tiltSteer) * 0.4;
         if (steer === 0) steer = tiltSteer;
+        // The thumb is free in tilt mode, so the kart always drives; pulling down brakes.
+        gas = true;
         if (st.id >= 0) {
           brake = st.dy / STICK_RADIUS > BRAKE_PULL ? 1 : 0;
           drift = brake === 0;
-          gas = true;
         }
       } else if (st.id >= 0) {
         stickInput(st.dx, st.dy, player.drifting, so);
@@ -605,7 +658,8 @@ export function RushRace({
       if (!booted) {
         booted = true;
         setResults(null);
-        changePhase("intro");
+        // Commit now so the loading overlay is gone before the (possibly slow) first draw.
+        flushSync(() => changePhase("intro"));
       }
       const ph = phaseRef.current;
       const audio = audioRef.current;
@@ -663,6 +717,8 @@ export function RushRace({
             input.throttle = 0;
             input.drift = false;
             input.useItem = false;
+            // Paused (online the race runs on): no steering either, so tilt can't turn a parked kart.
+            if (ph === "paused") input.steer = 0;
           }
           stepRace(world, input);
           acc -= DT;
@@ -872,6 +928,10 @@ export function RushRace({
     placeStickRef.current = placeStick;
     releaseStickRef.current = releaseStick;
   });
+  // A phase change can remount overlays under a held finger: redraw the stick.
+  useEffect(() => {
+    placeStickRef.current();
+  }, [phase]);
   const onStickDown = (e: React.PointerEvent<HTMLDivElement>) => {
     audioRef.current?.unlock();
     const st = stick.current;
@@ -910,7 +970,7 @@ export function RushRace({
   const showHud = phase !== "loading" && phase !== "error";
 
   return (
-    <div className="rush fixed left-0 top-0 z-50 h-dvh w-screen select-none overflow-hidden bg-[#14151a]" data-rush-race={mode}>
+    <div className="rush fixed left-0 top-0 z-50 h-dvh w-screen touch-none select-none overflow-hidden bg-[#14151a]" data-rush-race={mode}>
       <canvas key={raceKey} ref={canvasRef} data-rush-canvas="1" className="rush-canvas absolute inset-0 h-full w-full" />
       <div ref={linesEl} aria-hidden className="rush-speedlines pointer-events-none absolute inset-0" />
 
@@ -1034,7 +1094,7 @@ export function RushRace({
       </div>
 
       {phase === "loading" ? (
-        <div className="absolute inset-0 flex items-center justify-center text-lg text-[#ffd60a]">BUILDING TRACK…</div>
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-lg text-[#ffd60a]">BUILDING TRACK…</div>
       ) : null}
 
       {phase === "error" ? (
@@ -1078,10 +1138,10 @@ export function RushRace({
               <div className="flex items-center justify-between gap-2 text-xs">
                 <span>AUTO GAS</span>
                 <div className="rush-seg" role="group" aria-label="Auto gas">
-                  <button type="button" aria-pressed={settings.autoGas} onClick={() => onSettings({ ...settings, autoGas: true })}>
+                  <button type="button" data-rush-gas="auto" aria-pressed={settings.autoGas} onClick={() => onSettings({ ...settings, autoGas: true })}>
                     On
                   </button>
-                  <button type="button" aria-pressed={!settings.autoGas} onClick={() => onSettings({ ...settings, autoGas: false })}>
+                  <button type="button" data-rush-gas="manual" aria-pressed={!settings.autoGas} onClick={() => onSettings({ ...settings, autoGas: false })}>
                     Off
                   </button>
                 </div>
@@ -1108,7 +1168,15 @@ export function RushRace({
               ) : null}
               <BugReportButton
                 className="rush-btn rush-btn--ghost"
-                controls={`${touch ? (settings.tilt ? "tilt" : "touch stick") : "keyboard"}, auto gas ${settings.autoGas ? "on" : "off"}`}
+                controls={() => {
+                  const s = settingsRef.current;
+                  return [
+                    `${touch ? (s.tilt ? "tilt" : "touch stick") : "keyboard"}, auto gas ${s.autoGas ? "on" : "off"}`,
+                    online ? "online" : "solo",
+                    `phase ${phaseRef.current}`,
+                    pauseSnap.current ?? "no pause snapshot",
+                  ].join(", ");
+                }}
                 dataAttr="rush"
               />
               <button type="button" className="rush-btn rush-btn--ghost" data-rush-quit="1" onClick={onExit}>

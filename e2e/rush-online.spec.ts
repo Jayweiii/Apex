@@ -128,4 +128,27 @@ test.describe("Apex Rush online", () => {
     expect(new URL(page.url()).searchParams.get("lobby")).toBeNull();
     expect(errors).toEqual([]);
   });
+
+  test("the touch stick steers a kart in an online race, as guest", async ({ page, browser, isMobile }, info) => {
+    test.skip(!isMobile, "touch stick");
+    const code = await createLobby(page, isMobile);
+    const guest = await secondPlayer(browser, info);
+    await guest.goto(`/rush?lobby=${code}`);
+    await expect(guest.locator("[data-rush-join-code]")).toHaveValue(code, { timeout: 90_000 });
+    await activate(guest, "[data-rush-join]", isMobile);
+    await expect(guest.locator(`[data-rush-lobby="${code}"]`)).toBeVisible({ timeout: 60_000 });
+    await expect(page.locator("[data-rush-players]")).toHaveAttribute("data-rush-players", "2", { timeout: 30_000 });
+    await activate(page, "[data-rush-lobby-start]", isMobile);
+    for (const p of [page, guest]) await expect(canvas(p)).toHaveAttribute("data-rush-phase", "racing", { timeout: 60_000 });
+    // Press and drag right on the guest's surface (pointer events, as iOS sends).
+    const surface = guest.locator("[data-rush-surface]");
+    const box = (await surface.boundingBox())!;
+    const at = (dx: number) => ({ pointerId: 7, pointerType: "touch", isPrimary: true, clientX: box.x + box.width / 2 + dx, clientY: box.y + box.height * 0.7, bubbles: true });
+    await surface.dispatchEvent("pointerdown", at(0));
+    await surface.dispatchEvent("pointermove", at(80));
+    await expect.poll(() => num(guest, "steer"), { timeout: 5_000 }).toBeGreaterThan(0.3);
+    await surface.dispatchEvent("pointerup", at(80));
+    await expect.poll(() => num(guest, "steer"), { timeout: 5_000 }).toBeLessThan(0.1);
+    await guest.context().close();
+  });
 });

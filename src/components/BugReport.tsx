@@ -23,11 +23,11 @@ const stop = (e: { stopPropagation: () => void; nativeEvent?: Event }) => {
   e.nativeEvent?.stopPropagation();
 };
 
-function BugReportSheet({ controls, onClose }: { controls?: string; onClose: () => void }) {
+function BugReportSheet({ controls, onClose }: { controls?: string | (() => string); onClose: () => void }) {
   const titleId = useId();
   const noteId = useId();
   const [note, setNote] = useState("");
-  const [ctx] = useState<BugContext>(() => collectContext(controls));
+  const [ctx] = useState<BugContext>(() => collectContext(typeof controls === "function" ? controls() : controls));
   const [copied, setCopied] = useState(false);
   const panel = useRef<HTMLDivElement>(null);
   const copyTimer = useRef<number | undefined>(undefined);
@@ -142,8 +142,8 @@ export function BugReportButton({
   dataAttr,
 }: {
   className?: string;
-  /** Control mode to include in the report (games). */
-  controls?: string;
+  /** Control mode to include in the report (games). A function is read when the sheet opens, for live state. */
+  controls?: string | (() => string);
   children?: ReactNode;
   dataAttr?: string;
 }) {
